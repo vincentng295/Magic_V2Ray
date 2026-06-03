@@ -101,3 +101,66 @@ textarea {
 .config-info { flex: 1; }
 .config-name { font-weight: 500; font-size: 14px; }
 .config-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+.category-menu-container {
+    position: relative;
+    display: inline-block;
+}
+
+.btn-menu-trigger {
+    background: none;
+    border: none;
+    color: var(--text-main, #ffffff);
+    font-size: 20px;
+    padding: 4px 10px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.btn-menu-trigger:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.category-dropdown-menu {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: 100%;
+    background: #2a2a2a;
+    border: 1px solid #444444;
+    border-radius: 6px;
+    box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.5);
+    z-index: 100;
+    min-width: 110px;
+    overflow: hidden;
+}
+
+.category-dropdown-menu.show {
+    display: block;
+}
+
+.category-dropdown-menu button {
+    display: block;
+    width: 100%;
+    background: none;
+    border: none;
+    color: #ffffff;
+    padding: 10px 14px;
+    text-align: left;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.category-dropdown-menu button:hover {
+    background: #3a3a3a;
+}
+
+.category-dropdown-menu button.btn-delete-item {
+    color: #ff4d4d;
+}
+
+.category-dropdown-menu button.btn-delete-item:hover {
+    background: rgba(255, 77, 77, 0.15);
+}

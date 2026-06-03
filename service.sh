@@ -77,7 +77,7 @@ do_job() {
             # STEP 4: Add iptables rules to mark packets from tun2socks and route them through the tun device
             $iptables -t mangle -N XRAY_MARK
             $iptables -t mangle -A XRAY_MARK -m mark --mark 255 -j RETURN
-            $iptables -t mangle -A XRAY_MARK -m owner --uid-owner 10000-999999 -j MARK --set-xmark 1
+            $iptables -t mangle -A XRAY_MARK -m owner --uid-owner 9999-999999 -j MARK --set-xmark 1
             $iptables -t mangle -A OUTPUT -j XRAY_MARK 
 
             # IPV6
@@ -91,7 +91,7 @@ do_job() {
             # STEP 4: Add ip6tables rules to mark packets from tun2socks and route them through the tun device
             $ip6tables -t mangle -N XRAY_MARK
             $ip6tables -t mangle -A XRAY_MARK -m mark --mark 255 -j RETURN
-            $ip6tables -t mangle -A XRAY_MARK -m owner --uid-owner 10000-999999 -j MARK --set-xmark 1
+            $ip6tables -t mangle -A XRAY_MARK -m owner --uid-owner 9999-999999 -j MARK --set-xmark 1
             $ip6tables -t mangle -A OUTPUT -j XRAY_MARK
         fi
     fi
