@@ -139,8 +139,8 @@ function convert_uri_to_xray_json(uri) {
                     "udp": true
                 },
                 "sniffing": {
-                    "enabled": true,
-                    "destOverride": ["http", "tls"]
+                    "enabled": false,
+                    "destOverride": ["http", "tls", "quic"]
                 }
             },
             {
