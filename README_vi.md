@@ -1,5 +1,7 @@
 # Magic V2Ray
 
+<img width="4096" height="4096" alt="image_0" src="https://github.com/user-attachments/assets/41c830ac-3c5c-43a4-8329-96713cb8a3c2" />
+
 Một công cụ quản lý proxy Internet mạnh mẽ và dễ sử dụng dành cho các thiết bị Android đã root. Dự án giúp bạn định tuyến toàn bộ lưu lượng mạng của thiết bị qua một proxy server để bảo mật kết nối, vượt tường lửa, đồng thời chia sẻ kết nối tốc độ cao này cho các thiết bị khác.
 
 ---
@@ -12,14 +14,18 @@ Dự án đi kèm với một giao diện Web UI tối giản, nơi bạn có th
 
 ---
 
-## Vì sao nên dùng Magic V2Ray?
+## Vì sao nên dùng Magic V2Ray dành cho thiết bị Android đã root?
 
 Nếu bạn đã quen dùng các app V2Ray thông thường (như v2rayNG, Matsuri, Nekobox), đây là lý do Magic V2Ray là một sự nâng cấp hoàn toàn khác biệt:
 
-- Bao phủ toàn hệ thống (Bất tử): Các app thông thường chạy ở không gian người dùng, dễ bị Android "giết" ngầm khi thiếu RAM hoặc bật tiết kiệm pin làm lộ IP thật. Magic V2Ray chạy ở tầng hạt nhân (Kernel), chạy lặng lẽ dưới nền và không thể bị tắt.
-- Tiết kiệm pin & CPU: Tự động tách biệt luồng dữ liệu. Chỉ ép các ứng dụng người dùng (game, mạng xã hội, trình duyệt) đi qua proxy, giữ nguyên các tiến trình hệ thống để máy không bị nóng và tốn pin.
-- Chuyển mạng không gián đoạn: Tự động phát hiện khi bạn chuyển đổi giữa Wi-Fi và 4G/5G để cấu hình lại trong tích tắc, không bị khựng mạng 10-15 giây như app thường.
-- Hỗ trợ mọi môi trường: Chạy mượt mà dù máy bạn dùng Magisk, KernelSU, hay APatch.
+- **Bảo vệ toàn diện, Bất tử ngầm:** Các ứng dụng thông thường chạy trên tầng người dùng thông qua API `VPNService` của Android và rất dễ bị hệ thống "khai tử" (Kill) khi máy thiếu RAM hoặc tối ưu pin, gây mất kết nối hoặc rò rỉ IP thật. Magic V2Ray hoạt động với đặc quyền Root cao nhất, chạy ẩn như một tiến trình hệ thống (System Daemon) bất tử mà hệ điều hành không thể tự ý tắt.
+- **Sức mạnh định tuyến tầng lõi:** Ứng dụng VPN truyền thống ép toàn bộ traffic đi qua một card mạng ảo (`tun0`), tạo ra độ trễ (Ping cao) và hao tổn tài nguyên phần cứng. Magic V2Ray tận dụng trực tiếp công cụ cấu hình mạng của nhân Linux (`iptables` / `ip rule` / `TPROXY`), đánh chặn gói tin ngay tại tầng hệ thống, mang lại tốc độ truyền tải tối đa và độ trễ cực thấp y như trên máy tính.
+- **Tối ưu hóa Hiệu năng & Tiết kiệm Pin:**
+  + **Giảm thiểu tối đa việc sao chép bộ nhớ:** Qua `VpnService`, gói tin đi từ App $\rightarrow$ chui vào Linux Kernel $\rightarrow$ hệ thống phải sao chép (copy) dữ liệu ngược lên tầng Java (User-space) của ứng dụng VPN để xử lý $\rightarrow$ rồi lại ném ngược từ User-space xuống Kernel để ra mạng thật. Việc nhảy qua nhảy lại này tốn rất nhiều chu kỳ CPU. Với Magic V2Ray, module dùng quyền Root tác động thẳng vào hạ tầng mạng gốc (`iptables` / `ip rule`). Gói tin đi từ App $\rightarrow$ gặp luật Kernel điều hướng thẳng vào Xray $\rightarrow$ phóng ra Internet. Toàn bộ quá trình diễn ra ở cấp độ Native mã máy, bỏ qua hoàn toàn lớp bọc Java Core của Android.
+  + **Không bị nghẽn cổ chai hành đợi:** Lớp `VpnService` của Android quản lý tất cả các ứng dụng qua một cổng kiểm soát duy nhất do hệ thống phân phối. Khi bạn tải nặng (vừa xem video 4K vừa download), lớp này rất dễ bị nghẽn cổ chai (bottleneck) do hàng đợi của Java không xử lý kịp tốc độ đổ về của gói tin. Magic V2Ray chia tách và giải phóng traffic trực tiếp từ tầng Mangle ngay khi gói tin vừa được sinh ra, giúp băng thông được giải thoát tối đa.
+  + **Tối ưu hóa xử lý gói tin:** Vì không phải đi qua một lớp VPN "ảo ảnh" bọc ngoài của hệ thống, độ trễ Ping (Latency) và thời gian thiết lập kết nối TCP ban đầu (Handshake) sẽ giảm đi vài miligiây. Gói tin đi thẳng, không bị xé nhỏ hay nhồi thêm các header quản lý VPN của Android Framework.
+- **Chuyển mạng động không độ trễ:** Tự động phát hiện ngay lập tức khi bạn chuyển đổi qua lại giữa Wi-Fi và 4G/5G, tự động làm mới (Hot-reload) các quy tắc định tuyến tường lửa ngay trong nhân hệ điều hành, loại bỏ hoàn toàn tình trạng đơ mạng từ 5 đến 10 giây giống như các app VPN thông thường.
+- **Hỗ trợ Root toàn diện:** Hoạt động hoàn hảo và mượt mà trên cả 3 nền tảng Root phổ biến hiện nay bao gồm Magisk, KernelSU, và APatch.
 
 ---
 
