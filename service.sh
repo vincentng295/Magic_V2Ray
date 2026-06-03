@@ -1,6 +1,7 @@
 #!/system/bin/sh
 MODDIR=${0%/*}
 BINDIR="$MODDIR/bin"
+DATADIR="/data/adb/magic_v2ray"
 
 PIDFILE="$MODDIR/run/xray.pid"
 TUN2SOCKS_PIDFILE="$MODDIR/run/tun2socks.pid"
@@ -23,7 +24,7 @@ do_job() {
             echo "Xray is already running with PID $XRAY_PID"
         else
             # Start Xray core
-            "$BINDIR/xray" run -c "$MODDIR/config.json" </dev/null &>"$MODDIR/xray.log" &
+            "$BINDIR/xray" run -c "$DATADIR/config.json" </dev/null &>"$DATADIR/xray.log" &
             XRAY_PID=$!
             echo "$XRAY_PID" > "$PIDFILE"
         fi
@@ -34,7 +35,7 @@ do_job() {
             echo "tun2socks is already running with PID $TUN2SOCKS_PID"
         else
             # Start tun2socks
-            "$BINDIR/tun2socks" -device tun://xraytun0 -proxy socks5://127.0.0.1:10808 -fwmark 255 </dev/null &>"$MODDIR/tun2socks.log" &
+            "$BINDIR/tun2socks" -device tun://xraytun0 -proxy socks5://127.0.0.1:10808 -fwmark 255 </dev/null &>"$DATADIR/tun2socks.log" &
             TUN2SOCKS_PID=$!
             echo "$TUN2SOCKS_PID" > "$TUN2SOCKS_PIDFILE"
         fi

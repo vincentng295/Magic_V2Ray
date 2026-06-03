@@ -1,6 +1,8 @@
 const MODDIR = "/data/adb/modules/magic_v2ray";
-const PROFILES_FILE = `${MODDIR}/profiles.base64`;
-const ACTIVE_FILE = `${MODDIR}/active_config.txt`;
+const DATADIR = "/data/adb/magic_v2ray";
+const PROFILES_FILE = `${DATADIR}/profiles.base64`;
+const ACTIVE_FILE = `${DATADIR}/active_config.txt`;
+const CONFIG_JSON = `${DATADIR}/config.json`;
  
 let profiles = {};
 let activeConfig = null;
@@ -74,7 +76,7 @@ function toggleService(action) {
             const node = profiles[category]?.find(n => n.id === id);    
             if (node) {
                 const xrayConfig = convert_uri_to_xray_json(node.rawUri);
-                execShell(`echo '${xrayConfig}' > '${MODDIR}/config.json'`, () => {
+                execShell(`echo '${xrayConfig}' > '${CONFIG_JSON}'`, () => {
                     execShell(`sh ${MODDIR}/proxy_control.sh start`, () => {
                         updateStatusDisplay();      
                     });
@@ -231,7 +233,7 @@ function selectNode(category, id) {
     xrayConfig = convert_uri_to_xray_json(node.rawUri);
  
     // dump xray config to file and restart service if running
-    execShell(`echo '${xrayConfig}' > '${MODDIR}/config.json'`, () => {
+    execShell(`echo '${xrayConfig}' > '${CONFIG_JSON}'`, () => {
         renderProfiles();
         execShell(`sh ${MODDIR}/proxy_control.sh status`, (status) => {
             if (status === 'running') toggleService('restart');

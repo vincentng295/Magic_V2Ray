@@ -32,4 +32,10 @@ unzip -j -o "$ZIPFILE" "module.prop" -d "$MODPATH"
 ui_print "- Setting executable permissions..."
 chmod 755 "$MODPATH/bin/"*
 
+ui_print "- Setup /data/adb/magic_v2ray directory"
+if [ ! -d "/data/adb/magic_v2ray" ]; then
+    rm -rf "/data/adb/magic_v2ray"
+    mkdir -p "/data/adb/magic_v2ray"
+fi
+
 ui_print "Magic V2Ray configuration deployment complete!"

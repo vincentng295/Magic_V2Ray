@@ -1,0 +1,1 @@
+rm -rf /data/adb/magic_v2ray
