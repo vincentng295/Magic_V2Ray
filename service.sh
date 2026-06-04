@@ -201,15 +201,6 @@ while true; do
     fi
 done
 } &
-{
-while [ "$(getprop sys.boot_completed)" != 1 ]; do
-    sleep 1
-done
-if [ -e "$DATADIR/config.json" ]; then
-    echo "start" > "$PIPE_FILE"
-    echo "wait" > "$PIPE_FILE"
-fi
-} &
 
 # ===
 
@@ -246,7 +237,17 @@ apply_mark_rule() {
 }
 
 {
+on_boot_triggered=0
 last=""
+
+start_on_boot() {
+    [ $on_boot_triggered = 1 ] && return
+    on_boot_triggered=1
+    if [ -e "$DATADIR/config.json" ]; then
+        echo "start" > "$PIPE_FILE"
+        echo "wait" > "$PIPE_FILE"
+    fi
+}
 
 while [ ! -f /data/misc/net/rt_tables ]; do
     sleep 1
@@ -257,6 +258,7 @@ last="$cur"
 if [ ! -z "$cur" ]; then
     echo "Initial active interface: $cur"
     # apply iptables rules for the first time
+    start_on_boot
     apply_mark_rule "$cur"
 else
     echo "No active interface detected at startup."
@@ -278,6 +280,7 @@ inotifyd - /data/misc/net::w | while read -r _; do
             echo "start" > "$PIPE_FILE"
             echo "wait" > "$PIPE_FILE"
         fi
+        start_on_boot
 
         # Remove the old rule
         # then add the new rule
