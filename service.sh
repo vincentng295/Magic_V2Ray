@@ -43,30 +43,19 @@ clear_routing_rules() {
     $iptables -t mangle -X XRAY_MARK 2>/dev/null
     $ip rule del fwmark 1 table 100 priority 1010 2>/dev/null
     # IPv4 hotspot
-    $iptables -t mangle -D PREROUTING -i wlan+ -j MARK --set-xmark 1 2>/dev/null
-    $iptables -t mangle -D PREROUTING -i ap+ -j MARK --set-xmark 1 2>/dev/null
-    $iptables -t mangle -D PREROUTING -i softap+ -j MARK --set-xmark 1 2>/dev/null
-    $iptables -D FORWARD -i wlan+ -o xraytun0 -j ACCEPT 2>/dev/null
-    $iptables -D FORWARD -i ap+ -o xraytun0 -j ACCEPT 2>/dev/null
-    $iptables -D FORWARD -i softap+ -o xraytun0 -j ACCEPT 2>/dev/null
-    $iptables -D FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null
-    $iptables -t nat -D POSTROUTING -o xraytun0 -j MASQUERADE 2>/dev/null
-    $iptables -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN -o xraytun0 -j TCPMSS --set-mss 1350 2>/dev/null
+    $ip rule del pref 5030 2>/dev/null
+    $ip rule del pref 5040 2>/dev/null
+    $ip rule del pref 5050 2>/dev/null
+    $iptables -D FORWARD -o xraytun0 -j ACCEPT 2>/dev/null
+    $iptables -D FORWARD -i xraytun0 -j ACCEPT 2>/dev/null
+    $iptables -t mangle -D FORWARD -o xraytun0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1350 2>/dev/null
     # IPv6
     $ip6tables -t mangle -D OUTPUT -j XRAY_MARK 2>/dev/null
     $ip6tables -t mangle -F XRAY_MARK 2>/dev/null
     $ip6tables -t mangle -X XRAY_MARK 2>/dev/null
     $ip -6 rule del fwmark 1 table 100 priority 1010 2>/dev/null
     # IPv6 hotspot
-    $ip6tables -t mangle -D PREROUTING -i wlan+ -j MARK --set-xmark 1 2>/dev/null
-    $ip6tables -t mangle -D PREROUTING -i ap+ -j MARK --set-xmark 1 2>/dev/null
-    $ip6tables -t mangle -D PREROUTING -i softap+ -j MARK --set-xmark 1 2>/dev/null
-    $ip6tables -D FORWARD -i wlan+ -o xraytun0 -j ACCEPT 2>/dev/null
-    $ip6tables -D FORWARD -i ap+ -o xraytun0 -j ACCEPT 2>/dev/null
-    $ip6tables -D FORWARD -i softap+ -o xraytun0 -j ACCEPT 2>/dev/null
-    $ip6tables -D FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null
-    $ip6tables -t nat -D POSTROUTING -o xraytun0 -j MASQUERADE 2>/dev/null
-    $ip6tables -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN -o xraytun0 -j TCPMSS --set-mss 1330 2>/dev/null
+    $ip6tables -D FORWARD -j REJECT --reject-with icmp6-no-route 2>/dev/null
 
     # Down the tun device
     $ip link set dev xraytun0 down 2>/dev/null
@@ -132,15 +121,15 @@ do_job() {
             $iptables -t mangle -A XRAY_MARK -m owner --uid-owner 9999-2147483647 -j MARK --set-xmark 1
             $iptables -t mangle -A OUTPUT -j XRAY_MARK 
             # IPv4 Hotspot support
-            $iptables -t mangle -A PREROUTING -i wlan+ -j MARK --set-xmark 1
-            $iptables -t mangle -A PREROUTING -i ap+ -j MARK --set-xmark 1
-            $iptables -t mangle -A PREROUTING -i softap+ -j MARK --set-xmark 1
-            $iptables -A FORWARD -i wlan+ -o xraytun0 -j ACCEPT
-            $iptables -A FORWARD -i ap+ -o xraytun0 -j ACCEPT
-            $iptables -A FORWARD -i softap+ -o xraytun0 -j ACCEPT
-            $iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
-            $iptables -t nat -A POSTROUTING -o xraytun0 -j MASQUERADE
-            $iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -o xraytun0 -j TCPMSS --set-mss 1350
+            # STEP 1: Allow forward traffic between hotspot interfaces and xraytun0
+            $iptables -I FORWARD -o xraytun0 -j ACCEPT
+            $iptables -I FORWARD -i xraytun0 -j ACCEPT
+            # STEP 2: Force hotspot private IP ranges to lookup table 100
+            $ip rule add from 10.0.0.0/8 lookup 100 pref 5030
+            $ip rule add from 172.16.0.0/12 lookup 100 pref 5040
+            $ip rule add from 192.168.0.0/16 lookup 100 pref 5050
+            # STEP 3: Adjust TCPMSS to prevent TLS packet fragmentation overhead
+            $iptables -t mangle -I FORWARD -o xraytun0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1350
 
             # IPV6
             # STEP 1: Create tun device and assign IP address
@@ -156,15 +145,13 @@ do_job() {
             $ip6tables -t mangle -A XRAY_MARK -m owner --uid-owner 9999-2147483647 -j MARK --set-xmark 1
             $ip6tables -t mangle -A OUTPUT -j XRAY_MARK
             # IPv6 Hotspot support
-            $ip6tables -t mangle -A PREROUTING -i wlan+ -j MARK --set-xmark 1
-            $ip6tables -t mangle -A PREROUTING -i ap+ -j MARK --set-xmark 1
-            $ip6tables -t mangle -A PREROUTING -i softap+ -j MARK --set-xmark 1
-            $ip6tables -A FORWARD -i wlan+ -o xraytun0 -j ACCEPT
-            $ip6tables -A FORWARD -i ap+ -o xraytun0 -j ACCEPT
-            $ip6tables -A FORWARD -i softap+ -o xraytun0 -j ACCEPT
-            $ip6tables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
-            $ip6tables -t nat -A POSTROUTING -o xraytun0 -j MASQUERADE
-            $ip6tables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -o xraytun0 -j TCPMSS --set-mss 1330
+            # NOTE: IPv6 is strictly rejected for connected hotspot clients due to two reasons:
+            # 1. Android's network daemon (netd) constantly flushes and rewrites the native 
+            #    FORWARD chains when tethering states toggle, leaking raw IPv6 data to clients.
+            # 2. Most upstream proxy endpoints (or gRPC outbounds) lack native mobile IPv6 
+            #    support, leading to fatal "read/write on closed pipe" UDP errors in Xray core.
+            # By rejecting IPv6 at the gate, clients are safely forced to fallback 100% to IPv4.
+            $ip6tables -I FORWARD -j REJECT --reject-with icmp6-no-route
         fi
     fi
     if [ "$content" = "stop" ]; then
