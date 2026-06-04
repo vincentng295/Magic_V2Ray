@@ -51,6 +51,7 @@ clear_routing_rules() {
     $iptables -D FORWARD -i softap+ -o xraytun0 -j ACCEPT 2>/dev/null
     $iptables -D FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null
     $iptables -t nat -D POSTROUTING -o xraytun0 -j MASQUERADE 2>/dev/null
+    $iptables -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN -o xraytun0 -j TCPMSS --set-mss 1350 2>/dev/null
     # IPv6
     $ip6tables -t mangle -D OUTPUT -j XRAY_MARK 2>/dev/null
     $ip6tables -t mangle -F XRAY_MARK 2>/dev/null
@@ -59,7 +60,13 @@ clear_routing_rules() {
     # IPv6 hotspot
     $ip6tables -t mangle -D PREROUTING -i wlan+ -j MARK --set-xmark 1 2>/dev/null
     $ip6tables -t mangle -D PREROUTING -i ap+ -j MARK --set-xmark 1 2>/dev/null
+    $ip6tables -t mangle -D PREROUTING -i softap+ -j MARK --set-xmark 1 2>/dev/null
+    $ip6tables -D FORWARD -i wlan+ -o xraytun0 -j ACCEPT 2>/dev/null
+    $ip6tables -D FORWARD -i ap+ -o xraytun0 -j ACCEPT 2>/dev/null
+    $ip6tables -D FORWARD -i softap+ -o xraytun0 -j ACCEPT 2>/dev/null
+    $ip6tables -D FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null
     $ip6tables -t nat -D POSTROUTING -o xraytun0 -j MASQUERADE 2>/dev/null
+    $ip6tables -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN -o xraytun0 -j TCPMSS --set-mss 1330 2>/dev/null
 
     # Down the tun device
     $ip link set dev xraytun0 down 2>/dev/null
@@ -133,6 +140,7 @@ do_job() {
             $iptables -A FORWARD -i softap+ -o xraytun0 -j ACCEPT
             $iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
             $iptables -t nat -A POSTROUTING -o xraytun0 -j MASQUERADE
+            $iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -o xraytun0 -j TCPMSS --set-mss 1350
 
             # IPV6
             # STEP 1: Create tun device and assign IP address
@@ -150,7 +158,13 @@ do_job() {
             # IPv6 Hotspot support
             $ip6tables -t mangle -A PREROUTING -i wlan+ -j MARK --set-xmark 1
             $ip6tables -t mangle -A PREROUTING -i ap+ -j MARK --set-xmark 1
+            $ip6tables -t mangle -A PREROUTING -i softap+ -j MARK --set-xmark 1
+            $ip6tables -A FORWARD -i wlan+ -o xraytun0 -j ACCEPT
+            $ip6tables -A FORWARD -i ap+ -o xraytun0 -j ACCEPT
+            $ip6tables -A FORWARD -i softap+ -o xraytun0 -j ACCEPT
+            $ip6tables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
             $ip6tables -t nat -A POSTROUTING -o xraytun0 -j MASQUERADE
+            $ip6tables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -o xraytun0 -j TCPMSS --set-mss 1330
         fi
     fi
     if [ "$content" = "stop" ]; then
