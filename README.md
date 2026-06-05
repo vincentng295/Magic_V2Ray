@@ -31,6 +31,16 @@ If you are used to standard V2Ray apps (like v2rayNG, Matsuri, Nekobox), here is
 
 ---
 
+## You dont have root?
+
+> [!IMPORTANT]
+> This is a system **module** (for Magisk / KernelSU / APatch), **NOT** a standalone application!
+
+If your device is not rooted, or if you are looking for a regular GUI application with a visual interface for Android, Windows, macOS, or iOS, please find the official and community-supported clients here:
+👉 **[Xray-core GUI Clients](https://github.com/xtls/xray-core#gui-clients)**
+
+---
+
 ## Key Features
 
 - **Category Organizing:** Group your proxy servers into custom folders or categories.

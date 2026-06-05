@@ -29,6 +29,16 @@ Nếu bạn đã quen dùng các app V2Ray thông thường (như v2rayNG, Matsu
 
 ---
 
+## Bạn không có root?
+
+> [!IMPORTANT]
+> Đây là một **module hệ thống** (dành cho Magisk / KernelSU / APatch), **KHÔNG PHẢI** là một ứng dụng (app) thông thường!
+
+Nếu thiết bị của bạn chưa được root, hoặc bạn đang tìm kiếm một ứng dụng có giao diện trực quan độc lập chạy trên Android, Windows, macOS, hoặc iOS, vui lòng tham khảo danh sách các ứng dụng khách (GUI Clients) được hỗ trợ tại đây:
+👉 **[Xray-core GUI Clients](https://github.com/xtls/xray-core#gui-clients)**
+
+---
+
 ## Các tính năng chính
 
 - **Quản lý theo danh mục (Category Organizing):** Gom nhóm các proxy server của bạn vào các thư mục hoặc danh mục tùy chỉnh.
