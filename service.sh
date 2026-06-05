@@ -2,13 +2,19 @@
 MODDIR=${0%/*}
 BINDIR="$MODDIR/bin"
 DATADIR="/data/adb/magic_v2ray"
-set -x >"$DATADIR/service.log" 2>&1
+set -x
+exec > "$DATADIR/service.log" 2>&1
 
 PIDFILE="$MODDIR/run/xray.pid"
 TUN2SOCKS_PIDFILE="$MODDIR/run/tun2socks.pid"
 
 # Control pipe for receiving commands from the UI or other components
 PIPE_FILE="$MODDIR/run/control.pipe"
+STUB_DIR=/dev/sysctl_stubs
+
+rm -rf "$STUB_DIR"
+mkdir -p "$STUB_DIR"
+mount -t tmpfs -o "mode=0755,context=u:object_r:proc_net:s0" proc "$STUB_DIR"
 
 rm -rf "$MODDIR/run"
 mkdir -p "$MODDIR/run"
@@ -22,6 +28,7 @@ ip6tables="/system/bin/ip6tables"
 
 RULE_PRIORITY=1000
 FWMARK=255
+LOCKED=0
 
 get_status() {
     if [ -f "$PIDFILE" ]; then
@@ -34,6 +41,33 @@ get_status() {
         fi
     fi
     return 1
+}
+
+lock_sysctl() {
+    local value="$1"
+    local target_path="$2"
+    local filedir=$(dirname "$target_path")
+    local filename=$(basename "$target_path")
+    local stub_path="$STUB_DIR/$filedir"
+    local stub_file="$stub_path/$filename"
+    local current_val="$(cat "$target_path")" 
+
+    mkdir -p "$stub_path"
+    echo "$current_val" > "$stub_file"
+    echo "$value" > "$target_path"
+
+    chown $(stat -c '%u:%g' "$target_path") "$stub_file"
+    chcon $(stat -Z -c '%C' "$target_path") "$stub_file" # Just in case
+
+    mount -o bind "$stub_file" "$target_path"
+}
+
+lock_xraytun0() {
+    [ $LOCKED = 1 ] && return
+    if [ -e "/proc/sys/net/ipv4/conf/xraytun0/rp_filter" ]; then
+        LOCKED=1
+        lock_sysctl "0" "/proc/sys/net/ipv4/conf/xraytun0/rp_filter"
+    fi
 }
 
 clear_routing_rules() {
@@ -109,21 +143,20 @@ do_job() {
             done
 
             # Capture all traffic to tun device and redirect to xray core
+            # Lock down xraytun
+            lock_xraytun0
 
             # IPV4
             # STEP 1: Create tun device and assign IP address
             $ip addr add 198.18.0.1/15 dev xraytun0
             $ip link set dev xraytun0 up
             $ip route replace default dev xraytun0 table 100
-            # STEP 2: Enable IP Forwarding and disable rp_filter
-            echo 1 > /proc/sys/net/ipv4/ip_forward
-            echo 0 > /proc/sys/net/ipv4/conf/all/rp_filter
-            echo 0 > /proc/sys/net/ipv4/conf/xraytun0/rp_filter
-            # STEP 3: Add routing rule to route marked packets through the tun device
+            # STEP 2: Add routing rule to route marked packets through the tun device
             $ip rule add fwmark 1 table 100 priority 1010
-            # STEP 4: Add iptables rules to mark packets from tun2socks and route them through the tun device
+            # STEP 3: Add iptables rules to mark packets from tun2socks and route them through the tun device
             $iptables -t mangle -N XRAY_MARK
             $iptables -t mangle -A XRAY_MARK -m mark --mark 255 -j RETURN
+            $iptables -t mangle -A XRAY_MARK -m owner --uid-owner 1000 -j MARK --set-xmark 1
             $iptables -t mangle -A XRAY_MARK -m owner --uid-owner 9999-2147483647 -j MARK --set-xmark 1
             $iptables -t mangle -A OUTPUT -j XRAY_MARK 
             # IPv4 Hotspot support
@@ -141,13 +174,12 @@ do_job() {
             # STEP 1: Create tun device and assign IP address
             $ip -6 addr add fdfe:dcba:9876::1/64 dev xraytun0
             $ip -6 route replace default dev xraytun0 table 100
-            # STEP 2: Enable IP Forwarding
-            echo 1 > /proc/sys/net/ipv6/conf/all/forwarding
-            # STEP 3: Add routing rule to route marked packets through the tun device
+            # STEP 2: Add routing rule to route marked packets through the tun device
             $ip -6 rule add fwmark 1 table 100 priority 1010
-            # STEP 4: Add ip6tables rules to mark packets from tun2socks and route them through the tun device
+            # STEP 3: Add ip6tables rules to mark packets from tun2socks and route them through the tun device
             $ip6tables -t mangle -N XRAY_MARK
             $ip6tables -t mangle -A XRAY_MARK -m mark --mark 255 -j RETURN
+            $ip6tables -t mangle -A XRAY_MARK -m owner --uid-owner 1000 -j MARK --set-xmark 1
             $ip6tables -t mangle -A XRAY_MARK -m owner --uid-owner 9999-2147483647 -j MARK --set-xmark 1
             $ip6tables -t mangle -A OUTPUT -j XRAY_MARK
             # IPv6 Hotspot support
@@ -245,6 +277,12 @@ start_on_boot() {
 while [ ! -f /data/misc/net/rt_tables ]; do
     sleep 1
 done
+lock_sysctl "1" "/proc/sys/net/ipv4/ip_forward"
+lock_sysctl "1" "/proc/sys/net/ipv6/conf/all/forwarding"
+lock_sysctl "1" "/proc/sys/net/ipv6/conf/default/forwarding"
+
+lock_sysctl "0" "/proc/sys/net/ipv4/conf/all/rp_filter"
+lock_sysctl "0" "/proc/sys/net/ipv4/conf/default/rp_filter"
 
 cur=$(get_active_interface)
 last="$cur"
