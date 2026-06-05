@@ -163,9 +163,16 @@ function updateStatusDisplay() {
     });
 }
  
-function toggleService(action) {
+async function toggleService(action) {
     if (action === 'start' || action === 'restart') {
         if (activeConfig) {
+            const checkCmd = "/system/bin/ip route get 8.8.8.8 mark 255";
+            const currentRoute = await execShellAsync(checkCmd);
+            if (!currentRoute || currentRoute.toLowerCase().includes("unreachable") || currentRoute.toLowerCase().includes("network is down")) {
+                showToast(t("toast_network_unreachable"), "error");
+                return;
+            }
+
             const [category, id] = activeConfig.split(':');
             const node = profiles[category]?.nodes?.find(n => n.id === id); 
             if (node) {

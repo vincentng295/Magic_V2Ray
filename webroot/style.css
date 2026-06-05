@@ -6,6 +6,7 @@
     --text-muted: #a0a0ab;
     --green: #00e676;
     --red: #ff1744;
+    --blue: #2979ff;
 }
 
 body {
@@ -54,6 +55,25 @@ header {
 .btn-stop { background: var(--red); color: #fff; }
 .btn-primary { background: var(--accent); color: #fff; width: 100%; margin-top: 8px; }
 .btn-danger { background: #cf6679; color: #000; padding: 4px 8px; font-size: 12px; border-radius: 4px; }
+.btn-export-log { background: var(--blue); color: #fff; }
+
+
+.control-actions {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 8px;
+    width: 100%;
+    overflow-x: auto;
+    align-items: center;
+}
+
+.control-actions .btn {
+    flex: 1;
+    white-space: nowrap;
+    min-width: max-content;
+    padding: 10px 8px;
+    font-size: 11pt;
+}
 
 textarea {
     width: 100%;

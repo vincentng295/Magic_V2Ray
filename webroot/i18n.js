@@ -75,6 +75,7 @@ const i18n = {
         toast_no_sub_url: "This category does not have a subscription URL to reload.",
         toast_settings_saved: "Advanced settings saved successfully!",
         toast_no_active_config: "Please select a config before starting engine!",
+        toast_network_unreachable: "Network is unreachable or routing mark is blocked!",
     },
     vi: {
         tab_dashboard: "Bảng Điều Khiển",
@@ -152,5 +153,6 @@ const i18n = {
         toast_no_sub_url: "Danh mục này không chứa URL đăng ký để làm mới.",
         toast_settings_saved: "Cấu hình nâng cao đã được lưu thành công!",
         toast_no_active_config: "Vui lòng chọn một cấu hình trước để kết nối!",
+        toast_network_unreachable: "Mạng hiện tại không khả dụng hoặc cấu hình định tuyến bị chặn!",
     }
 };
