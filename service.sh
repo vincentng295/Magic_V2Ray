@@ -66,6 +66,12 @@ do_job() {
     if [ "$content" = "wait" ]; then
         : # Do nothing
     fi
+    if [ "$content" = "start_httpd" ]; then
+        httpd -p 127.17.1.3:80 -h "$MODDIR/webroot"
+    fi
+    if [ "$content" = "stop_httpd" ]; then
+        pkill -f "httpd -p 127.17.1.3:80"
+    fi
     if [ "$content" = "start" ]; then
         if [ ! -e /dev/net/tun ]; then
             mkdir -p /dev/net
