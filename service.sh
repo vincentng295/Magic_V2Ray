@@ -21,6 +21,7 @@ mkdir -p "$MODDIR/run"
 mkfifo "$PIPE_FILE"
 XRAY_PID=0
 TUN2SOCKS_PID=0
+MONITOR_PID=0
 
 ip="/system/bin/ip"
 iptables="/system/bin/iptables"
@@ -68,6 +69,76 @@ lock_xraytun0() {
         LOCKED=1
         lock_sysctl "0" "/proc/sys/net/ipv4/conf/xraytun0/rp_filter"
     fi
+}
+
+
+get_active_interface() {
+    for iface in /sys/class/net/*; do
+        iface=$(basename "$iface")
+
+        case "$iface" in
+            wlan*|eth*|bt-pan*|rmnet_data*|r_rmnet_data*|ccmni*)
+                if $ip route show table "$iface" 2>/dev/null | grep -q '^default '; then
+                    echo "$iface"
+                    return 0
+                fi
+                ;;
+        esac
+    done
+}
+
+remove_mark_rule() {
+    $ip rule del fwmark $FWMARK priority $RULE_PRIORITY 2>/dev/null
+    $ip -6 rule del fwmark $FWMARK priority $RULE_PRIORITY 2>/dev/null
+}
+
+apply_mark_rule() {
+    local iface="$1"
+
+    [ -z "$iface" ] && return 1
+
+    remove_mark_rule
+
+    $ip rule add fwmark $FWMARK table "$iface" priority $RULE_PRIORITY
+    $ip -6 rule add fwmark 255 table "$iface" priority $RULE_PRIORITY
+    echo "Applied: fwmark $FWMARK -> table $iface"
+}
+
+monitor_net_interfaces() {
+    local cur=$(get_active_interface)
+    if [ ! -z "$cur" ]; then
+        echo "Initial active interface: $cur"
+        # apply iptables rules for the first time
+        apply_mark_rule "$cur"
+    else
+        echo "No active interface detected at startup."
+    fi
+    $ip monitor route | while read -r line; do
+        case "$line" in
+            "default "*)
+                cur=""
+                set -- $line
+                while [ $# -gt 0 ]; do
+                    if [ "$1" = "dev" ]; then
+                        cur="$2"
+                        break
+                    fi
+                    shift
+                done
+
+                if [ ! -z "$cur" ]; then
+                    case "$cur" in
+                        wlan*|eth*|bt-pan*|rmnet_data*|r_rmnet_data*|ccmni*)
+                            echo "Network interface switched directly to: $cur"
+                            # Remove the old rule
+                            # then add the new rule
+                            apply_mark_rule "$cur"
+                            ;;
+                    esac
+                fi
+                ;;
+        esac
+    done
 }
 
 clear_routing_rules() {
@@ -215,6 +286,20 @@ do_job() {
             TUN2SOCKS_PID=0
         fi
     fi
+    if [ "$content" = "start_monitor" ]; then
+        [ $MONITOR_PID -gt 0 ] && kill -9 "$MONITOR_PID" 2>/dev/null
+        MONITOR_PID=0
+        monitor_net_interfaces &
+        MONITOR_PID=$!
+        echo "monitor_net_interfaces is running with PID $MONITOR_PID"
+    fi
+    if [ "$content" = "stop_monitor" ]; then
+        if [ $MONITOR_PID -gt 0 ]; then
+            kill -9 "$MONITOR_PID" 2>/dev/null
+            echo "killed monitor_net_interfaces is with PID $MONITOR_PID"
+        fi
+        MONITOR_PID=0
+    fi
 }
 
 {
@@ -229,51 +314,7 @@ done
 
 # ===
 
-get_active_interface() {
-    for iface in /sys/class/net/*; do
-        iface=$(basename "$iface")
-
-        case "$iface" in
-            wlan0|eth0|bt-pan|rmnet_data*|r_rmnet_data*|ccmni*)
-                if $ip route show table "$iface" 2>/dev/null | grep -q '^default '; then
-                    echo "$iface"
-                    return 0
-                fi
-                ;;
-        esac
-    done
-}
-
-remove_mark_rule() {
-    $ip rule del fwmark $FWMARK priority $RULE_PRIORITY 2>/dev/null
-    $ip -6 rule del fwmark $FWMARK priority $RULE_PRIORITY 2>/dev/null
-}
-
-apply_mark_rule() {
-    local iface="$1"
-
-    [ -z "$iface" ] && return 1
-
-    remove_mark_rule
-
-    $ip rule add fwmark $FWMARK table "$iface" priority $RULE_PRIORITY
-    $ip -6 rule add fwmark 255 table "$iface" priority $RULE_PRIORITY
-    echo "Applied: fwmark $FWMARK -> table $iface"
-}
-
 {
-on_boot_triggered=0
-last=""
-
-start_on_boot() {
-    [ $on_boot_triggered = 1 ] && return
-    on_boot_triggered=1
-    if [ -e "$DATADIR/config.json" ]; then
-        echo "start" > "$PIPE_FILE"
-        echo "wait" > "$PIPE_FILE"
-    fi
-}
-
 while [ ! -f /data/misc/net/rt_tables ]; do
     sleep 1
 done
@@ -284,38 +325,11 @@ lock_sysctl "1" "/proc/sys/net/ipv6/conf/default/forwarding"
 lock_sysctl "0" "/proc/sys/net/ipv4/conf/all/rp_filter"
 lock_sysctl "0" "/proc/sys/net/ipv4/conf/default/rp_filter"
 
-cur=$(get_active_interface)
-last="$cur"
-if [ ! -z "$cur" ]; then
-    echo "Initial active interface: $cur"
-    # apply iptables rules for the first time
-    start_on_boot
-    apply_mark_rule "$cur"
-else
-    echo "No active interface detected at startup."
+echo "start_monitor" > "$PIPE_FILE"
+if [ -e "$DATADIR/config.json" ]; then
+    echo "Restart previous xray on boot"
+    echo "start" > "$PIPE_FILE"
+    echo "wait" > "$PIPE_FILE"
 fi
 
-inotifyd - /data/misc/net::w | while read -r _; do
-    until [ ! -z "$(get_active_interface)" ]; do
-        sleep 1
-    done
-    cur=$(get_active_interface)
-
-    if [ "$cur" != "$last" ]; then
-        echo "Network changed: $last -> $cur"
-        last="$cur"
-        # Need to restart xray
-        if get_status; then
-            echo "stop" > "$PIPE_FILE"
-            echo "wait" > "$PIPE_FILE"
-            echo "start" > "$PIPE_FILE"
-            echo "wait" > "$PIPE_FILE"
-        fi
-        start_on_boot
-
-        # Remove the old rule
-        # then add the new rule
-        apply_mark_rule "$cur"
-    fi
-done
 } &
