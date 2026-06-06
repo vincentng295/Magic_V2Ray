@@ -168,6 +168,12 @@
                     <label data-i18n="lbl_id">ID / Password</label>
                     <input type="text" id="edit-uuid">
                 </div>
+                <div id="subfields-vmess" class="conditional-fields">
+                    <div class="edit-item-field" id="field-group-alterid">
+                        <label data-i18n="lbl_alterid">Alter ID</label>
+                        <input type="number" id="edit-alterid" min="0" placeholder="0">
+                    </div>
+                </div>
                 <div class="edit-item-field" id="field-group-encryption">
                     <label data-i18n="lbl_encryption">Encryption</label>
                     <input type="text" id="edit-encryption" placeholder="none">
@@ -177,6 +183,7 @@
                     <select id="edit-flow">
                         <option value="">none</option>
                         <option value="xtls-rprx-vision">xtls-rprx-vision</option>
+                        <option value="xtls-rprx-vision-udp443">xtls-rprx-vision-udp443</option>
                     </select>
                 </div>
 
@@ -185,11 +192,60 @@
                     <label data-i18n="lbl_transport_net">Network</label>
                     <select id="edit-network" onchange="updateEditFormVisibility()">
                         <option value="tcp">tcp</option>
+                        <option value="kcp">kcp</option>
                         <option value="ws">ws</option>
+                        <option value="httpupgrade">httpupgrade</option>
+                        <option value="xhttp">xhttp</option>
+                        <option value="h2">h2</option>
                         <option value="grpc">grpc</option>
                     </select>
                 </div>
-                
+
+                <!-- TCP: Header Type -->
+                <div class="edit-item-field" id="field-group-header-type">
+                    <label data-i18n="lbl_header_type">Header Type</label>
+                    <select id="edit-header-type" onchange="updateEditFormVisibility()">
+                        <option value="none">none</option>
+                        <option value="http">http</option>
+                    </select>
+                </div>
+                <!-- TCP: HTTP Host (shown when header-type=http) -->
+                <div id="subfields-tcp-http" class="conditional-fields">
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_tcp_http_host">HTTP Host</label>
+                        <input type="text" id="edit-tcp-http-host" placeholder="example.com">
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_tcp_http_path">HTTP Path</label>
+                        <input type="text" id="edit-tcp-http-path" placeholder="/">
+                    </div>
+                </div>
+
+                <!-- KCP subfields -->
+                <div id="subfields-kcp" class="conditional-fields">
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_kcp_header">Header Type</label>
+                        <select id="edit-kcp-header">
+                            <option value="none">none</option>
+                            <option value="srtp">srtp</option>
+                            <option value="utp">utp</option>
+                            <option value="wechat-video">wechat-video</option>
+                            <option value="dtls">dtls</option>
+                            <option value="wireguard">wireguard</option>
+                            <option value="dns">dns</option>
+                        </select>
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_kcp_host">Host</label>
+                        <input type="text" id="edit-kcp-host" placeholder="">
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_kcp_seed">KCP Seed</label>
+                        <input type="text" id="edit-kcp-seed" placeholder="">
+                    </div>
+                </div>
+
+                <!-- WS subfields -->
                 <div id="subfields-ws" class="conditional-fields">
                     <div class="edit-item-field">
                         <label data-i18n="lbl_ws_path">WebSocket Path</label>
@@ -201,6 +257,56 @@
                     </div>
                 </div>
 
+                <!-- HTTPUpgrade subfields -->
+                <div id="subfields-httpupgrade" class="conditional-fields">
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_httpupgrade_host">HTTPUpgrade Host</label>
+                        <input type="text" id="edit-httpupgrade-host" placeholder="">
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_httpupgrade_path">HTTPUpgrade Path</label>
+                        <input type="text" id="edit-httpupgrade-path" placeholder="/">
+                    </div>
+                </div>
+
+                <!-- XHTTP subfields -->
+                <div id="subfields-xhttp" class="conditional-fields">
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_xhttp_mode">XHTTP Mode</label>
+                        <select id="edit-xhttp-mode">
+                            <option value="auto">auto</option>
+                            <option value="packet-up">packet-up</option>
+                            <option value="stream-up">stream-up</option>
+                            <option value="stream-one">stream-one</option>
+                        </select>
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_xhttp_host">XHTTP Host</label>
+                        <input type="text" id="edit-xhttp-host" placeholder="">
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_xhttp_path">XHTTP Path</label>
+                        <input type="text" id="edit-xhttp-path" placeholder="/">
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_xhttp_extra">XHTTP Extra</label>
+                        <textarea id="edit-xhttp-extra" rows="3" placeholder='{"noGRPCHeader":false}'></textarea>
+                    </div>
+                </div>
+
+                <!-- H2 subfields -->
+                <div id="subfields-h2" class="conditional-fields">
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_h2_host">H2 Host</label>
+                        <input type="text" id="edit-h2-host" placeholder="">
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_h2_path">H2 Path</label>
+                        <input type="text" id="edit-h2-path" placeholder="/">
+                    </div>
+                </div>
+
+                <!-- gRPC subfields -->
                 <div id="subfields-grpc" class="conditional-fields">
                     <div class="edit-item-field">
                         <label data-i18n="lbl_grpc_mode">gRPC mode</label>

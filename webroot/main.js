@@ -543,17 +543,41 @@ function getFullNodeDetails(node) {
         encryption: "none",
         flow: "",
         network: "tcp",
+        // TCP HTTP header
+        tcpHeaderType: "none",
+        tcpHttpHost: "",
+        tcpHttpPath: "/",
+        // KCP
+        kcpHeader: "none",
+        kcpHost: "",
+        kcpSeed: "",
+        // WS
         wsPath: "/",
         wsHost: "",
+        // HTTPUpgrade
+        httpupgradeHost: "",
+        httpupgradePath: "/",
+        // XHTTP
+        xhttpMode: "auto",
+        xhttpHost: "",
+        xhttpPath: "/",
+        xhttpExtra: "",
+        // H2
+        h2Host: "",
+        h2Path: "/",
+        // gRPC
         grpcMode: "gun",
         grpcAuth: "",
         grpcServiceName: "",
+        // Security
         security: "none",
         sni: "",
         fingerprint: "chrome",
         alpn: "",
         publicKey: "",
-        shortId: ""
+        shortId: "",
+        alterId: "0",
+        headerType: "none"
     };
 
     if (protocol === 'vmess') {
@@ -569,11 +593,37 @@ function getFullNodeDetails(node) {
             d.security = c.tls || "none";
             d.sni = c.sni || "";
             d.alpn = c.alpn || "";
-            if (c.net === 'ws') {
+            d.alterId = c.aid !== undefined ? String(c.aid) : "0";
+            d.headerType = c.type || "none";
+            // Per-network fields
+            if (c.net === 'tcp') {
+                d.tcpHeaderType = c.type || "none";
+                if (c.type === 'http') {
+                    d.tcpHttpHost = c.host || "";
+                    d.tcpHttpPath = c.path || "/";
+                }
+            } else if (c.net === 'kcp' || c.net === 'mkcp') {
+                d.kcpHeader = c.type || "none";
+                d.kcpHost = c.host || "";
+                d.kcpSeed = c.seed || "";
+            } else if (c.net === 'ws') {
                 d.wsPath = c.path || "/";
                 d.wsHost = c.host || "";
+            } else if (c.net === 'httpupgrade') {
+                d.httpupgradeHost = c.host || "";
+                d.httpupgradePath = c.path || "/";
+            } else if (c.net === 'xhttp' || c.net === 'splithttp') {
+                d.xhttpMode = c.mode || "auto";
+                d.xhttpHost = c.host || "";
+                d.xhttpPath = c.path || "/";
+                d.xhttpExtra = c.extra ? JSON.stringify(c.extra) : "";
+            } else if (c.net === 'h2' || c.net === 'http') {
+                d.h2Host = c.host || "";
+                d.h2Path = c.path || "/";
             } else if (c.net === 'grpc') {
                 d.grpcServiceName = c.path || "";
+                d.grpcMode = c.mode || "gun";
+                d.grpcAuth = c.authority || "";
             }
         } catch (e) { console.error("Error parsing vmess json", e); }
     } else {
@@ -589,15 +639,38 @@ function getFullNodeDetails(node) {
             d.sni = p.get('sni') || '';
             d.alpn = p.get('alpn') || '';
             d.fingerprint = p.get('fp') || 'chrome';
-            
-            if (d.network === 'ws') {
+
+            // Per-network fields
+            if (d.network === 'tcp') {
+                d.tcpHeaderType = p.get('headerType') || 'none';
+                if (d.tcpHeaderType === 'http') {
+                    d.tcpHttpHost = p.get('host') || '';
+                    d.tcpHttpPath = p.get('path') || '/';
+                }
+            } else if (d.network === 'kcp' || d.network === 'mkcp') {
+                d.kcpHeader = p.get('headerType') || 'none';
+                d.kcpHost = p.get('host') || '';
+                d.kcpSeed = p.get('seed') || '';
+            } else if (d.network === 'ws') {
                 d.wsPath = p.get('path') || '/';
                 d.wsHost = p.get('host') || '';
+            } else if (d.network === 'httpupgrade') {
+                d.httpupgradeHost = p.get('host') || '';
+                d.httpupgradePath = p.get('path') || '/';
+            } else if (d.network === 'xhttp' || d.network === 'splithttp') {
+                d.xhttpMode = p.get('mode') || 'auto';
+                d.xhttpHost = p.get('host') || '';
+                d.xhttpPath = p.get('path') || '/';
+                try { d.xhttpExtra = p.get('extra') ? JSON.stringify(JSON.parse(p.get('extra'))) : ''; } catch(e) { d.xhttpExtra = p.get('extra') || ''; }
+            } else if (d.network === 'h2' || d.network === 'http') {
+                d.h2Host = p.get('host') || '';
+                d.h2Path = p.get('path') || '/';
             } else if (d.network === 'grpc') {
                 d.grpcServiceName = p.get('serviceName') || p.get('path') || '';
                 d.grpcMode = p.get('mode') || 'gun';
                 d.grpcAuth = p.get('authority') || '';
             }
+
             if (d.security === 'reality') {
                 d.publicKey = p.get('pbk') || '';
                 d.shortId = p.get('sid') || '';
@@ -611,18 +684,39 @@ function serializeNodeDetailsToUri(d, protocol) {
     if (protocol === 'vmess') {
         let c = {
             v: "2", ps: d.name, add: d.address, port: parseInt(d.port) || 443, id: d.uuid,
-            aid: 0, scy: d.encryption || "none", net: d.network, type: "none",
-            host: d.network === 'ws' ? d.wsHost : "",
-            path: d.network === 'ws' ? d.wsPath : (d.network === 'grpc' ? d.grpcServiceName : ""),
+            aid: parseInt(d.alterId) || 0, scy: d.encryption || "none", net: d.network,
             tls: d.security === 'tls' ? 'tls' : 'none',
             sni: d.security === 'tls' ? d.sni : "",
-            alpn: d.security === 'tls' ? d.alpn : ""
+            alpn: d.security === 'tls' ? d.alpn : "",
+            type: "none", host: "", path: ""
         };
+        if (d.network === 'tcp') {
+            c.type = d.tcpHeaderType || "none";
+            if (d.tcpHeaderType === 'http') { c.host = d.tcpHttpHost; c.path = d.tcpHttpPath; }
+        } else if (d.network === 'kcp' || d.network === 'mkcp') {
+            c.type = d.kcpHeader || "none";
+            c.host = d.kcpHost || "";
+            c.seed = d.kcpSeed || "";
+        } else if (d.network === 'ws') {
+            c.path = d.wsPath || "/"; c.host = d.wsHost || "";
+        } else if (d.network === 'httpupgrade') {
+            c.host = d.httpupgradeHost || ""; c.path = d.httpupgradePath || "/";
+        } else if (d.network === 'xhttp' || d.network === 'splithttp') {
+            c.mode = d.xhttpMode || "auto";
+            c.host = d.xhttpHost || ""; c.path = d.xhttpPath || "/";
+            if (d.xhttpExtra) { try { c.extra = JSON.parse(d.xhttpExtra); } catch(e) {} }
+        } else if (d.network === 'h2' || d.network === 'http') {
+            c.host = d.h2Host || ""; c.path = d.h2Path || "/";
+        } else if (d.network === 'grpc') {
+            c.path = d.grpcServiceName || "";
+            c.mode = d.grpcMode || "gun";
+            c.authority = d.grpcAuth || "";
+        }
         return "vmess://" + utoa(JSON.stringify(c));
     } else {
         let urlStr = `${protocol}://${encodeURIComponent(d.uuid)}@${d.address}:${d.port}`;
         let params = new URLSearchParams();
-        if (d.network !== 'tcp') params.set('type', d.network);
+        if (d.network && d.network !== 'tcp') params.set('type', d.network);
         if (d.security !== 'none') params.set('security', d.security);
         if (protocol === 'vless' && d.flow && (d.security === 'tls' || d.security === 'reality')) params.set('flow', d.flow);
         if (d.security === 'tls' || d.security === 'reality') {
@@ -630,9 +724,31 @@ function serializeNodeDetailsToUri(d, protocol) {
             if (d.alpn) params.set('alpn', d.alpn);
             if (d.fingerprint) params.set('fp', d.fingerprint);
         }
-        if (d.network === 'ws') {
+        // Per-network params
+        if (d.network === 'tcp' && d.tcpHeaderType && d.tcpHeaderType !== 'none') {
+            params.set('headerType', d.tcpHeaderType);
+            if (d.tcpHeaderType === 'http') {
+                if (d.tcpHttpHost) params.set('host', d.tcpHttpHost);
+                if (d.tcpHttpPath) params.set('path', d.tcpHttpPath);
+            }
+        } else if (d.network === 'kcp' || d.network === 'mkcp') {
+            if (d.kcpHeader && d.kcpHeader !== 'none') params.set('headerType', d.kcpHeader);
+            if (d.kcpHost) params.set('host', d.kcpHost);
+            if (d.kcpSeed) params.set('seed', d.kcpSeed);
+        } else if (d.network === 'ws') {
             if (d.wsPath) params.set('path', d.wsPath);
             if (d.wsHost) params.set('host', d.wsHost);
+        } else if (d.network === 'httpupgrade') {
+            if (d.httpupgradeHost) params.set('host', d.httpupgradeHost);
+            if (d.httpupgradePath) params.set('path', d.httpupgradePath);
+        } else if (d.network === 'xhttp' || d.network === 'splithttp') {
+            if (d.xhttpMode && d.xhttpMode !== 'auto') params.set('mode', d.xhttpMode);
+            if (d.xhttpHost) params.set('host', d.xhttpHost);
+            if (d.xhttpPath) params.set('path', d.xhttpPath);
+            if (d.xhttpExtra) { try { params.set('extra', d.xhttpExtra); } catch(e) {} }
+        } else if (d.network === 'h2' || d.network === 'http') {
+            if (d.h2Host) params.set('host', d.h2Host);
+            if (d.h2Path) params.set('path', d.h2Path);
         } else if (d.network === 'grpc') {
             if (d.grpcServiceName) params.set('serviceName', d.grpcServiceName);
             if (d.grpcMode && d.grpcMode !== 'gun') params.set('mode', d.grpcMode);
@@ -668,19 +784,43 @@ function openEditNodeModal(event, category, id) {
     document.getElementById('edit-encryption').value = d.encryption;
     document.getElementById('edit-flow').value = d.flow;
     document.getElementById('edit-network').value = d.network;
+    // TCP
+    document.getElementById('edit-header-type').value = d.tcpHeaderType || 'none';
+    document.getElementById('edit-tcp-http-host').value = d.tcpHttpHost;
+    document.getElementById('edit-tcp-http-path').value = d.tcpHttpPath;
+    // KCP
+    document.getElementById('edit-kcp-header').value = d.kcpHeader || 'none';
+    document.getElementById('edit-kcp-host').value = d.kcpHost;
+    document.getElementById('edit-kcp-seed').value = d.kcpSeed;
+    // WS
     document.getElementById('edit-ws-path').value = d.wsPath;
     document.getElementById('edit-ws-host').value = d.wsHost;
+    // HTTPUpgrade
+    document.getElementById('edit-httpupgrade-host').value = d.httpupgradeHost;
+    document.getElementById('edit-httpupgrade-path').value = d.httpupgradePath;
+    // XHTTP
+    document.getElementById('edit-xhttp-mode').value = d.xhttpMode || 'auto';
+    document.getElementById('edit-xhttp-host').value = d.xhttpHost;
+    document.getElementById('edit-xhttp-path').value = d.xhttpPath;
+    document.getElementById('edit-xhttp-extra').value = d.xhttpExtra;
+    // H2
+    document.getElementById('edit-h2-host').value = d.h2Host;
+    document.getElementById('edit-h2-path').value = d.h2Path;
+    // gRPC
     document.getElementById('edit-grpc-mode').value = d.grpcMode;
     document.getElementById('edit-grpc-auth').value = d.grpcAuth;
     document.getElementById('edit-grpc-service').value = d.grpcServiceName;
+    // Security
     document.getElementById('edit-security').value = d.security;
     document.getElementById('edit-sni').value = d.sni;
     document.getElementById('edit-fingerprint').value = d.fingerprint;
     document.getElementById('edit-alpn').value = d.alpn;
     document.getElementById('edit-pbk').value = d.publicKey;
     document.getElementById('edit-sid').value = d.shortId;
+    document.getElementById('edit-alterid').value = d.alterId;
     document.getElementById('field-group-encryption').style.display = (node.protocol === 'trojan') ? 'none' : 'flex';
     document.getElementById('field-group-flow').style.display = (node.protocol === 'vless') ? 'flex' : 'none';
+    document.getElementById('field-group-alterid').style.display = (node.protocol === 'vmess') ? 'flex' : 'none';
     updateEditFormVisibility();
     applyI18n();
     document.getElementById('edit-node-modal').style.display = 'block';
@@ -689,10 +829,27 @@ function openEditNodeModal(event, category, id) {
 function updateEditFormVisibility() {
     const net = document.getElementById('edit-network').value;
     const sec = document.getElementById('edit-security').value;
+    const tcpHeader = document.getElementById('edit-header-type').value;
+
+    // TCP header-type row: only for tcp (and vmess tcp)
+    const showTcpHeaderRow = (net === 'tcp');
+    document.getElementById('field-group-header-type').style.display = showTcpHeaderRow ? 'flex' : 'none';
+    // TCP HTTP subfields: only when tcp + http header
+    document.getElementById('subfields-tcp-http').style.display = (showTcpHeaderRow && tcpHeader === 'http') ? 'flex' : 'none';
+
+    // Per-network subfield panels
+    document.getElementById('subfields-kcp').style.display = (net === 'kcp' || net === 'mkcp') ? 'flex' : 'none';
     document.getElementById('subfields-ws').style.display = (net === 'ws') ? 'flex' : 'none';
+    document.getElementById('subfields-httpupgrade').style.display = (net === 'httpupgrade') ? 'flex' : 'none';
+    document.getElementById('subfields-xhttp').style.display = (net === 'xhttp' || net === 'splithttp') ? 'flex' : 'none';
+    document.getElementById('subfields-h2').style.display = (net === 'h2' || net === 'http') ? 'flex' : 'none';
     document.getElementById('subfields-grpc').style.display = (net === 'grpc') ? 'flex' : 'none';
+
+    // Security subfields
     document.getElementById('subfields-tls').style.display = (sec === 'tls' || sec === 'reality') ? 'flex' : 'none';
     document.getElementById('subfields-reality').style.display = (sec === 'reality') ? 'flex' : 'none';
+
+    // Flow: vless only with tls or reality
     if (currentEditingProtocol === 'vless') {
         document.getElementById('field-group-flow').style.display = (sec === 'tls' || sec === 'reality') ? 'flex' : 'none';
     }
@@ -719,17 +876,41 @@ function saveEditedNode() {
         encryption: document.getElementById('edit-encryption').value.trim(),
         flow: document.getElementById('edit-flow').value,
         network: document.getElementById('edit-network').value,
+        // TCP
+        tcpHeaderType: document.getElementById('edit-header-type').value,
+        tcpHttpHost: document.getElementById('edit-tcp-http-host').value.trim(),
+        tcpHttpPath: document.getElementById('edit-tcp-http-path').value.trim() || "/",
+        // KCP
+        kcpHeader: document.getElementById('edit-kcp-header').value,
+        kcpHost: document.getElementById('edit-kcp-host').value.trim(),
+        kcpSeed: document.getElementById('edit-kcp-seed').value.trim(),
+        // WS
         wsPath: document.getElementById('edit-ws-path').value.trim() || "/",
         wsHost: document.getElementById('edit-ws-host').value.trim(),
+        // HTTPUpgrade
+        httpupgradeHost: document.getElementById('edit-httpupgrade-host').value.trim(),
+        httpupgradePath: document.getElementById('edit-httpupgrade-path').value.trim() || "/",
+        // XHTTP
+        xhttpMode: document.getElementById('edit-xhttp-mode').value,
+        xhttpHost: document.getElementById('edit-xhttp-host').value.trim(),
+        xhttpPath: document.getElementById('edit-xhttp-path').value.trim() || "/",
+        xhttpExtra: document.getElementById('edit-xhttp-extra').value.trim(),
+        // H2
+        h2Host: document.getElementById('edit-h2-host').value.trim(),
+        h2Path: document.getElementById('edit-h2-path').value.trim() || "/",
+        // gRPC
         grpcMode: document.getElementById('edit-grpc-mode').value,
         grpcAuth: document.getElementById('edit-grpc-auth').value.trim(),
         grpcServiceName: document.getElementById('edit-grpc-service').value.trim(),
+        // Security
         security: document.getElementById('edit-security').value,
         sni: document.getElementById('edit-sni').value.trim(),
         fingerprint: document.getElementById('edit-fingerprint').value,
         alpn: document.getElementById('edit-alpn').value.trim(),
         publicKey: document.getElementById('edit-pbk').value.trim(),
-        shortId: document.getElementById('edit-sid').value.trim()
+        shortId: document.getElementById('edit-sid').value.trim(),
+        alterId: document.getElementById('edit-alterid').value.trim() || "0",
+        headerType: document.getElementById('edit-header-type').value
     };
 
     const newUri = serializeNodeDetailsToUri(d, currentEditingProtocol);

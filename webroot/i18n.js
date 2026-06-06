@@ -55,6 +55,29 @@ const i18n = {
         lbl_alpn: "ALPN",
         lbl_pbk: "Public Key (Reality)",
         lbl_sid: "Short ID (Reality)",
+
+        // TCP HTTP header
+        lbl_tcp_http_host: "HTTP Host",
+        lbl_tcp_http_path: "HTTP Path",
+
+        // KCP
+        lbl_kcp_header: "Header Type",
+        lbl_kcp_host: "Host",
+        lbl_kcp_seed: "KCP Seed",
+
+        // HTTPUpgrade
+        lbl_httpupgrade_host: "HTTPUpgrade Host",
+        lbl_httpupgrade_path: "HTTPUpgrade Path",
+
+        // XHTTP
+        lbl_xhttp_mode: "XHTTP Mode",
+        lbl_xhttp_host: "XHTTP Host",
+        lbl_xhttp_path: "XHTTP Path",
+        lbl_xhttp_extra: "XHTTP Extra (JSON)",
+
+        // H2
+        lbl_h2_host: "H2 Host",
+        lbl_h2_path: "H2 Path",
         
         // Dynamic strings
         status_checking: "Status: Checking...",
@@ -133,6 +156,29 @@ const i18n = {
         lbl_alpn: "Giao thức ALPN",
         lbl_pbk: "Khóa công khai (Public Key)",
         lbl_sid: "Mã định danh ngắn (Short ID)",
+
+        // TCP HTTP header
+        lbl_tcp_http_host: "HTTP Host",
+        lbl_tcp_http_path: "HTTP Path",
+
+        // KCP
+        lbl_kcp_header: "Kiểu tiêu đề (Header Type)",
+        lbl_kcp_host: "Địa chỉ Host",
+        lbl_kcp_seed: "KCP Seed (mã khởi tạo)",
+
+        // HTTPUpgrade
+        lbl_httpupgrade_host: "HTTPUpgrade Host",
+        lbl_httpupgrade_path: "HTTPUpgrade Path",
+
+        // XHTTP
+        lbl_xhttp_mode: "Chế độ XHTTP",
+        lbl_xhttp_host: "XHTTP Host",
+        lbl_xhttp_path: "XHTTP Path",
+        lbl_xhttp_extra: "XHTTP Extra (JSON)",
+
+        // H2
+        lbl_h2_host: "H2 Host",
+        lbl_h2_path: "H2 Path",
 
         // Dynamic strings
         status_checking: "Trạng Thái: Đang kiểm tra...",

@@ -79,15 +79,57 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                     outbound.streamSettings.tlsSettings.pinnedPeerCertSha256 = [settings.pinnedPeerCertSha256];
                 }
             }
-            if (c.net === 'ws') {
+
+            const vmessNet = c.net || "tcp";
+
+            if (vmessNet === 'tcp') {
+                if (c.type && c.type !== 'none') {
+                    const tcpHeader = { type: c.type };
+                    if (c.type === 'http') {
+                        tcpHeader.request = {
+                            path: c.path ? c.path.split(',') : ["/"],
+                            headers: c.host ? { Host: c.host.split(',') } : {}
+                        };
+                    }
+                    outbound.streamSettings.tcpSettings = { header: tcpHeader };
+                }
+            } else if (vmessNet === 'kcp' || vmessNet === 'mkcp') {
+                outbound.streamSettings.kcpSettings = {
+                    header: { type: c.type || "none" },
+                    ...(c.seed ? { seed: c.seed } : {})
+                };
+            } else if (vmessNet === 'ws') {
                 outbound.streamSettings.wsSettings = {
                     path: c.path || "/",
                     headers: { Host: c.host || "" }
                 };
-            }
-            if (c.net === 'grpc') {
+            } else if (vmessNet === 'httpupgrade') {
+                outbound.streamSettings.httpupgradeSettings = {
+                    path: c.path || "/",
+                    host: c.host || ""
+                };
+            } else if (vmessNet === 'xhttp' || vmessNet === 'splithttp') {
+                const xhttpSettings = {
+                    path: c.path || "/",
+                    host: c.host || ""
+                };
+                if (c.mode && c.mode !== 'auto') xhttpSettings.mode = c.mode;
+                if (c.extra) { try { Object.assign(xhttpSettings, typeof c.extra === 'string' ? JSON.parse(c.extra) : c.extra); } catch(e) {} }
+                outbound.streamSettings.xhttpSettings = xhttpSettings;
+            } else if (vmessNet === 'h2' || vmessNet === 'http') {
+                outbound.streamSettings.httpSettings = {
+                    path: c.path || "/",
+                    host: c.host ? c.host.split(',').map(h => h.trim()) : []
+                };
+            } else if (vmessNet === 'grpc') {
                 outbound.streamSettings.grpcSettings = {
-                    serviceName: c.path || ""
+                    serviceName: c.path || "",
+                    multiMode: c.mode === 'multi',
+                    ...(c.authority ? { authority: c.authority } : {})
+                };
+            } else if (vmessNet === 'quic') {
+                outbound.streamSettings.quicSettings = {
+                    header: { type: c.type || "none" }
                 };
             }
         }
@@ -118,27 +160,72 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                 if (sec === 'reality') {
                     outbound.streamSettings.realitySettings = {
                         serverName: p.get('sni') || "",
-                        alpn: p.get('alpn') ? p.get('alpn').split(',') : undefined
+                        fingerprint: p.get('fp') || "chrome",
+                        publicKey: p.get('pbk') || "",
+                        shortId: p.get('sid') || "",
+                        spiderX: p.get('spx') || ""
                     };
                 } else {
                     outbound.streamSettings.tlsSettings = {
                         serverName: p.get('sni') || "",
-                        alpn: p.get('alpn') ? p.get('alpn').split(',') : undefined
+                        alpn: p.get('alpn') ? p.get('alpn').split(',') : undefined,
+                        fingerprint: p.get('fp') || undefined
                     };
                     if (settings.pinnedPeerCertSha256) {
                         outbound.streamSettings.tlsSettings.pinnedPeerCertSha256 = [settings.pinnedPeerCertSha256];
                     }
                 }
             }
-            if (net === 'ws') {
+
+            if (net === 'tcp') {
+                const headerType = p.get('headerType') || 'none';
+                if (headerType && headerType !== 'none') {
+                    const tcpHeader = { type: headerType };
+                    if (headerType === 'http') {
+                        const httpPath = p.get('path') || '/';
+                        const httpHost = p.get('host') || '';
+                        tcpHeader.request = {
+                            path: httpPath.split(','),
+                            headers: httpHost ? { Host: httpHost.split(',') } : {}
+                        };
+                    }
+                    outbound.streamSettings.tcpSettings = { header: tcpHeader };
+                }
+            } else if (net === 'kcp' || net === 'mkcp') {
+                outbound.streamSettings.kcpSettings = {
+                    header: { type: p.get('headerType') || 'none' },
+                    ...(p.get('seed') ? { seed: p.get('seed') } : {})
+                };
+            } else if (net === 'ws') {
                 outbound.streamSettings.wsSettings = {
                     path: p.get('path') || "/",
                     headers: { Host: p.get('host') || "" }
                 };
-            }
-            if (net === 'grpc') {
+            } else if (net === 'httpupgrade') {
+                outbound.streamSettings.httpupgradeSettings = {
+                    path: p.get('path') || "/",
+                    host: p.get('host') || ""
+                };
+            } else if (net === 'xhttp' || net === 'splithttp') {
+                const xhttpSettings = {
+                    path: p.get('path') || "/",
+                    host: p.get('host') || ""
+                };
+                const mode = p.get('mode');
+                if (mode && mode !== 'auto') xhttpSettings.mode = mode;
+                const extra = p.get('extra');
+                if (extra) { try { Object.assign(xhttpSettings, JSON.parse(extra)); } catch(e) {} }
+                outbound.streamSettings.xhttpSettings = xhttpSettings;
+            } else if (net === 'h2' || net === 'http') {
+                outbound.streamSettings.httpSettings = {
+                    path: p.get('path') || "/",
+                    host: p.get('host') ? p.get('host').split(',').map(h => h.trim()) : []
+                };
+            } else if (net === 'grpc') {
                 outbound.streamSettings.grpcSettings = {
-                    serviceName: p.get('serviceName') || p.get('path') || ""
+                    serviceName: p.get('serviceName') || p.get('path') || "",
+                    multiMode: p.get('mode') === 'multi',
+                    ...(p.get('authority') ? { authority: p.get('authority') } : {})
                 };
             }
         }
