@@ -331,11 +331,42 @@ function reloadCategory(category) {
  
 function parseProxyUri(uri) {
     try {
+        uri = uri.trim();
         const protocolMatch = uri.match(/^([^:]+):\/\//);
         if (!protocolMatch) return null;
         const protocol = protocolMatch[1].toLowerCase();
         if (!['vless', 'vmess', 'trojan'].includes(protocol)) return null;
- 
+
+        // vmess uses a base64-encoded JSON payload — parse it differently
+        if (protocol === 'vmess') {
+            const base64Part = uri.substring('vmess://'.length).split('#')[0].trim();
+            let name = "Unnamed Node";
+            const hashIdx = uri.lastIndexOf('#');
+            if (hashIdx !== -1) {
+                try { name = decodeURIComponent(uri.substring(hashIdx + 1)).trim(); } catch (e) {}
+            }
+            try {
+                const rawJson = decodeBase64(base64Part);
+                const c = JSON.parse(rawJson);
+                if (!c.add || !c.port || !c.id) return null;
+                if (c.ps) name = c.ps;
+                return {
+                    id: Math.random().toString(36).substr(2, 9),
+                    name,
+                    protocol: 'vmess',
+                    address: c.add,
+                    port: String(c.port),
+                    uuid: c.id,
+                    security: c.tls || "none",
+                    rawUri: uri
+                };
+            } catch (e) {
+                console.error("[parseProxyUri] vmess base64/JSON parse error:", e, uri);
+                return null;
+            }
+        }
+
+        // vless / trojan use standard user@host:port?params format
         let remaining = uri.substring(protocol.length + 3);
  
         let name = "Unnamed Node";
@@ -371,7 +402,6 @@ function parseProxyUri(uri) {
         const secMatch = hostAndParams.match(/[?&]security=([^&]+)/);
         if (secMatch) security = secMatch[1];
  
-
         return {
             id: Math.random().toString(36).substr(2, 9),
             name,
@@ -528,7 +558,8 @@ function getFullNodeDetails(node) {
 
     if (protocol === 'vmess') {
         try {
-            const rawJson = decodeBase64(uri.substring(8));
+            const base64Part = uri.includes("://") ? uri.split("://")[1] : uri;
+            const rawJson = decodeBase64(base64Part.trim());
             const c = JSON.parse(rawJson);
             d.address = c.add || "";
             d.port = c.port || "443";
