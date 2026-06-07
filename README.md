@@ -55,3 +55,11 @@ If your device is not rooted, or if you are looking for a regular GUI applicatio
 This project uses pre-built binaries from the following open-source projects:
 * **[Xray-core](https://github.com/XTLS/Xray-core):** The underlying engine that handles next-generation proxy protocols.
 * **[tun2socks](https://github.com/xjasonlyu/tun2socks):** A high-performance utility used to wrap proxy channels into a virtual network interface.
+
+## License
+
+This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)**. 
+
+By using this project, you agree to the terms and conditions set forth in the license. For more details, please refer to the [LICENSE](LICENSE) file in this repository.
+
+Essentially, you are free to use, modify, and distribute this software, provided that you include the same license and source code availability in your own project.
