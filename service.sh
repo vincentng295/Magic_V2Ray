@@ -160,6 +160,9 @@ clear_routing_rules() {
     $ip rule del pref 6000 2>/dev/null
     $iptables -D FORWARD -o xraytun0 -j ACCEPT 2>/dev/null
     $iptables -D FORWARD -i xraytun0 -j ACCEPT 2>/dev/null
+    $iptables -D PREROUTING -t nat ! -i xraytun0 -d 10.0.0.0/8 -p udp --dport 53 -j DNAT --to 1.1.1.1
+    $iptables -D PREROUTING -t nat ! -i xraytun0 -d 172.16.0.0/12 -p udp --dport 53 -j DNAT --to 1.1.1.1
+    $iptables -D PREROUTING -t nat ! -i xraytun0 -d 192.168.0.0/16 -p udp --dport 53 -j DNAT --to 1.1.1.1
     $iptables -t mangle -D FORWARD -o xraytun0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1350 2>/dev/null
     # IPv6
     $ip6tables -t mangle -D OUTPUT -j XRAY_MARK 2>/dev/null
@@ -242,6 +245,9 @@ do_job() {
             # STEP 1: Allow forward traffic between hotspot interfaces and xraytun0
             $iptables -I FORWARD -o xraytun0 -j ACCEPT
             $iptables -I FORWARD -i xraytun0 -j ACCEPT
+            $iptables -I PREROUTING -t nat ! -i xraytun0 -d 10.0.0.0/8 -p udp --dport 53 -j DNAT --to 1.1.1.1
+            $iptables -I PREROUTING -t nat ! -i xraytun0 -d 172.16.0.0/12 -p udp --dport 53 -j DNAT --to 1.1.1.1
+            $iptables -I PREROUTING -t nat ! -i xraytun0 -d 192.168.0.0/16 -p udp --dport 53 -j DNAT --to 1.1.1.1
             # STEP 2: Force hotspot private IP ranges to lookup table 100
             $ip rule add iif lo goto 6000 pref 5000
             $ip rule add iif xraytun0 lookup main suppress_prefixlength 0 pref 5010
