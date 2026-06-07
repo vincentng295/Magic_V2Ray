@@ -550,3 +550,9 @@ select option:focus,
 select option:active {
     background-color: #444444 !important;
 }
+
+.ping-info {
+    font-size: 13px;
+    font-weight: bold;
+    transition: color 0.2s;
+}

@@ -99,6 +99,7 @@ const i18n = {
         toast_settings_saved: "Advanced settings saved successfully!",
         toast_no_active_config: "Please select a config before starting engine!",
         toast_network_unreachable: "Network is unreachable or routing mark is blocked!",
+        toast_pinging: "Testing latency for ",
     },
     vi: {
         tab_dashboard: "Bảng Điều Khiển",
@@ -200,5 +201,6 @@ const i18n = {
         toast_settings_saved: "Cấu hình nâng cao đã được lưu thành công!",
         toast_no_active_config: "Vui lòng chọn một cấu hình trước để kết nối!",
         toast_network_unreachable: "Mạng hiện tại không khả dụng hoặc cấu hình định tuyến bị chặn!",
+        toast_pinging: "Đang kiểm tra kết nối cho ",
     }
 };

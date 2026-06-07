@@ -464,6 +464,7 @@ function renderProfiles() {
                     <button class="btn-menu-trigger" onclick="toggleCategoryMenu(event, this)">⋮</button>
                     <div class="category-dropdown-menu">
                         ${hasUrl ? `<button onclick="reloadCategory('${escapeAttr(category)}'); closeAllMenus();">${t('menu_reload')}</button>` : ''}
+                        <button class="btn-ping-category" onclick="pingCategoryWithClose(event, '${escapeAttr(category)}')">Ping HTTP</button>
                         <button class="btn-delete-item" onclick="removeCategory('${escapeAttr(category)}'); closeAllMenus();">${t('menu_delete')}</button>
                     </div>
                 </div>
@@ -483,6 +484,7 @@ function renderProfiles() {
                 <div class="node-actions-container">
                     ${isSelected ? '<span>📌</span>' : ''}
                     <div class="node-menu-container">
+                        <span id="ping-${category}-${node.id}" class="ping-info"></span>
                         <button class="btn-menu-trigger" onclick="toggleNodeMenu(event, this)">⋮</button>
                         <div class="node-dropdown-menu">
                             <button onclick="openEditNodeModal(event, '${escapeAttr(category)}', '${node.id}')">${t('menu_edit')}</button>
@@ -1086,4 +1088,109 @@ function showToast(message, type = 'success') {
             toast.remove();
         }, 300);
     }, 3000);
+}
+
+async function pingCategoryHttp(category) {
+    const catData = profiles[category];
+    if (!catData || !catData.nodes || catData.nodes.length === 0) return;
+
+    showToast(`${t("toast_pinging")}${category}...`, "info");
+
+    const CONCURRENCY_LIMIT = 2;
+    const nodesToTest = catData.nodes.map((node, index) => ({ node, index }));
+
+    await parallelWithLimit(nodesToTest, CONCURRENCY_LIMIT, async ({ node, index }) => {
+        const pingSpan = document.getElementById(`ping-${category}-${node.id}`);
+        if (pingSpan) {
+            pingSpan.innerText = "...";
+            pingSpan.style.color = "var(--text-muted)";
+        }
+
+        const testIp = `127.0.0.${2 + (index % 250)}`;
+        const testPort = 21000 + (index % 1000);
+        const tmpFile = `/dev/tmp_config_${node.id}.json`;
+
+        let xrayConfigObj;
+        try {
+            const rawConfigStr = convert_uri_to_xray_json(node.rawUri, advSettings);
+            xrayConfigObj = JSON.parse(rawConfigStr);
+            xrayConfigObj.inbounds = [{
+                tag: "socks-test-in",
+                port: testPort,
+                listen: testIp,
+                protocol: "socks",
+                settings: {
+                    auth: "noauth",
+                    udp: true
+                }
+            }];
+        } catch (e) {
+            if (pingSpan) {
+                pingSpan.innerText = "?";
+                pingSpan.style.color = "var(--red, #ff1744)";
+            }
+            return;
+        }
+
+        const configB64 = utoa(JSON.stringify(xrayConfigObj));
+
+        const cmd = `
+            printf '%s' '${configB64}' | base64 -d > ${tmpFile}
+            ${MODDIR}/bin/xray run -c ${tmpFile} >/dev/null 2>&1 &
+            XPID=$!
+            
+            sleep 1
+            
+            TIME_RES=$(curl --socks5-hostname ${testIp}:${testPort} -s -w "%{time_starttransfer}" --max-time 10 -o /dev/null http://gstatic.com/generate_204 2>/dev/null)
+            
+            kill -9 $XPID >/dev/null 2>&1
+            rm -f ${tmpFile}
+            echo "$TIME_RES"
+        `;
+
+        const output = await execShellAsync(cmd);
+        const val = parseFloat(output);
+
+        if (pingSpan) {
+            if (!isNaN(val) && val > 0) {
+                const ms = Math.round(val * 1000);
+                pingSpan.innerText = `${ms}ms`;
+                pingSpan.style.color = "var(--green, #00e676)";
+            } else {
+                pingSpan.innerText = "?";
+                pingSpan.style.color = "var(--red, #ff1744)";
+            }
+        }
+    });
+}
+
+async function pingCategoryWithClose(event, category) {
+    const btn = event.currentTarget;
+    closeAllMenus();
+    btn.disabled = true;
+    await new Promise(r => setTimeout(r, 150));
+    try {
+        await pingCategoryHttp(category);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function parallelWithLimit(items, limit, fn) {
+    const promises = [];
+    const executing = new Set();
+    
+    for (const item of items) {
+        const p = Promise.resolve().then(() => fn(item));
+        promises.push(p);
+        executing.add(p);
+        
+        const clean = () => executing.delete(p);
+        p.then(clean, clean);
+        
+        if (executing.size >= limit) {
+            await Promise.race(executing);
+        }
+    }
+    return Promise.all(promises);
 }
