@@ -37,7 +37,7 @@ get_status() {
         STAT_XRAY_EXE=$(stat -L -c "%D:%i" "/proc/$PID/exe")
         STAT_XRAY_BIN=$(stat -L -c "%D:%i" "$MODDIR/bin/xray")
 
-        if kill -0 "$PID" 2>/dev/null && [ "$STAT_XRAY_EXE" = "$STAT_XRAY_BIN" ]; then
+        if kill -0 "$PID" && [ "$STAT_XRAY_EXE" = "$STAT_XRAY_BIN" ]; then
             return 0
         fi
     fi
@@ -91,7 +91,7 @@ get_active_interface() {
 
         case "$iface" in
             wlan*|eth*|bt-pan*|rmnet_data*|r_rmnet_data*|ccmni*)
-                if $ip route show table "$iface" 2>/dev/null | grep -q '^default '; then
+                if $ip route show table "$iface" | grep -q '^default '; then
                     echo "$iface"
                     return 0
                 fi
@@ -101,8 +101,8 @@ get_active_interface() {
 }
 
 remove_mark_rule() {
-    $ip rule del fwmark $FWMARK priority $RULE_PRIORITY 2>/dev/null
-    $ip -6 rule del fwmark $FWMARK priority $RULE_PRIORITY 2>/dev/null
+    $ip rule del fwmark $FWMARK priority $RULE_PRIORITY
+    $ip -6 rule del fwmark $FWMARK priority $RULE_PRIORITY
 }
 
 apply_mark_rule() {
@@ -160,37 +160,37 @@ monitor_net_interfaces() {
 
 clear_routing_rules() {
     # IPv4
-    $iptables -t mangle -D OUTPUT -j XRAY_MARK 2>/dev/null
-    $iptables -t mangle -F XRAY_MARK 2>/dev/null
-    $iptables -t mangle -X XRAY_MARK 2>/dev/null
-    $ip rule del fwmark 1 table 100 priority 1010 2>/dev/null
+    $iptables -t mangle -D OUTPUT -j XRAY_MARK
+    $iptables -t mangle -F XRAY_MARK
+    $iptables -t mangle -X XRAY_MARK
+    $ip rule del fwmark 1 table 100 priority 1010
     # IPv4 hotspot
-    $ip rule del pref 5000 2>/dev/null
-    $ip rule del pref 5010 2>/dev/null
-    $ip rule del pref 5020 2>/dev/null
-    $ip rule del pref 5025 2>/dev/null
-    $ip rule del pref 5026 2>/dev/null
-    $ip rule del pref 5027 2>/dev/null
-    $ip rule del pref 5030 2>/dev/null
-    $ip rule del pref 5040 2>/dev/null
-    $ip rule del pref 5050 2>/dev/null
-    $ip rule del pref 6000 2>/dev/null
-    $iptables -D FORWARD -o xraytun0 -j ACCEPT 2>/dev/null
-    $iptables -D FORWARD -i xraytun0 -j ACCEPT 2>/dev/null
+    $ip rule del pref 5000
+    $ip rule del pref 5010
+    $ip rule del pref 5020
+    $ip rule del pref 5025
+    $ip rule del pref 5026
+    $ip rule del pref 5027
+    $ip rule del pref 5030
+    $ip rule del pref 5040
+    $ip rule del pref 5050
+    $ip rule del pref 6000
+    $iptables -D FORWARD -o xraytun0 -j ACCEPT
+    $iptables -D FORWARD -i xraytun0 -j ACCEPT
     $iptables -D PREROUTING -t nat ! -i xraytun0 -d 10.0.0.0/8 -p udp --dport 53 -j DNAT --to 1.1.1.1
     $iptables -D PREROUTING -t nat ! -i xraytun0 -d 172.16.0.0/12 -p udp --dport 53 -j DNAT --to 1.1.1.1
     $iptables -D PREROUTING -t nat ! -i xraytun0 -d 192.168.0.0/16 -p udp --dport 53 -j DNAT --to 1.1.1.1
-    $iptables -t mangle -D FORWARD -o xraytun0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1350 2>/dev/null
+    $iptables -t mangle -D FORWARD -o xraytun0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1350
     # IPv6
-    $ip6tables -t mangle -D OUTPUT -j XRAY_MARK 2>/dev/null
-    $ip6tables -t mangle -F XRAY_MARK 2>/dev/null
-    $ip6tables -t mangle -X XRAY_MARK 2>/dev/null
-    $ip -6 rule del fwmark 1 table 100 priority 1010 2>/dev/null
+    $ip6tables -t mangle -D OUTPUT -j XRAY_MARK
+    $ip6tables -t mangle -F XRAY_MARK
+    $ip6tables -t mangle -X XRAY_MARK
+    $ip -6 rule del fwmark 1 table 100 priority 1010
     # IPv6 hotspot
-    $ip6tables -D FORWARD -j REJECT --reject-with icmp6-no-route 2>/dev/null
+    $ip6tables -D FORWARD -j REJECT --reject-with icmp6-no-route
 
     # Down the tun device
-    $ip link set dev xraytun0 down 2>/dev/null
+    $ip link set dev xraytun0 down
 }
 
 do_job() {
@@ -311,7 +311,7 @@ do_job() {
             STAT_XRAY_EXE=$(stat -L -c "%D:%i" "/proc/$XRAY_PID/exe")
             STAT_XRAY_BIN=$(stat -L -c "%D:%i" "$MODDIR/bin/xray")
             if [ "$STAT_XRAY_EXE" = "$STAT_XRAY_BIN" ]; then
-                kill -9 "$XRAY_PID" 2>/dev/null
+                kill -9 "$XRAY_PID"
             fi
             rm -f "$PIDFILE"
             XRAY_PID=0
@@ -321,14 +321,14 @@ do_job() {
             STAT_TUN2SOCKS_EXE=$(stat -L -c "%D:%i" "/proc/$TUN2SOCKS_PID/exe")
             STAT_TUN2SOCKS_BIN=$(stat -L -c "%D:%i" "$MODDIR/bin/tun2socks")
             if [ "$STAT_TUN2SOCKS_EXE" = "$STAT_TUN2SOCKS_BIN" ]; then
-                kill -9 "$TUN2SOCKS_PID" 2>/dev/null
+                kill -9 "$TUN2SOCKS_PID"
             fi
             rm -f "$TUN2SOCKS_PIDFILE"
             TUN2SOCKS_PID=0
         fi
     fi
     if [ "$content" = "start_monitor" ]; then
-        [ $MONITOR_PID -gt 0 ] && kill -9 "$MONITOR_PID" 2>/dev/null
+        [ $MONITOR_PID -gt 0 ] && kill -9 "$MONITOR_PID"
         MONITOR_PID=0
         monitor_net_interfaces &
         MONITOR_PID=$!
@@ -336,7 +336,7 @@ do_job() {
     fi
     if [ "$content" = "stop_monitor" ]; then
         if [ $MONITOR_PID -gt 0 ]; then
-            kill -9 "$MONITOR_PID" 2>/dev/null
+            kill -9 "$MONITOR_PID"
             echo "killed monitor_net_interfaces is with PID $MONITOR_PID"
         fi
         MONITOR_PID=0
