@@ -176,7 +176,13 @@
                 </div>
                 <div class="edit-item-field" id="field-group-encryption">
                     <label data-i18n="lbl_encryption">Encryption</label>
-                    <input type="text" id="edit-encryption" placeholder="none">
+                    <select id="edit-encryption">
+                        <option value="auto">auto</option>
+                        <option value="none">none</option>
+                        <option value="zero">zero</option>
+                        <option value="aes-128-gcm">aes-128-gcm</option>
+                        <option value="chacha20-poly1305">chacha20-poly1305</option>
+                    </select>
                 </div>
                 <div class="edit-item-field" id="field-group-flow">
                     <label data-i18n="lbl_flow">Flow</label>

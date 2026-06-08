@@ -783,7 +783,9 @@ function openEditNodeModal(event, category, id) {
     document.getElementById('edit-address').value = d.address;
     document.getElementById('edit-port').value = d.port;
     document.getElementById('edit-uuid').value = d.uuid;
-    document.getElementById('edit-encryption').value = d.encryption;
+    const encSelect = document.getElementById('edit-encryption');
+    const encVal = d.encryption || 'auto';
+    encSelect.value = [...encSelect.options].some(o => o.value === encVal) ? encVal : 'auto';
     document.getElementById('edit-flow').value = d.flow;
     document.getElementById('edit-network').value = d.network;
     // TCP
