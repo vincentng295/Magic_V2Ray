@@ -2,7 +2,24 @@
 MODDIR=${0%/*}
 BINDIR="$MODDIR/bin"
 DATADIR="/data/adb/magic_v2ray"
-set -x
+
+grep_prop() {
+  local REGEX="s/^$1=//p"
+  shift
+  local FILES=$@
+  [ -z "$FILES" ] && FILES="$MODDIR/module.prop"
+  cat $FILES 2>/dev/null | dos2unix | sed -n "$REGEX" | head -n 1
+}
+
+rm -rf "$DATADIR/xray.log"
+rm -rf "$DATADIR/tun2socks.log"
+XRAY_LOG=/dev/null
+TUN2SOCKS_LOG=/dev/null
+if [ "$(grep_prop debug)" = "1" ]; then
+    set -x
+    XRAY_LOG="$DATADIR/xray.log"
+    TUN2SOCKS_LOG="$DATADIR/tun2socks.log"
+fi
 exec > "$DATADIR/service.log" 2>&1
 
 PIDFILE="$MODDIR/run/xray.pid"
@@ -216,9 +233,10 @@ do_job() {
             echo "Xray is already running with PID $XRAY_PID"
         else
             # Start Xray core
-            "$BINDIR/xray" run -c "$DATADIR/config.json" </dev/null &>"$DATADIR/xray.log" &
+            "$BINDIR/xray" run -c "$DATADIR/config.json" </dev/null &>"$XRAY_LOG" &
             XRAY_PID=$!
             echo "$XRAY_PID" > "$PIDFILE"
+            echo "Xray is running with PID $XRAY_PID"
         fi
 
         STAT_TUN2SOCKS_EXE=$(stat -L -c "%D:%i" "/proc/$TUN2SOCKS_PID/exe")
@@ -227,9 +245,10 @@ do_job() {
             echo "tun2socks is already running with PID $TUN2SOCKS_PID"
         else
             # Start tun2socks
-            "$BINDIR/tun2socks" -device tun://xraytun0 -proxy socks5://127.0.0.1:10808 -fwmark 255 </dev/null &>"$DATADIR/tun2socks.log" &
+            "$BINDIR/tun2socks" -device tun://xraytun0 -proxy socks5://127.0.0.1:10808 -fwmark 255 </dev/null &>"$TUN2SOCKS_LOG" &
             TUN2SOCKS_PID=$!
             echo "$TUN2SOCKS_PID" > "$TUN2SOCKS_PIDFILE"
+            echo "tun2socks is running with PID $TUN2SOCKS_PID"
             local retry=0
             local max_retry=10
             while [ $retry -lt $max_retry ]; do

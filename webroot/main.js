@@ -11,7 +11,7 @@ const MAGISK_TOKEN = urlParams.get('token')
 let profiles = {};
 let activeConfig = null;
 let advSettings = {
-    loglevel: "debug",
+    loglevel: "none",
     sniffing: true,
     routeOnly: false,
     preferIpv6: false,
@@ -1001,7 +1001,7 @@ function bindSettingsToFormView() {
     currentLang = advSettings.lang || "en";
     applyI18n();
 
-    document.getElementById('set-loglevel').value = advSettings.loglevel || "debug";
+    document.getElementById('set-loglevel').value = advSettings.loglevel || "none";
     document.getElementById('set-sniffing').checked = advSettings.sniffing;
     document.getElementById('set-routeonly').checked = advSettings.routeOnly;
     document.getElementById('set-preferipv6').checked = advSettings.preferIpv6;

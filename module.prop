@@ -4,3 +4,4 @@ version=v1.2.0
 versionCode=113
 author=HuskyDG @vincentng295
 description=A system-level transparent proxy routing engine using Xray-core
+debug=0

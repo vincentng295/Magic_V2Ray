@@ -18,7 +18,7 @@ function utoa(str) {
 
 function convert_uri_to_xray_json(uri, optional_settings) {
     const settings = optional_settings || {
-        loglevel: "debug",
+        loglevel: "none",
         sniffing: true,
         routeOnly: false,
         preferIpv6: false,
@@ -269,7 +269,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
 
     const fullConfig = {
         log: { 
-            loglevel: settings.loglevel || "debug" 
+            loglevel: settings.loglevel || "none" 
         }, 
         dns: {
             servers: dnsServers,
