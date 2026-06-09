@@ -744,6 +744,95 @@ textarea::placeholder { color: var(--md-outline); }
     box-shadow: 0 4px 16px rgba(208, 188, 255, 0.35);
 }
 
+/* ===== Import Button Row ===== */
+.import-btn-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+    margin-top: 8px;
+}
+
+.btn-import-main {
+    flex: 1;
+    margin-top: 0 !important;
+}
+
+.import-add-menu-container {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.btn-add-node {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 100%;
+    min-height: 42px;
+    background: var(--md-primary-container);
+    color: var(--md-on-primary-container);
+    border: none;
+    border-radius: var(--md-shape-full);
+    line-height: 1;
+    cursor: pointer;
+    transition: all .2s var(--md-motion-standard);
+    box-shadow: var(--md-shadow-1);
+}
+.btn-add-node:hover {
+    box-shadow: var(--md-shadow-2);
+    background: var(--md-primary);
+    color: var(--md-on-primary);
+}
+.btn-add-node:active { transform: scale(0.96); }
+
+.import-add-dropdown {
+    display: none;
+    position: absolute;
+    right: 0;
+    background: var(--md-surface-3);
+    border: 1px solid var(--md-outline-variant);
+    border-radius: var(--md-shape-md);
+    box-shadow: var(--md-shadow-3);
+    z-index: 600;
+    min-width: 200px;
+    overflow: hidden;
+    transform-origin: bottom right;
+    transform: scale(0.95);
+    opacity: 0;
+    transition: transform .15s var(--md-motion-enter), opacity .15s var(--md-motion-enter);
+}
+
+.import-add-dropdown.show {
+    display: block;
+    transform: scale(1);
+    opacity: 1;
+}
+
+.import-add-dropdown button {
+    display: block;
+    width: 100%;
+    background: none;
+    border: none;
+    color: var(--md-on-surface);
+    padding: 11px 16px;
+    text-align: left;
+    font-family: var(--md-font-body);
+    font-size: 14px;
+    cursor: pointer;
+    transition: background .15s;
+    letter-spacing: .1px;
+}
+
+.import-add-dropdown button:hover {
+    background: rgba(255,255,255,0.08);
+}
+
+.import-add-divider {
+    height: 1px;
+    background: var(--md-outline-variant);
+    margin: 4px 0;
+}
+
 /* ===== Toast Notifications ===== */
 .toast-container {
     position: fixed;

@@ -92,7 +92,7 @@ const i18n = {
         toast_invalid_sub: "Invalid Subscription Link Format.",
         toast_fetch_failed: "Failed to fetch.\nReason: Network unreachable or curl not available.",
         toast_fetch_reason: "Failed to fetch.\nReason: ",
-        toast_no_configs_extracted: "No valid configs extracted.\nSupported: vless://, vmess://, trojan://",
+        toast_no_configs_extracted: "No valid configs extracted.\nSupported: vless://, vmess://, trojan://, ss://, wireguard://, hysteria2://, socks://, http://",
         toast_reload_success: "Reloaded complete! Got {count} node(s) for \"{cat}\".",
         toast_no_new_configs: "No new or valid configs extracted.",
         toast_imported_count: "Imported {count} node(s) into \"{cat}\".",
@@ -101,6 +101,42 @@ const i18n = {
         toast_no_active_config: "Please select a config before starting engine!",
         toast_network_unreachable: "Network is unreachable or routing mark is blocked!",
         toast_pinging: "Testing latency for ",
+
+        // Import dropdown
+        import_from_clipboard: "Import from Clipboard",
+        import_from_file: "Import from File",
+        add_vmess: "Add VMess",
+        add_vless: "Add VLESS",
+        add_trojan: "Add Trojan",
+        add_shadowsocks: "Add Shadowsocks",
+        add_socks: "Add SOCKS",
+        add_http: "Add HTTP Proxy",
+        add_wireguard: "Add WireGuard",
+        add_hysteria2: "Add Hysteria2",
+
+        // Shadowsocks
+        lbl_ss_method: "Encryption Method",
+        // WireGuard
+        lbl_wg_secret_key: "Secret Key (Private Key)",
+        lbl_wg_public_key: "Server Public Key",
+        lbl_wg_preshared_key: "Pre-Shared Key (optional)",
+        lbl_wg_reserved: "Reserved (optional, e.g. 0,0,0)",
+        lbl_wg_local_address: "Local Address",
+        // Hysteria2
+        lbl_hy2_obfs_password: "Obfs Password (optional)",
+        lbl_hy2_port_hopping: "Port Hopping Range (optional)",
+        lbl_hy2_hop_interval: "Hop Interval (seconds)",
+        lbl_hy2_bandwidth_down: "Bandwidth Down (e.g. 100m)",
+        lbl_hy2_bandwidth_up: "Bandwidth Up (e.g. 20m)",
+        lbl_hy2_tls: "TLS",
+        // SOCKS / HTTP proxy
+        lbl_proxy_username: "Username (optional)",
+        lbl_proxy_password: "Password (optional)",
+
+        // Toast
+        toast_clipboard_empty: "Clipboard is empty or unavailable.",
+        toast_clipboard_imported: "Imported {count} node(s) from clipboard.",
+        toast_new_node_saved: "New node added to Manual.",
     },
     vi: {
         tab_dashboard: "Bảng Điều Khiển",
@@ -195,7 +231,7 @@ const i18n = {
         toast_invalid_sub: "Định dạng liên kết đăng ký không hợp lệ.",
         toast_fetch_failed: "Tải thất bại.\nLý do: Không có mạng hoặc lệnh curl bị lỗi.",
         toast_fetch_reason: "Tải thất bại.\nLý do: ",
-        toast_no_configs_extracted: "Không trích xuất được cấu hình hợp lệ.\nHỗ trợ: vless://, vmess://, trojan://",
+        toast_no_configs_extracted: "Không trích xuất được cấu hình hợp lệ.\nHỗ trợ: vless://, vmess://, trojan://, ss://, wireguard://, hysteria2://, socks://, http://",
         toast_reload_success: "Cập nhật thành công! Tìm thấy {count} nút cho nhóm \"{cat}\".",
         toast_no_new_configs: "Không tìm thấy cấu hình mới hoặc hợp lệ.",
         toast_imported_count: "Đã nhập thành công {count} nút vào nhóm \"{cat}\".",
@@ -204,5 +240,41 @@ const i18n = {
         toast_no_active_config: "Vui lòng chọn một cấu hình trước để kết nối!",
         toast_network_unreachable: "Mạng hiện tại không khả dụng hoặc cấu hình định tuyến bị chặn!",
         toast_pinging: "Đang kiểm tra kết nối cho ",
+
+        // Import dropdown
+        import_from_clipboard: "Nhập từ Clipboard",
+        import_from_file: "Nhập từ File",
+        add_vmess: "Thêm VMess",
+        add_vless: "Thêm VLESS",
+        add_trojan: "Thêm Trojan",
+        add_shadowsocks: "Thêm Shadowsocks",
+        add_socks: "Thêm SOCKS",
+        add_http: "Thêm HTTP Proxy",
+        add_wireguard: "Thêm WireGuard",
+        add_hysteria2: "Thêm Hysteria2",
+
+        // Shadowsocks
+        lbl_ss_method: "Thuật toán mã hóa",
+        // WireGuard
+        lbl_wg_secret_key: "Khóa bí mật (Private Key)",
+        lbl_wg_public_key: "Khóa công khai máy chủ",
+        lbl_wg_preshared_key: "Pre-Shared Key (tùy chọn)",
+        lbl_wg_reserved: "Reserved (tùy chọn, vd: 0,0,0)",
+        lbl_wg_local_address: "Địa chỉ cục bộ (Local Address)",
+        // Hysteria2
+        lbl_hy2_obfs_password: "Mật khẩu Obfs (tùy chọn)",
+        lbl_hy2_port_hopping: "Nhảy cổng (tùy chọn)",
+        lbl_hy2_hop_interval: "Khoảng thời gian nhảy cổng (giây)",
+        lbl_hy2_bandwidth_down: "Băng thông tải xuống (vd: 100m)",
+        lbl_hy2_bandwidth_up: "Băng thông tải lên (vd: 20m)",
+        lbl_hy2_tls: "TLS",
+        // SOCKS / HTTP proxy
+        lbl_proxy_username: "Tên đăng nhập (tùy chọn)",
+        lbl_proxy_password: "Mật khẩu (tùy chọn)",
+
+        // Toast
+        toast_clipboard_empty: "Clipboard trống hoặc không khả dụng.",
+        toast_clipboard_imported: "Đã nhập {count} nút từ clipboard.",
+        toast_new_node_saved: "Đã thêm nút mới vào nhóm Manual.",
     }
 };

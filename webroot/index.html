@@ -35,7 +35,26 @@
             <section class="import-section">
                 <h3 data-i18n="import_title">Import Configuration Profile</h3>
                 <textarea id="import-input" data-i18n-placeholder="import_placeholder" placeholder="Paste Sub Link (https://...) or Manual String (vless://, vmess://, trojan://) here..."></textarea>
-                <button class="btn btn-primary" onclick="processImport()" data-i18n="btn_import">Process Connection Link</button>
+                <div class="import-btn-row">
+                    <button class="btn btn-primary btn-import-main" onclick="processImport()" data-i18n="btn_import">Process Connection Link</button>
+                    <div class="import-add-menu-container">
+                        <button class="btn btn-add-node" onclick="toggleImportAddMenu(event)" title="More import options">+</button>
+                        <div id="import-add-dropdown" class="import-add-dropdown">
+                            <button onclick="importFromClipboard(); closeImportAddMenu();" data-i18n="import_from_clipboard">Import from Clipboard</button>
+                            <button onclick="importFromFile(); closeImportAddMenu();" data-i18n="import_from_file">Import from File</button>
+                            <div class="import-add-divider"></div>
+                            <button onclick="openNewNodeModal('vmess'); closeImportAddMenu();" data-i18n="add_vmess">Add VMess</button>
+                            <button onclick="openNewNodeModal('vless'); closeImportAddMenu();" data-i18n="add_vless">Add VLESS</button>
+                            <button onclick="openNewNodeModal('trojan'); closeImportAddMenu();" data-i18n="add_trojan">Add Trojan</button>
+                            <button onclick="openNewNodeModal('shadowsocks'); closeImportAddMenu();" data-i18n="add_shadowsocks">Add Shadowsocks</button>
+                            <button onclick="openNewNodeModal('wireguard'); closeImportAddMenu();" data-i18n="add_wireguard">Add WireGuard</button>
+                            <button onclick="openNewNodeModal('hysteria2'); closeImportAddMenu();" data-i18n="add_hysteria2">Add Hysteria2</button>
+                            <button onclick="openNewNodeModal('socks'); closeImportAddMenu();" data-i18n="add_socks">Add SOCKS</button>
+                            <button onclick="openNewNodeModal('http'); closeImportAddMenu();" data-i18n="add_http">Add HTTP Proxy</button>
+                        </div>
+                    </div>
+                </div>
+                <input type="file" id="import-file-input" accept=".txt,.conf,.json" style="display:none;" onchange="handleFileImport(event)">
             </section>
 
             <section class="profiles-section">
@@ -194,6 +213,88 @@
                     </select>
                 </div>
 
+                <!-- Shadowsocks encryption method -->
+                <div class="edit-item-field" id="field-group-ss-method" style="display:none;">
+                    <label data-i18n="lbl_ss_method">Encryption Method</label>
+                    <select id="edit-ss-method">
+                        <option value="aes-256-gcm">aes-256-gcm</option>
+                        <option value="aes-128-gcm">aes-128-gcm</option>
+                        <option value="chacha20-poly1305">chacha20-poly1305</option>
+                        <option value="xchacha20-poly1305">xchacha20-poly1305</option>
+                        <option value="2022-blake3-aes-128-gcm">2022-blake3-aes-128-gcm</option>
+                        <option value="2022-blake3-aes-256-gcm">2022-blake3-aes-256-gcm</option>
+                        <option value="2022-blake3-chacha20-poly1305">2022-blake3-chacha20-poly1305</option>
+                        <option value="none">none</option>
+                        <option value="plain">plain</option>
+                    </select>
+                </div>
+
+                <!-- WireGuard-specific fields -->
+                <div id="subfields-wireguard" class="conditional-fields" style="display:none;">
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_wg_secret_key">Secret Key (Private Key)</label>
+                        <input type="text" id="edit-wg-secret-key" placeholder="">
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_wg_public_key">Server Public Key</label>
+                        <input type="text" id="edit-wg-public-key" placeholder="">
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_wg_preshared_key">Pre-Shared Key (optional)</label>
+                        <input type="text" id="edit-wg-preshared-key" placeholder="">
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_wg_reserved">Reserved (optional)</label>
+                        <input type="text" id="edit-wg-reserved" placeholder="0,0,0">
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_wg_local_address">Local Address</label>
+                        <input type="text" id="edit-wg-local-address" placeholder="172.16.0.2/32">
+                    </div>
+                </div>
+
+                <!-- Hysteria2-specific fields -->
+                <div id="subfields-hysteria2" class="conditional-fields" style="display:none;">
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_hy2_obfs_password">Obfs Password (optional)</label>
+                        <input type="text" id="edit-hy2-obfs-password" placeholder="">
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_hy2_port_hopping">Port Hopping Range</label>
+                        <input type="text" id="edit-hy2-port-hopping" placeholder="e.g. 20000-30000">
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_hy2_hop_interval">Hop Interval (seconds)</label>
+                        <input type="number" id="edit-hy2-hop-interval" placeholder="30" min="1">
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_hy2_bandwidth_down">Bandwidth Down</label>
+                        <input type="text" id="edit-hy2-bandwidth-down" placeholder="100m">
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_hy2_bandwidth_up">Bandwidth Up</label>
+                        <input type="text" id="edit-hy2-bandwidth-up" placeholder="20m">
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_hy2_tls">TLS (SNI)</label>
+                        <input type="text" id="edit-hy2-sni" placeholder="example.com">
+                    </div>
+                </div>
+
+                <!-- SOCKS / HTTP proxy auth fields -->
+                <div id="subfields-proxy-auth" class="conditional-fields" style="display:none;">
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_proxy_username">Username (optional)</label>
+                        <input type="text" id="edit-proxy-username" placeholder="">
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_proxy_password">Password (optional)</label>
+                        <input type="text" id="edit-proxy-password" placeholder="">
+                    </div>
+                </div>
+
+                <!-- TRANSPORT section (hidden for WG / Hysteria2 / SOCKS / HTTP) -->
+                <div id="section-transport-wrapper">
                 <div class="modal-section-divider" data-i18n="categories_title">TRANSPORT</div>
                 <div class="edit-item-field">
                     <label data-i18n="lbl_transport_net">Network</label>
@@ -332,6 +433,10 @@
                     </div>
                 </div>
 
+                </div><!-- end section-transport-wrapper -->
+
+                <!-- SECURITY section (hidden for WireGuard / SOCKS / HTTP / Hysteria2) -->
+                <div id="section-security-wrapper">
                 <div class="modal-section-divider" data-i18n="lbl_tls">SECURITY</div>
                 <div class="edit-item-field">
                     <label data-i18n="lbl_tls">TLS</label>
@@ -374,6 +479,7 @@
                         <input type="text" id="edit-sid">
                     </div>
                 </div>
+                </div><!-- end section-security-wrapper -->
             </div>
         </div>
     </div>

@@ -229,6 +229,138 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                 };
             }
         }
+        else if (uri.startsWith('ss://') || uri.startsWith('shadowsocks://')) {
+            let plainUri = uri;
+            const matchB64 = uri.match(/^ss:\/\/([a-zA-Z0-9+/=_-]+)@/);
+            if (matchB64) {
+                const decodedUserInfo = decodeBase64(matchB64[1]);
+                plainUri = 'ss://' + decodedUserInfo + uri.substring(uri.indexOf('@'));
+            }
+            const u = new URL(plainUri.replace(/^shadowsocks:\/\//, 'ss://'));
+            const userInfo = decodeURIComponent(u.username + (u.password ? ':' + u.password : ''));
+            const [method, password] = userInfo.split(':');
+
+            outbound = {
+                tag: "proxy",
+                protocol: "shadowsocks",
+                settings: {
+                    servers: [{
+                        address: u.hostname,
+                        port: +u.port,
+                        method: method,
+                        password: password || ""
+                    }]
+                },
+                streamSettings: {
+                    network: "tcp",
+                    sockopt: { mark: 255, "dialerProxy": "direct" }
+                }
+            };
+        }
+        else if (uri.startsWith('wg://') || uri.startsWith('wireguard://')) {
+            const u = new URL(uri.replace(/^wg:\/\//, 'wireguard://'));
+            const p = new URLSearchParams(u.search);
+            
+            outbound = {
+                tag: "proxy",
+                protocol: "wireguard",
+                settings: {
+                    secretKey: decodeURIComponent(u.username + (u.password ? ':' + u.password : '')),
+                    peers: [{
+                        endpoint: `${u.hostname}:${u.port}`,
+                        publicKey: p.get('public_key') || p.get('pk') || ""
+                    }],
+                    mtu: parseInt(p.get('mtu')) || settings.mtu || 1420,
+                    address: p.get('address') ? p.get('address').split(',') : ["10.0.0.2/32"]
+                },
+                streamSettings: {
+                    sockopt: { mark: 255, "dialerProxy": "direct" }
+                }
+            };
+            if (p.get('reserved')) {
+                try {
+                    outbound.settings.reserved = JSON.parse(p.get('reserved'));
+                } catch {
+                    outbound.settings.reserved = p.get('reserved').split(',').map(Number);
+                }
+            }
+        }
+        else if (uri.startsWith('hy2://') || uri.startsWith('hysteria2://')) {
+            const u = new URL(uri.replace(/^hy2:\/\//, 'hysteria2://'));
+            const p = new URLSearchParams(u.search);
+            
+            outbound = {
+                tag: "proxy",
+                protocol: "hysteria2",
+                settings: {
+                    auth: decodeURIComponent(u.username)
+                },
+                streamSettings: {
+                    network: "udp",
+                    security: "tls",
+                    tlsSettings: {
+                        serverName: p.get('sni') || u.hostname
+                    },
+                    sockopt: { mark: 255, "dialerProxy": "direct" }
+                }
+            };
+            if (p.get('obfs') && p.get('obfs') !== 'none') {
+                outbound.streamSettings.tlsSettings.obfs = {
+                    type: p.get('obfs'),
+                    password: p.get('obfs-password') || ""
+                };
+            }
+        }
+        else if (uri.startsWith('socks://') || uri.startsWith('socks5://')) {
+            const u = new URL(uri.replace(/^socks5:\/\//, 'socks://'));
+            
+            outbound = {
+                tag: "proxy",
+                protocol: "socks",
+                settings: {
+                    servers: [{
+                        address: u.hostname,
+                        port: +u.port,
+                        users: u.username ? [{
+                            user: decodeURIComponent(u.username),
+                            pass: decodeURIComponent(u.password || "")
+                        }] : undefined
+                    }]
+                },
+                streamSettings: {
+                    network: "tcp",
+                    sockopt: { mark: 255, "dialerProxy": "direct" }
+                }
+            };
+        }
+        else if (uri.startsWith('http://') || uri.startsWith('https://')) {
+            const u = new URL(uri);
+            
+            outbound = {
+                tag: "proxy",
+                protocol: "http",
+                settings: {
+                    servers: [{
+                        address: u.hostname,
+                        port: +u.port || (u.protocol === 'https:' ? 443 : 80),
+                        users: u.username ? [{
+                            user: decodeURIComponent(u.username),
+                            pass: decodeURIComponent(u.password || "")
+                        }] : undefined
+                    }]
+                },
+                streamSettings: {
+                    network: "tcp",
+                    security: u.protocol === 'https:' ? "tls" : "none",
+                    sockopt: { mark: 255, "dialerProxy": "direct" }
+                }
+            };
+            if (u.protocol === 'https:') {
+                outbound.streamSettings.tlsSettings = {
+                    serverName: u.hostname
+                };
+            }
+        }
     } catch (e) {
         return JSON.stringify({ error: "Unable to parse URI: " + e.message }, null, 2);
     }

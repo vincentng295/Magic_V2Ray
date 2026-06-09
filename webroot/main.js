@@ -214,7 +214,10 @@ const extractUrisFromText = (text) => {
                 console.warn("Line looks like Base64 but failed to decode safely:", trimmedLine);
             }
         } else if (trimmedLine.includes('://')) {
-            uris.push(trimmedLine);
+            // Accept known proxy protocol schemes
+            if (/^(vmess|vless|trojan|ss|shadowsocks|wireguard|wg|hysteria2|hy2|socks|socks5|http):\/\//i.test(trimmedLine)) {
+                uris.push(trimmedLine);
+            }
         }
     });
     return uris;
@@ -335,7 +338,7 @@ function parseProxyUri(uri) {
         const protocolMatch = uri.match(/^([^:]+):\/\//);
         if (!protocolMatch) return null;
         const protocol = protocolMatch[1].toLowerCase();
-        if (!['vless', 'vmess', 'trojan'].includes(protocol)) return null;
+        if (!['vless', 'vmess', 'trojan', 'ss', 'shadowsocks', 'wireguard', 'wg', 'hysteria2', 'hy2', 'socks', 'socks5', 'http'].includes(protocol)) return null;
 
         // vmess uses a base64-encoded JSON payload — parse it differently
         if (protocol === 'vmess') {
@@ -364,6 +367,145 @@ function parseProxyUri(uri) {
                 console.error("[parseProxyUri] vmess base64/JSON parse error:", e, uri);
                 return null;
             }
+        }
+
+        // Shadowsocks: ss://base64(method:password)@host:port#name
+        // or          ss://method:password@host:port#name
+        if (protocol === 'ss' || protocol === 'shadowsocks') {
+            try {
+                let remaining = uri.substring(uri.indexOf('://') + 3);
+                let name = "Unnamed Node";
+                if (remaining.includes('#')) {
+                    const hashIdx = remaining.lastIndexOf('#');
+                    try { name = decodeURIComponent(remaining.substring(hashIdx + 1)).trim(); } catch(e) {}
+                    remaining = remaining.substring(0, hashIdx);
+                }
+                // Remove plugin params (?plugin=...)
+                const qIdx = remaining.indexOf('?');
+                if (qIdx !== -1) remaining = remaining.substring(0, qIdx);
+
+                let method = "aes-256-gcm", password = "", address = "", port = "8388";
+                const atIdx = remaining.lastIndexOf('@');
+                if (atIdx !== -1) {
+                    const userPart = remaining.substring(0, atIdx);
+                    const hostPart = remaining.substring(atIdx + 1);
+                    // Try base64 decode userPart
+                    let decoded = null;
+                    try { decoded = decodeBase64(userPart); } catch(e) {}
+                    if (decoded && decoded.includes(':')) {
+                        const ci = decoded.indexOf(':');
+                        method = decoded.substring(0, ci);
+                        password = decoded.substring(ci + 1);
+                    } else if (userPart.includes(':')) {
+                        const ci = userPart.indexOf(':');
+                        method = decodeURIComponent(userPart.substring(0, ci));
+                        password = decodeURIComponent(userPart.substring(ci + 1));
+                    }
+                    const lastColon = hostPart.lastIndexOf(':');
+                    address = hostPart.substring(0, lastColon);
+                    port = hostPart.substring(lastColon + 1);
+                } else {
+                    // Entire remaining is base64
+                    let decoded = null;
+                    try { decoded = decodeBase64(remaining); } catch(e) {}
+                    if (decoded) {
+                        const atI = decoded.lastIndexOf('@');
+                        if (atI !== -1) {
+                            const u = decoded.substring(0, atI);
+                            const h = decoded.substring(atI + 1);
+                            const ci = u.indexOf(':');
+                            if (ci !== -1) { method = u.substring(0, ci); password = u.substring(ci + 1); }
+                            const lc = h.lastIndexOf(':');
+                            address = h.substring(0, lc); port = h.substring(lc + 1);
+                        }
+                    }
+                }
+                if (!address) return null;
+                return {
+                    id: Math.random().toString(36).substr(2, 9),
+                    name,
+                    protocol: 'shadowsocks',
+                    address,
+                    port,
+                    uuid: password,
+                    security: method,
+                    rawUri: uri
+                };
+            } catch(e) { return null; }
+        }
+
+        // WireGuard: wireguard://secretKey@host:port?publickey=...&...#name
+        if (protocol === 'wireguard' || protocol === 'wg') {
+            try {
+                const u = new URL(uri.replace(/^wg:\/\//, 'wireguard://'));
+                const p = new URLSearchParams(u.search);
+                const name = u.hash ? decodeURIComponent(u.hash.substring(1)) : "WireGuard";
+                return {
+                    id: Math.random().toString(36).substr(2, 9),
+                    name,
+                    protocol: 'wireguard',
+                    address: u.hostname,
+                    port: u.port || "51820",
+                    uuid: u.username ? decodeURIComponent(u.username) : "",
+                    security: "none",
+                    rawUri: uri
+                };
+            } catch(e) { return null; }
+        }
+
+        // Hysteria2: hysteria2://password@host:port?...#name
+        if (protocol === 'hysteria2' || protocol === 'hy2') {
+            try {
+                const fixedUri = uri.replace(/^hy2:\/\//, 'hysteria2://');
+                const u = new URL(fixedUri);
+                const name = u.hash ? decodeURIComponent(u.hash.substring(1)) : "Hysteria2";
+                return {
+                    id: Math.random().toString(36).substr(2, 9),
+                    name,
+                    protocol: 'hysteria2',
+                    address: u.hostname,
+                    port: u.port || "443",
+                    uuid: decodeURIComponent(u.username),
+                    security: "tls",
+                    rawUri: uri
+                };
+            } catch(e) { return null; }
+        }
+
+        // SOCKS / SOCKS5: socks5://user:pass@host:port#name
+        if (protocol === 'socks' || protocol === 'socks5') {
+            try {
+                const u = new URL(uri);
+                const name = u.hash ? decodeURIComponent(u.hash.substring(1)) : "SOCKS";
+                return {
+                    id: Math.random().toString(36).substr(2, 9),
+                    name,
+                    protocol: 'socks',
+                    address: u.hostname,
+                    port: u.port || "1080",
+                    uuid: u.username ? decodeURIComponent(u.username) : "",
+                    security: "none",
+                    rawUri: uri
+                };
+            } catch(e) { return null; }
+        }
+
+        // HTTP proxy: http://user:pass@host:port#name
+        if (protocol === 'http') {
+            try {
+                const u = new URL(uri);
+                const name = u.hash ? decodeURIComponent(u.hash.substring(1)) : "HTTP Proxy";
+                return {
+                    id: Math.random().toString(36).substr(2, 9),
+                    name,
+                    protocol: 'http',
+                    address: u.hostname,
+                    port: u.port || "8080",
+                    uuid: u.username ? decodeURIComponent(u.username) : "",
+                    security: "none",
+                    rawUri: uri
+                };
+            } catch(e) { return null; }
         }
 
         // vless / trojan use standard user@host:port?params format
@@ -579,7 +721,25 @@ function getFullNodeDetails(node) {
         publicKey: "",
         shortId: "",
         alterId: "0",
-        headerType: "none"
+        headerType: "none",
+        // WireGuard
+        wgSecretKey: "",
+        wgPublicKey: "",
+        wgPresharedKey: "",
+        wgReserved: "",
+        wgLocalAddress: "172.16.0.2/32",
+        // Hysteria2
+        hy2ObfsPassword: "",
+        hy2PortHopping: "",
+        hy2HopInterval: "",
+        hy2BandwidthDown: "",
+        hy2BandwidthUp: "",
+        hy2Sni: "",
+        // SOCKS / HTTP proxy auth
+        proxyUsername: "",
+        proxyPassword: "",
+        // Shadowsocks method
+        ssMethod: "aes-256-gcm"
     };
 
     if (protocol === 'vmess') {
@@ -679,10 +839,132 @@ function getFullNodeDetails(node) {
             }
         } catch (e) { console.error("Error parsing standard URL mapping", e); }
     }
+
+    // Shadowsocks
+    if (protocol === 'shadowsocks') {
+        d.ssMethod = node.security || "aes-256-gcm";
+        d.uuid = node.uuid || ""; // password
+    }
+
+    // WireGuard
+    if (protocol === 'wireguard') {
+        try {
+            const u = new URL(uri.replace(/^wg:\/\//, 'wireguard://'));
+            const p = new URLSearchParams(u.search);
+            d.wgSecretKey = u.username ? decodeURIComponent(u.username) : "";
+            d.wgPublicKey = p.get('publickey') || p.get('PublicKey') || "";
+            d.wgPresharedKey = p.get('presharedkey') || p.get('PreSharedKey') || "";
+            d.wgReserved = p.get('reserved') || "";
+            d.wgLocalAddress = p.get('address') || p.get('ip') || "172.16.0.2/32";
+        } catch(e) {}
+    }
+
+    // Hysteria2
+    if (protocol === 'hysteria2') {
+        try {
+            const fixedUri = uri.replace(/^hy2:\/\//, 'hysteria2://');
+            const u = new URL(fixedUri);
+            const p = new URLSearchParams(u.search);
+            d.uuid = decodeURIComponent(u.username);
+            const obfs = p.get('obfs-password') || p.get('obfsPassword') || "";
+            d.hy2ObfsPassword = obfs;
+            d.hy2Sni = p.get('sni') || p.get('peer') || "";
+            d.hy2BandwidthDown = p.get('down') || p.get('bandwidth') || "";
+            d.hy2BandwidthUp = p.get('up') || "";
+            d.hy2PortHopping = p.get('mport') || "";
+        } catch(e) {}
+    }
+
+    // SOCKS
+    if (protocol === 'socks') {
+        try {
+            const u = new URL(uri);
+            d.proxyUsername = u.username ? decodeURIComponent(u.username) : "";
+            d.proxyPassword = u.password ? decodeURIComponent(u.password) : "";
+        } catch(e) {}
+    }
+
+    // HTTP proxy
+    if (protocol === 'http') {
+        try {
+            const u = new URL(uri);
+            d.proxyUsername = u.username ? decodeURIComponent(u.username) : "";
+            d.proxyPassword = u.password ? decodeURIComponent(u.password) : "";
+        } catch(e) {}
+    }
+
     return d;
 }
 
 function serializeNodeDetailsToUri(d, protocol) {
+    // Shadowsocks
+    if (protocol === 'shadowsocks') {
+        const method = d.ssMethod || "aes-256-gcm";
+        const password = d.uuid || "";
+        const userPart = btoa(`${method}:${password}`);
+        let urlStr = `ss://${userPart}@${d.address}:${d.port}`;
+        if (d.name) urlStr += "#" + encodeURIComponent(d.name);
+        return urlStr;
+    }
+
+    // WireGuard
+    if (protocol === 'wireguard') {
+        const params = new URLSearchParams();
+        if (d.wgPublicKey) params.set('publickey', d.wgPublicKey);
+        if (d.wgPresharedKey) params.set('presharedkey', d.wgPresharedKey);
+        if (d.wgReserved) params.set('reserved', d.wgReserved);
+        if (d.wgLocalAddress) params.set('address', d.wgLocalAddress);
+        const user = d.wgSecretKey ? encodeURIComponent(d.wgSecretKey) : "";
+        let urlStr = `wireguard://${user}@${d.address}:${d.port}`;
+        const pStr = params.toString();
+        if (pStr) urlStr += "?" + pStr;
+        if (d.name) urlStr += "#" + encodeURIComponent(d.name);
+        return urlStr;
+    }
+
+    // Hysteria2
+    if (protocol === 'hysteria2') {
+        const params = new URLSearchParams();
+        if (d.hy2ObfsPassword) { params.set('obfs', 'salamander'); params.set('obfs-password', d.hy2ObfsPassword); }
+        if (d.hy2Sni) params.set('sni', d.hy2Sni);
+        if (d.hy2BandwidthDown) params.set('down', d.hy2BandwidthDown);
+        if (d.hy2BandwidthUp) params.set('up', d.hy2BandwidthUp);
+        if (d.hy2PortHopping) params.set('mport', d.hy2PortHopping);
+        if (d.hy2HopInterval) params.set('hopInterval', d.hy2HopInterval);
+        const user = d.uuid ? encodeURIComponent(d.uuid) : "";
+        let urlStr = `hysteria2://${user}@${d.address}:${d.port}`;
+        const pStr = params.toString();
+        if (pStr) urlStr += "?" + pStr;
+        if (d.name) urlStr += "#" + encodeURIComponent(d.name);
+        return urlStr;
+    }
+
+    // SOCKS
+    if (protocol === 'socks') {
+        let auth = "";
+        if (d.proxyUsername) {
+            auth = encodeURIComponent(d.proxyUsername);
+            if (d.proxyPassword) auth += ":" + encodeURIComponent(d.proxyPassword);
+            auth += "@";
+        }
+        let urlStr = `socks://${auth}${d.address}:${d.port}`;
+        if (d.name) urlStr += "#" + encodeURIComponent(d.name);
+        return urlStr;
+    }
+
+    // HTTP proxy
+    if (protocol === 'http') {
+        let auth = "";
+        if (d.proxyUsername) {
+            auth = encodeURIComponent(d.proxyUsername);
+            if (d.proxyPassword) auth += ":" + encodeURIComponent(d.proxyPassword);
+            auth += "@";
+        }
+        let urlStr = `http://${auth}${d.address}:${d.port}`;
+        if (d.name) urlStr += "#" + encodeURIComponent(d.name);
+        return urlStr;
+    }
+
     if (protocol === 'vmess') {
         let c = {
             v: "2", ps: d.name, add: d.address, port: parseInt(d.port) || 443, id: d.uuid,
@@ -777,7 +1059,46 @@ function openEditNodeModal(event, category, id) {
     currentEditingCategory = category;
     currentEditingNodeId = id;
     currentEditingProtocol = node.protocol;
-    const d = getFullNodeDetails(node);
+    _populateEditModal(node);
+}
+
+function openNewNodeModal(protocol) {
+    // Create a temporary empty node so we can reuse the same modal
+    const tempId = '__new__' + Math.random().toString(36).substr(2, 9);
+    // Ensure Manual category exists
+    if (!profiles['Manual']) profiles['Manual'] = { url: null, nodes: [] };
+    const emptyNode = {
+        id: tempId,
+        name: "",
+        protocol,
+        address: "",
+        port: protocol === 'wireguard' ? "51820" : protocol === 'socks' ? "1080" : protocol === 'http' ? "8080" : "443",
+        uuid: "",
+        security: protocol === 'hysteria2' ? "tls" : "none",
+        rawUri: `${protocol}://@:`
+    };
+    currentEditingCategory = 'Manual';
+    currentEditingNodeId = tempId;
+    currentEditingProtocol = protocol;
+    _populateEditModal(emptyNode, true);
+}
+
+function _populateEditModal(node, isNew = false) {
+    const d = isNew ? {
+        name: "", address: "", port: node.port || "443", uuid: "", encryption: "auto",
+        flow: "", network: "tcp", tcpHeaderType: "none", tcpHttpHost: "", tcpHttpPath: "/",
+        kcpHeader: "none", kcpHost: "", kcpSeed: "", wsPath: "/", wsHost: "",
+        httpupgradeHost: "", httpupgradePath: "/", xhttpMode: "auto", xhttpHost: "",
+        xhttpPath: "/", xhttpExtra: "", h2Host: "", h2Path: "/", grpcMode: "gun",
+        grpcAuth: "", grpcServiceName: "", security: node.security || "none", sni: "",
+        fingerprint: "chrome", alpn: "", publicKey: "", shortId: "", alterId: "0",
+        headerType: "none", wgSecretKey: "", wgPublicKey: "", wgPresharedKey: "",
+        wgReserved: "", wgLocalAddress: "172.16.0.2/32", hy2ObfsPassword: "",
+        hy2PortHopping: "", hy2HopInterval: "", hy2BandwidthDown: "", hy2BandwidthUp: "",
+        hy2Sni: "", proxyUsername: "", proxyPassword: "", ssMethod: "aes-256-gcm"
+    } : getFullNodeDetails(node);
+
+    const proto = node.protocol;
 
     document.getElementById('edit-remarks').value = d.name;
     document.getElementById('edit-address').value = d.address;
@@ -822,9 +1143,72 @@ function openEditNodeModal(event, category, id) {
     document.getElementById('edit-pbk').value = d.publicKey;
     document.getElementById('edit-sid').value = d.shortId;
     document.getElementById('edit-alterid').value = d.alterId;
-    document.getElementById('field-group-encryption').style.display = (node.protocol === 'trojan') ? 'none' : 'flex';
-    document.getElementById('field-group-flow').style.display = (node.protocol === 'vless') ? 'flex' : 'none';
-    document.getElementById('field-group-alterid').style.display = (node.protocol === 'vmess') ? 'flex' : 'none';
+    // WireGuard
+    document.getElementById('edit-wg-secret-key').value = d.wgSecretKey;
+    document.getElementById('edit-wg-public-key').value = d.wgPublicKey;
+    document.getElementById('edit-wg-preshared-key').value = d.wgPresharedKey;
+    document.getElementById('edit-wg-reserved').value = d.wgReserved;
+    document.getElementById('edit-wg-local-address').value = d.wgLocalAddress;
+    // Hysteria2
+    document.getElementById('edit-hy2-obfs-password').value = d.hy2ObfsPassword;
+    document.getElementById('edit-hy2-port-hopping').value = d.hy2PortHopping;
+    document.getElementById('edit-hy2-hop-interval').value = d.hy2HopInterval;
+    document.getElementById('edit-hy2-bandwidth-down').value = d.hy2BandwidthDown;
+    document.getElementById('edit-hy2-bandwidth-up').value = d.hy2BandwidthUp;
+    document.getElementById('edit-hy2-sni').value = d.hy2Sni;
+    // SOCKS / HTTP proxy auth
+    document.getElementById('edit-proxy-username').value = d.proxyUsername;
+    document.getElementById('edit-proxy-password').value = d.proxyPassword;
+    // SS method
+    const ssMethodSel = document.getElementById('edit-ss-method');
+    if (ssMethodSel) {
+        const ssVal = d.ssMethod || 'aes-256-gcm';
+        ssMethodSel.value = [...ssMethodSel.options].some(o => o.value === ssVal) ? ssVal : 'aes-256-gcm';
+    }
+
+    // Show/hide standard protocol fields
+    const isSimpleProxy = (proto === 'socks' || proto === 'http');
+    const isWireGuard = (proto === 'wireguard');
+    const isHysteria2 = (proto === 'hysteria2');
+    const isShadowsocks = (proto === 'shadowsocks');
+    const isClassic = (proto === 'vmess' || proto === 'vless' || proto === 'trojan');
+    const isClassicOrSS = isClassic || isShadowsocks;
+
+    document.getElementById('field-group-encryption').style.display = (proto === 'vmess') ? 'flex' : 'none';
+    document.getElementById('field-group-flow').style.display = (proto === 'vless') ? 'flex' : 'none';
+    document.getElementById('field-group-alterid').style.display = (proto === 'vmess') ? 'flex' : 'none';
+    document.getElementById('field-group-ss-method').style.display = isShadowsocks ? 'flex' : 'none';
+
+    // Transport section: only for vmess/vless/trojan/shadowsocks
+    document.getElementById('section-transport-wrapper').style.display = (isClassicOrSS) ? 'block' : 'none';
+    // Security section: only for vmess/vless/trojan
+    document.getElementById('section-security-wrapper').style.display = isClassic ? 'block' : 'none';
+
+    // WireGuard fields
+    document.getElementById('subfields-wireguard').style.display = isWireGuard ? 'flex' : 'none';
+    // Hysteria2 fields
+    document.getElementById('subfields-hysteria2').style.display = isHysteria2 ? 'flex' : 'none';
+    // Proxy auth fields
+    document.getElementById('subfields-proxy-auth').style.display = isSimpleProxy ? 'flex' : 'none';
+
+    // UUID label: "Password" for trojan/SS/Hysteria2, "ID" for vmess/vless
+    const uuidLabel = document.querySelector('#edit-uuid')?.closest('.edit-item-field')?.querySelector('label');
+    if (uuidLabel) {
+        if (proto === 'trojan' || proto === 'shadowsocks' || proto === 'hysteria2') {
+            uuidLabel.setAttribute('data-i18n', 'lbl_id');
+        } else if (proto === 'http' || proto === 'socks') {
+        // Hide uuid field entirely for http (auth handled by proxyUsername/Password)
+            uuidLabel.style.display = 'none';
+            document.getElementById('edit-uuid').closest('.edit-item-field').style.display = 'none';
+        } else {
+            uuidLabel.setAttribute('data-i18n', 'lbl_id');
+        }
+    }
+
+    if (isNew) {
+        document.getElementById('modal-edit-title-text').setAttribute('data-i18n', 'modal_edit_title');
+    }
+
     updateEditFormVisibility();
     applyI18n();
     document.getElementById('edit-node-modal').style.display = 'block';
@@ -866,13 +1250,8 @@ function closeEditNodeModal() {
     currentEditingProtocol = null;
 }
 
-function saveEditedNode() {
-    if (!currentEditingCategory || !currentEditingNodeId) return;
-
-    const nodeIdx = profiles[currentEditingCategory]?.nodes?.findIndex(n => n.id === currentEditingNodeId);
-    if (nodeIdx === -1) return;
-
-    const d = {
+function _collectEditFormData() {
+    return {
         name: document.getElementById('edit-remarks').value.trim() || "Unnamed Node",
         address: document.getElementById('edit-address').value.trim(),
         port: document.getElementById('edit-port').value.trim() || "443",
@@ -914,27 +1293,68 @@ function saveEditedNode() {
         publicKey: document.getElementById('edit-pbk').value.trim(),
         shortId: document.getElementById('edit-sid').value.trim(),
         alterId: document.getElementById('edit-alterid').value.trim() || "0",
-        headerType: document.getElementById('edit-header-type').value
+        headerType: document.getElementById('edit-header-type').value,
+        // WireGuard
+        wgSecretKey: document.getElementById('edit-wg-secret-key').value.trim(),
+        wgPublicKey: document.getElementById('edit-wg-public-key').value.trim(),
+        wgPresharedKey: document.getElementById('edit-wg-preshared-key').value.trim(),
+        wgReserved: document.getElementById('edit-wg-reserved').value.trim(),
+        wgLocalAddress: document.getElementById('edit-wg-local-address').value.trim() || "172.16.0.2/32",
+        // Hysteria2
+        hy2ObfsPassword: document.getElementById('edit-hy2-obfs-password').value.trim(),
+        hy2PortHopping: document.getElementById('edit-hy2-port-hopping').value.trim(),
+        hy2HopInterval: document.getElementById('edit-hy2-hop-interval').value.trim(),
+        hy2BandwidthDown: document.getElementById('edit-hy2-bandwidth-down').value.trim(),
+        hy2BandwidthUp: document.getElementById('edit-hy2-bandwidth-up').value.trim(),
+        hy2Sni: document.getElementById('edit-hy2-sni').value.trim(),
+        // SOCKS/HTTP proxy auth
+        proxyUsername: document.getElementById('edit-proxy-username').value.trim(),
+        proxyPassword: document.getElementById('edit-proxy-password').value.trim(),
+        // Shadowsocks
+        ssMethod: document.getElementById('edit-ss-method').value
     };
+}
 
-    const newUri = serializeNodeDetailsToUri(d, currentEditingProtocol);
+function saveEditedNode() {
+    if (!currentEditingCategory || !currentEditingNodeId) return;
 
-    profiles[currentEditingCategory].nodes[nodeIdx] = {
-        id: currentEditingNodeId,
+    const isNew = currentEditingNodeId.startsWith('__new__');
+    const d = _collectEditFormData();
+    const proto = currentEditingProtocol;
+    const newUri = serializeNodeDetailsToUri(d, proto);
+
+    // Determine security/uuid for stored node summary
+    let storedSecurity = d.security;
+    let storedUuid = d.uuid;
+    if (proto === 'shadowsocks') { storedSecurity = d.ssMethod; storedUuid = d.uuid; }
+    if (proto === 'hysteria2') { storedSecurity = 'tls'; }
+
+    const nodeEntry = {
+        id: isNew ? Math.random().toString(36).substr(2, 9) : currentEditingNodeId,
         name: d.name,
-        protocol: currentEditingProtocol,
+        protocol: proto,
         address: d.address,
         port: d.port,
-        uuid: d.uuid,
-        security: d.security,
+        uuid: storedUuid,
+        security: storedSecurity,
         rawUri: newUri
     };
+
+    if (isNew) {
+        if (!profiles['Manual']) profiles['Manual'] = { url: null, nodes: [] };
+        profiles['Manual'].nodes.push(nodeEntry);
+        showToast(t('toast_new_node_saved'), "success");
+    } else {
+        const nodeIdx = profiles[currentEditingCategory]?.nodes?.findIndex(n => n.id === currentEditingNodeId);
+        if (nodeIdx === -1) return;
+        profiles[currentEditingCategory].nodes[nodeIdx] = nodeEntry;
+    }
 
     saveProfiles();
     closeEditNodeModal();
     renderProfiles();
 
-    if (activeConfig === `${currentEditingCategory}:${currentEditingNodeId}`) {
+    if (!isNew && activeConfig === `${currentEditingCategory}:${currentEditingNodeId}`) {
         const xrayConfig = convert_uri_to_xray_json(newUri, advSettings);
         execShell(`echo '${xrayConfig}' > '${CONFIG_JSON}'`, () => {
             execShell(`sh ${MODDIR}/proxy_control.sh status`, (status) => {
@@ -949,6 +1369,63 @@ function saveEditedNode() {
 function closeAllMenus() {
     document.querySelectorAll('.category-dropdown-menu').forEach(menu => menu.classList.remove('show'));
     document.querySelectorAll('.node-dropdown-menu').forEach(menu => menu.classList.remove('show'));
+    closeImportAddMenu();
+}
+
+function toggleImportAddMenu(event) {
+    event.stopPropagation();
+    const dropdown = document.getElementById('import-add-dropdown');
+    const isOpen = dropdown.classList.contains('show');
+    closeAllMenus();
+    if (!isOpen) {
+        dropdown.classList.add('show');
+    }
+}
+
+function closeImportAddMenu() {
+    const dropdown = document.getElementById('import-add-dropdown');
+    if (dropdown) dropdown.classList.remove('show');
+}
+
+async function importFromClipboard() {
+    try {
+        const text = await navigator.clipboard.readText();
+        if (!text || !text.trim()) {
+            showToast(t('toast_clipboard_empty'), 'error');
+            return;
+        }
+        const uris = extractUrisFromText(text.trim());
+        if (uris.length === 0) {
+            showToast(t('toast_no_configs_extracted'), 'error');
+            return;
+        }
+        parseAndAppendNodes('Manual', uris, null);
+        showToast(t('toast_clipboard_imported', { count: uris.length }), 'success');
+    } catch(e) {
+        showToast(t('toast_clipboard_empty'), 'error');
+    }
+}
+
+function importFromFile() {
+    document.getElementById('import-file-input').click();
+}
+
+function handleFileImport(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const text = e.target.result;
+        const uris = extractUrisFromText(text);
+        if (uris.length === 0) {
+            showToast(t('toast_no_configs_extracted'), 'error');
+        } else {
+            parseAndAppendNodes('Manual', uris, null);
+        }
+    };
+    reader.readAsText(file);
+    // Reset so same file can be imported again
+    event.target.value = '';
 }
 
 document.addEventListener('click', () => {
