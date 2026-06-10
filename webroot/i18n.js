@@ -137,6 +137,15 @@ const i18n = {
         toast_clipboard_empty: "Clipboard is empty or unavailable.",
         toast_clipboard_imported: "Imported {count} node(s) from clipboard.",
         toast_new_node_saved: "New node added to Manual.",
+
+        // Edit Subscription modal
+        menu_edit_sub: "Edit",
+        menu_deduplicate: "Deduplicate",
+        modal_edit_sub_title: "Edit Subscription",
+        lbl_sub_cat_name: "Category Name",
+        lbl_sub_url: "Subscription URL",
+        lbl_sub_dedup: "Deduplicate configurations when fetching",
+        toast_dedup_done: "Removed {removed} duplicate(s). {total} node(s) remaining.",
     },
     vi: {
         tab_dashboard: "Bảng Điều Khiển",
@@ -276,5 +285,14 @@ const i18n = {
         toast_clipboard_empty: "Clipboard trống hoặc không khả dụng.",
         toast_clipboard_imported: "Đã nhập {count} nút từ clipboard.",
         toast_new_node_saved: "Đã thêm nút mới vào nhóm Manual.",
+
+        // Edit Subscription modal
+        menu_edit_sub: "Chỉnh sửa gói",
+        menu_deduplicate: "Xóa trùng lặp",
+        modal_edit_sub_title: "Chỉnh sửa gói",
+        lbl_sub_cat_name: "Tên danh mục",
+        lbl_sub_url: "URL đăng ký",
+        lbl_sub_dedup: "Loại trùng khi tải về",
+        toast_dedup_done: "Đã xóa {removed} bản trùng. Còn lại {total} nút.",
     }
 };

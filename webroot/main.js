@@ -273,6 +273,28 @@ async function fetchSubscription(category, url, isReload = false) {
     });
 }
  
+function buildNodeKey(node) {
+    if (node.protocol === 'vmess') {
+        try {
+            const b64 = (node.rawUri || '').substring('vmess://'.length).split('#')[0].trim();
+            const obj = JSON.parse(decodeBase64(b64));
+            delete obj.ps;
+            return 'vmess|' + JSON.stringify(obj, Object.keys(obj).sort());
+        } catch (e) {
+            return ['vmess', node.address, node.port, node.uuid, node.security].join('|');
+        }
+    }
+    const rawNoFragment = (node.rawUri || '').replace(/#.*$/, '');
+    return [
+        node.protocol || '',
+        node.address  || '',
+        node.port     || '',
+        node.uuid     || '',
+        node.security || '',
+        rawNoFragment
+    ].join('|');
+}
+
 function parseAndAppendNodes(category, xrayConfigs, url = null, isReload = false) {
     if (!Array.isArray(xrayConfigs) || xrayConfigs.length === 0) {
         return showToast(t('toast_no_configs_extracted'), "error");
@@ -289,14 +311,17 @@ function parseAndAppendNodes(category, xrayConfigs, url = null, isReload = false
     }
  
     let importedCount = 0;
+    const shouldDedup = profiles[category].dedup !== false; // default true
+    const existingKeys = shouldDedup
+        ? new Set(profiles[category].nodes.map(n => buildNodeKey(n)))
+        : null;
     xrayConfigs.forEach(line => {
         const parsedNode = parseProxyUri(line);
         if (parsedNode) {
-            const duplicate = profiles[category].nodes.some(
-                n => n.rawUri === parsedNode.rawUri
-            );
+            const duplicate = shouldDedup && existingKeys.has(buildNodeKey(parsedNode));
             if (!duplicate) {
                 profiles[category].nodes.push(parsedNode);
+                if (shouldDedup) existingKeys.add(buildNodeKey(parsedNode));
                 importedCount++;
             }
         }
@@ -606,6 +631,8 @@ function renderProfiles() {
                     <button class="btn-menu-trigger" onclick="toggleCategoryMenu(event, this)">⋮</button>
                     <div class="category-dropdown-menu">
                         ${hasUrl ? `<button onclick="reloadCategory('${escapeAttr(category)}'); closeAllMenus();">${t('menu_reload')}</button>` : ''}
+                        <button onclick="openEditSubModal('${escapeAttr(category)}'); closeAllMenus();">${t('menu_edit_sub')}</button>
+                        <button onclick="deduplicateCategory('${escapeAttr(category)}'); closeAllMenus();">${t('menu_deduplicate')}</button>
                         <button class="btn-ping-category" onclick="pingCategoryWithClose(event, '${escapeAttr(category)}')">Ping HTTP</button>
                         <button class="btn-delete-item" onclick="removeCategory('${escapeAttr(category)}'); closeAllMenus();">${t('menu_delete')}</button>
                     </div>
@@ -1364,6 +1391,79 @@ function saveEditedNode() {
             });
         });
     }
+}
+
+function openEditSubModal(category) {
+    const catData = profiles[category];
+    if (!catData) return;
+
+    document.getElementById('edit-sub-cat-name').value = category;
+    document.getElementById('edit-sub-url').value = catData.url || '';
+    document.getElementById('edit-sub-dedup').checked = catData.dedup !== false; // default true
+    document.getElementById('edit-sub-modal').dataset.originalCat = category;
+    document.getElementById('edit-sub-modal').style.display = 'block';
+}
+
+function closeEditSubModal() {
+    document.getElementById('edit-sub-modal').style.display = 'none';
+}
+
+function saveEditedSubscription() {
+    const modal = document.getElementById('edit-sub-modal');
+    const originalCat = modal.dataset.originalCat;
+    const newName = document.getElementById('edit-sub-cat-name').value.trim();
+    const newUrl = document.getElementById('edit-sub-url').value.trim();
+    const newDedup = document.getElementById('edit-sub-dedup').checked;
+
+    if (!newName) return;
+    if (!profiles[originalCat]) return;
+
+    // Rename category if name changed
+    if (newName !== originalCat) {
+        profiles[newName] = { ...profiles[originalCat] };
+        delete profiles[originalCat];
+
+        // Update activeConfig if it referenced old category name
+        if (activeConfig && activeConfig.startsWith(originalCat + ':')) {
+            activeConfig = newName + ':' + activeConfig.split(':')[1];
+            saveActiveConfig();
+        }
+    }
+
+    profiles[newName].url = newUrl || null;
+    profiles[newName].dedup = newDedup;
+
+    saveProfiles();
+    closeEditSubModal();
+    renderProfiles();
+}
+
+function deduplicateCategory(category) {
+    const catData = profiles[category];
+    if (!catData || !catData.nodes) return;
+
+    const seen = new Set();
+    const before = catData.nodes.length;
+    catData.nodes = catData.nodes.filter(node => {
+        const key = buildNodeKey(node);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+    const removed = before - catData.nodes.length;
+
+    // If active node was removed, clear it
+    if (activeConfig && activeConfig.startsWith(category + ':')) {
+        const [_, currentId] = activeConfig.split(':');
+        if (!catData.nodes.some(n => n.id === currentId)) {
+            activeConfig = null;
+            saveActiveConfig();
+        }
+    }
+
+    saveProfiles();
+    renderProfiles();
+    showToast(t('toast_dedup_done', { removed, total: catData.nodes.length }), removed > 0 ? 'success' : 'info');
 }
 
 function closeAllMenus() {
