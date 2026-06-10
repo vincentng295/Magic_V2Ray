@@ -30,3 +30,4 @@ let currentLang = 'en';
 let currentEditingCategory = null;
 let currentEditingNodeId = null;
 let currentEditingProtocol = null;
+let categoryExpandedState = {};

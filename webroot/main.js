@@ -591,10 +591,15 @@ function renderProfiles() {
         const group = document.createElement('div');
         group.className = "category-group";
         const hasUrl = !!profiles[category].url;
+        const isExpanded = categoryExpandedState[category] || false;
+        const arrowIcon = isExpanded ? "▽" : "▷";
+        const displayStyle = isExpanded ? "block" : "none";
+
         group.innerHTML = `
             <div class="category-header" style="position: relative; display: flex; justify-content: space-between; align-items: center;">
                 <strong>${escapeHtml(category)} (${profiles[category].nodes.length})</strong>
-                <div class="category-menu-container">
+                <div class="category-menu-container" style="display: flex; align-items: center; gap: 8px;">
+                    <button class="btn-menu-trigger" onclick="toggleCategoryExpand(event, '${escapeAttr(category)}')" style="font-weight: bold; width: 28px;">${arrowIcon}</button>
                     <button class="btn-menu-trigger" onclick="toggleCategoryMenu(event, this)">⋮</button>
                     <div class="category-dropdown-menu">
                         ${hasUrl ? `<button onclick="reloadCategory('${escapeAttr(category)}'); closeAllMenus();">${t('menu_reload')}</button>` : ''}
@@ -605,7 +610,7 @@ function renderProfiles() {
                     </div>
                 </div>
             </div>
-            <div class="nodes-list"></div>
+            <div class="nodes-list" style="display: ${displayStyle};"></div>
         `;
         const listNode = group.querySelector('.nodes-list');
         profiles[category].nodes.forEach(node => {
@@ -629,12 +634,17 @@ function renderProfiles() {
                     </div>
                 </div>
             `;
-            
             item.querySelector('.config-info').onclick = () => selectNode(category, node.id);
             listNode.appendChild(item);
         });
         container.appendChild(group);
     }
+}
+
+function toggleCategoryExpand(event, category) {
+    event.stopPropagation();
+    categoryExpandedState[category] = !categoryExpandedState[category];
+    renderProfiles();
 }
 
 function toggleCategoryMenu(event, button) {

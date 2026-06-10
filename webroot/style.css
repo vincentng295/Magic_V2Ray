@@ -505,6 +505,7 @@ textarea::placeholder { color: var(--md-outline); }
 .category-menu-container {
     position: relative;
     display: inline-block;
+    gap: 8px;
 }
 
 .btn-menu-trigger {
