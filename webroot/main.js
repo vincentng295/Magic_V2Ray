@@ -2048,7 +2048,13 @@ function clearLogView() {
     const emptyState = document.getElementById('log-empty-state');
     emptyState && (emptyState.style.display = '');
     document.getElementById('log-line-count').textContent = '— lines';
-    showToast(t('toast_log_cleared'), 'info');
+    // Make log empty
+    execShell(
+        `echo -n > '${DATADIR}/xray.log'`,
+        (output) => {
+            showToast(t('toast_log_cleared'), 'info');
+        }
+    );
 }
 
 function copyLogToClipboard() {
