@@ -205,7 +205,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
             } else if (net === 'ws') {
                 outbound.streamSettings.wsSettings = {
                     path: p.get('path') || "/",
-                    headers: { Host: p.get('host') || "" }
+                    host: p.get('host') || ""
                 };
             } else if (net === 'httpupgrade') {
                 outbound.streamSettings.httpupgradeSettings = {
