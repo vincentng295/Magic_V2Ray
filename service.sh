@@ -307,7 +307,7 @@ do_job() {
             $ip6tables -t mangle -A PREROUTING ! -i xraytun0 -d ::1/128 -j RETURN
             $ip6tables -t mangle -A PREROUTING ! -i xraytun0 -d fe80::/10 -j RETURN
             $ip6tables -t mangle -A PREROUTING ! -i xraytun0 -d fc00::/7 -j RETURN
-            $ip6tables -t mangle -A PREROUTING -m addrtype --src-type LOCAL -j RETURN
+            $ip6tables -t mangle -A PREROUTING ! -i xraytun0 -j MARK --set-xmark 1
         fi
     fi
     if [ "$content" = "stop" ]; then
