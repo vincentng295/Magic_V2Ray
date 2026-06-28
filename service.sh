@@ -210,7 +210,7 @@ clear_routing_rules() {
     $ip6tables -t mangle -D PREROUTING ! -i xraytun0 -d ::1/128 -j RETURN
     $ip6tables -t mangle -D PREROUTING ! -i xraytun0 -d fe80::/10 -j RETURN
     $ip6tables -t mangle -D PREROUTING ! -i xraytun0 -d fc00::/7 -j RETURN
-    $ip6tables -t mangle -D PREROUTING ! -i xraytun0 -m addrtype ! --src-type LOCAL -j MARK --set-xmark 1
+    $ip6tables -t mangle -D PREROUTING ! -i xraytun0 -j MARK --set-xmark 1
 
     # Down the tun device
     $ip link set dev xraytun0 down
@@ -307,7 +307,7 @@ do_job() {
             $ip6tables -t mangle -A PREROUTING ! -i xraytun0 -d ::1/128 -j RETURN
             $ip6tables -t mangle -A PREROUTING ! -i xraytun0 -d fe80::/10 -j RETURN
             $ip6tables -t mangle -A PREROUTING ! -i xraytun0 -d fc00::/7 -j RETURN
-            $ip6tables -t mangle -A PREROUTING ! -i xraytun0 -m addrtype ! --src-type LOCAL -j MARK --set-xmark 1
+            $ip6tables -t mangle -A PREROUTING -m addrtype --src-type LOCAL -j RETURN
         fi
     fi
     if [ "$content" = "stop" ]; then
