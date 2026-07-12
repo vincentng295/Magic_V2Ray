@@ -59,7 +59,7 @@ If your device is not rooted, or if you are looking for a regular GUI applicatio
 
 This project uses pre-built binaries from the following open-source projects:
 * **[Xray-core](https://github.com/XTLS/Xray-core):** The underlying engine that handles next-generation proxy protocols.
-* **[hev-socks5-tunnel](https://github.com/heiher/hev-socks5-tunnel):** A high-performance utility used to wrap proxy channels into a virtual network interface.
+* ~**[hev-socks5-tunnel](https://github.com/heiher/hev-socks5-tunnel):** A high-performance utility used to wrap proxy channels into a virtual network interface.~
 * **[curl-android](https://github.com/vvb2060/curl-android):** curl tool and libcurl static library prefab for android
 
 ## License

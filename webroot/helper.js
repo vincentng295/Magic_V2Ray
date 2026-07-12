@@ -103,7 +103,7 @@ function convert_chain_uris_to_xray_json(hop1Uri, hop2Uri, optional_settings) {
     //   We do this by sending it to "proxy-hop1" — hop1 is already up
     //   and can reach the real DNS server cleanly.
     //   
-    //   NOTE: the existing "inboundTag: socks-test-in, port 53" rule is
+    //   NOTE: the existing "inboundTag: tproxy-in, port 53" rule is
     //   kept for user-traffic DNS; only the tagless internal WG DNS rule
     //   is added here.
     if (hop1IsWg || hop2IsWg) {
@@ -124,7 +124,7 @@ function convert_chain_uris_to_xray_json(hop1Uri, hop2Uri, optional_settings) {
 
         // Insert AFTER the inboundTag-scoped port-53 rule so that rule stays alive.
         // Tagless WG DNS rule must be narrower-first: the inboundTag rule (2 conditions)
-        // sits above this one (1 condition) so socks-test-in DNS still routes correctly.
+        // sits above this one (1 condition) so tproxy-in DNS still routes correctly.
         const port53Idx = fullConfig.routing.rules.findIndex(r =>
             r.port === 53 && Array.isArray(r.inboundTag)
         );
@@ -776,6 +776,25 @@ function convert_uri_to_xray_json(uri, optional_settings) {
         },
         inbounds: [
             {
+                "tag": "tproxy-in",
+                "port": 807,
+                "protocol": "dokodemo-door",
+                "settings": {
+                    "network": "tcp,udp",
+                    "followRedirect": true
+                },
+                "streamSettings": {
+                    "sockopt": {
+                        "tproxy": "tproxy"
+                    }
+                },
+                "sniffing": {
+                    "enabled": settings.sniffing,
+                    "destOverride": ["http", "tls", "quic"],
+                    "routeOnly": settings.routeOnly
+                }
+            },
+            {
                 "tag": "socks-test-in",
                 "port": 808,
                 "listen": "127.17.1.3",
@@ -806,10 +825,11 @@ function convert_uri_to_xray_json(uri, optional_settings) {
         routing: {
             "domainStrategy": useFakeIp ? "AsIs" : "IPIfNonMatch",
             "rules": [
-                // Narrow rule first (2 conditions): user DNS from socks-test-in inbound.
+                // Narrow rule first (2 conditions): user DNS from tproxy-in inbound.
                 {
                     "type": "field",
                     "inboundTag": [
+                        "tproxy-in",
                         "socks-test-in",
                     ],
                     "port": 53,
@@ -843,6 +863,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                 {
                     "type": "field",
                     "inboundTag": [
+                        "tproxy-in",
                         "socks-test-in",
                     ],
                     "network": "tcp,udp",

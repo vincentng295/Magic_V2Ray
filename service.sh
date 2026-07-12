@@ -18,12 +18,9 @@ grep_prop() {
 }
 
 rm -rf "$DATADIR/xray.log"
-rm -rf "$DATADIR/tun2socks.log"
 XRAY_LOG="$DATADIR/xray.log"
-TUN2SOCKS_LOG=/dev/null
 if [ "$(grep_prop debug)" = "1" ]; then
     set -x
-    TUN2SOCKS_LOG="$DATADIR/tun2socks.log"
 fi
 exec > "$DATADIR/service.log" 2>&1
 
@@ -36,7 +33,6 @@ rm -rf "$STUB_DIR/run"
 mkdir -p "$STUB_DIR/run"
 mkfifo "$PIPE_FILE"
 XRAY_PID=0
-TUN2SOCKS_PID=0
 MONITOR_PID=0
 
 ip="/system/bin/ip"
@@ -45,9 +41,10 @@ ip6tables="/system/bin/ip6tables"
 
 RULE_PRIORITY=1000
 FWMARK=255
-TUN_NAME="xraytun0"
-TUN_ADDR="127.17.1.3"
-TUN_PORT="808"
+PROXY_MARK=1
+TPROXY_PORT="807"
+SOCKS_ADDR="127.17.1.3"
+SOCKS_PORT="808"
 
 get_status() {
     if [ -f "$PIDFILE" ]; then
@@ -79,12 +76,6 @@ lock_sysctl() {
     chcon $(stat -Z -c '%C' "$target_path") "$stub_file" # Just in case
 
     mount -o bind "$stub_file" "$target_path"
-}
-
-lock_xraytun0() {
-    if [ -e "/proc/sys/net/ipv4/conf/$TUN_NAME/rp_filter" ]; then
-        echo "0" > "/proc/sys/net/ipv4/conf/$TUN_NAME/rp_filter"
-    fi
 }
 
 read_table_index() {
@@ -119,7 +110,6 @@ remove_mark_rule() {
 
 apply_mark_rule() {
     local iface="$1"
-
     [ -z "$iface" ] && return 1
 
     remove_mark_rule
@@ -130,7 +120,7 @@ apply_mark_rule() {
 
     $ip rule add fwmark $FWMARK table "$iface_index" priority $RULE_PRIORITY
     $ip -6 rule add fwmark $FWMARK table "$iface_index" priority $RULE_PRIORITY
-    echo "Applied: fwmark $FWMARK -> table $iface_index ($iface)"
+    echo "Applied Bypass Loop: fwmark $FWMARK -> table $iface_index ($iface)"
 }
 
 monitor_net_interfaces() {
@@ -158,124 +148,117 @@ monitor_net_interfaces() {
 }
 
 apply_routing_rules() {
-    local retry=0
-    local max_retry=10
-    while [ $retry -lt $max_retry ]; do
-        if $ip link show "$TUN_NAME" >/dev/null 2>&1; then
-            break
-        fi
-        sleep 0.5
-        retry=$((retry + 1))
+    # --- TPROXY IPV4 ---
+    $ip rule add fwmark $PROXY_MARK table 100 priority 1010 2>/dev/null || true
+    $ip route add local default dev lo table 100 2>/dev/null || true
+
+    # Add Custom Chains in mangle
+    $iptables -t mangle -N XRAY_PRE 2>/dev/null || true
+    $iptables -t mangle -N XRAY_OUT 2>/dev/null || true
+    $iptables -t mangle -I PREROUTING 1 -j XRAY_PRE
+    $iptables -t mangle -I OUTPUT 1 -j XRAY_OUT
+
+    # 1. XRAY_PRE (PREROUTING)
+    # Bypass internal IP in chain OUTPUT
+    $iptables -t mangle -A XRAY_PRE -d 0.0.0.0/8 -j RETURN
+    $iptables -t mangle -A XRAY_PRE -d 10.0.0.0/8 -j RETURN
+    $iptables -t mangle -A XRAY_PRE -d 127.0.0.0/8 -j RETURN
+    $iptables -t mangle -A XRAY_PRE -d 169.254.0.0/16 -j RETURN
+    $iptables -t mangle -A XRAY_PRE -d 172.16.0.0/12 -j RETURN
+    $iptables -t mangle -A XRAY_PRE -d 192.168.0.0/16 -j RETURN
+    $iptables -t mangle -A XRAY_PRE -d 224.0.0.0/4 -j RETURN
+    $iptables -t mangle -A XRAY_PRE -d 240.0.0.0/4 -j RETURN
+
+    # Apply TPROXY for marked packages with Proxy Mark
+    $iptables -t mangle -A XRAY_PRE -p tcp -m mark --mark $PROXY_MARK -j TPROXY --on-port $TPROXY_PORT --on-ip 0.0.0.0 --tproxy-mark $PROXY_MARK
+    $iptables -t mangle -A XRAY_PRE -p udp -m mark --mark $PROXY_MARK -j TPROXY --on-port $TPROXY_PORT --on-ip 0.0.0.0 --tproxy-mark $PROXY_MARK
+
+    # Hotspot/Tethering
+    for prefix in wlan+ ap+ rndis+; do
+        $iptables -t mangle -A XRAY_PRE -i $prefix -p tcp -j TPROXY --on-port $TPROXY_PORT --on-ip 0.0.0.0 --tproxy-mark $PROXY_MARK
+        $iptables -t mangle -A XRAY_PRE -i $prefix -p udp -j TPROXY --on-port $TPROXY_PORT --on-ip 0.0.0.0 --tproxy-mark $PROXY_MARK
     done
 
-    # Capture all traffic to tun device and redirect to xray core
-    # Lock down xraytun
-    lock_xraytun0
+    # 2. XRAY_OUT (OUTPUT)
+    # Exclude packets emitted by the Xray core to avoid a cyclic loop
+    $iptables -t mangle -A XRAY_OUT -m mark --mark $FWMARK -j RETURN
 
-    # IPV4
-    # STEP 1: Create tun device and assign IP address
-    $ip addr add 198.18.0.1/15 dev $TUN_NAME
-    $ip link set dev $TUN_NAME up
-    $ip route replace default dev $TUN_NAME table 100
-    # STEP 2: Add routing rule to route marked packets through the tun device
-    $ip rule add fwmark 1 table 100 priority 1010
-    # STEP 3: Add iptables rules to mark packets from tun2socks and route them through the tun device
-    $iptables -t mangle -N XRAY_MARK
-    $iptables -t mangle -A XRAY_MARK -m mark --mark $FWMARK -j RETURN
-    $iptables -t mangle -A XRAY_MARK -m owner --uid-owner 1000 -j MARK --set-xmark 1
-    $iptables -t mangle -A XRAY_MARK -m owner --uid-owner 1052 -j MARK --set-xmark 1
-    $iptables -t mangle -A XRAY_MARK -m owner --uid-owner 9999-2147483647 -j MARK --set-xmark 1
-    $iptables -t mangle -A OUTPUT -j XRAY_MARK 
-    # IPv4 Hotspot support
-    # STEP 1: Allow forward traffic between hotspot interfaces and $TUN_NAME
-    $iptables -I FORWARD -o $TUN_NAME -j ACCEPT
-    $iptables -I FORWARD -i $TUN_NAME -j ACCEPT
-    $iptables -I PREROUTING -t nat ! -i $TUN_NAME -d 10.0.0.0/8 -p udp --dport 53 -j DNAT --to 1.1.1.1
-    $iptables -I PREROUTING -t nat ! -i $TUN_NAME -d 172.16.0.0/12 -p udp --dport 53 -j DNAT --to 1.1.1.1
-    $iptables -I PREROUTING -t nat ! -i $TUN_NAME -d 192.168.0.0/16 -p udp --dport 53 -j DNAT --to 1.1.1.1
-    # STEP 2: Force hotspot private IP ranges to lookup table 100
-    $ip rule add iif lo goto 6000 pref 5000
-    $ip rule add iif $TUN_NAME lookup main suppress_prefixlength 0 pref 5010
-    $ip rule add iif $TUN_NAME goto 6000 pref 5020
-    # * Bypass LAN
-    $ip rule add to 10.0.0.0/8 lookup main pref 5025
-    $ip rule add to 172.16.0.0/12 lookup main pref 5026
-    $ip rule add to 192.168.0.0/16 lookup main pref 5027
-    # * Redirect to $TUN_NAME
-    $ip rule add from 10.0.0.0/8 lookup 100 pref 5030
-    $ip rule add from 172.16.0.0/12 lookup 100 pref 5040
-    $ip rule add from 192.168.0.0/16 lookup 100 pref 5050
-    $ip rule add nop pref 6000
-    # STEP 3: Adjust TCPMSS to prevent TLS packet fragmentation overhead
-    $iptables -t mangle -I FORWARD -o $TUN_NAME -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1350
+    # Bypass internal IP in chain OUTPUT
+    $iptables -t mangle -A XRAY_OUT -d 0.0.0.0/8 -j RETURN
+    $iptables -t mangle -A XRAY_OUT -d 10.0.0.0/8 -j RETURN
+    $iptables -t mangle -A XRAY_OUT -d 127.0.0.0/8 -j RETURN
+    $iptables -t mangle -A XRAY_OUT -d 169.254.0.0/16 -j RETURN
+    $iptables -t mangle -A XRAY_OUT -d 172.16.0.0/12 -j RETURN
+    $iptables -t mangle -A XRAY_OUT -d 192.168.0.0/16 -j RETURN
+    $iptables -t mangle -A XRAY_OUT -d 224.0.0.0/4 -j RETURN
+    $iptables -t mangle -A XRAY_OUT -d 240.0.0.0/4 -j RETURN
+
+    # Mark UID that need to forward package to Proxy
+    $iptables -t mangle -A XRAY_OUT -m owner --uid-owner 1000 -j MARK --set-xmark $PROXY_MARK
+    $iptables -t mangle -A XRAY_OUT -m owner --uid-owner 1052 -j MARK --set-xmark $PROXY_MARK
+    $iptables -t mangle -A XRAY_OUT -m owner --uid-owner 9999-2147483647 -j MARK --set-xmark $PROXY_MARK
+
     # Hide proxy from apps
-    $iptables -I OUTPUT -p tcp --dport $TUN_PORT -d $TUN_ADDR -m owner --uid-owner 9999-2147483647 -j REJECT --reject-with tcp-reset
+    $iptables -I OUTPUT -p tcp --dport $SOCKS_PORT -d $SOCKS_ADDR -m owner --uid-owner 9999-2147483647 -j REJECT --reject-with tcp-reset
 
-    # IPV6
-    # STEP 1: Create tun device and assign IP address
-    $ip -6 addr add fdfe:dcba:9876::1/64 dev $TUN_NAME
-    $ip -6 route replace default dev $TUN_NAME table 100
-    # STEP 2: Add routing rule to route marked packets through the tun device
-    $ip -6 rule add fwmark 1 table 100 priority 1010
-    # STEP 3: Add ip6tables rules to mark packets from tun2socks and route them through the tun device
-    $ip6tables -t mangle -N XRAY_MARK
-    $ip6tables -t mangle -A XRAY_MARK -m mark --mark $FWMARK -j RETURN
-    $ip6tables -t mangle -A XRAY_MARK -m owner --uid-owner 1000 -j MARK --set-xmark 1
-    $ip6tables -t mangle -A XRAY_MARK -m owner --uid-owner 1052 -j MARK --set-xmark 1
-    $ip6tables -t mangle -A XRAY_MARK -m owner --uid-owner 9999-2147483647 -j MARK --set-xmark 1
-    $ip6tables -t mangle -A OUTPUT -j XRAY_MARK
-    # IPv6 Hotspot support
-    $ip6tables -I FORWARD -i $TUN_NAME -j ACCEPT
-    $ip6tables -I FORWARD -o $TUN_NAME -j ACCEPT
-    $ip6tables -t mangle -I PREROUTING -p udp --dport 53 -j MARK --set-xmark 1
-    $ip6tables -t mangle -I PREROUTING -p tcp --dport 53 -j MARK --set-xmark 1
-    $ip6tables -t mangle -A PREROUTING ! -i $TUN_NAME -d ::1/128 -j RETURN
-    $ip6tables -t mangle -A PREROUTING ! -i $TUN_NAME -d fe80::/10 -j RETURN
-    $ip6tables -t mangle -A PREROUTING ! -i $TUN_NAME -d fc00::/7 -j RETURN
-    $ip6tables -t mangle -A PREROUTING ! -i $TUN_NAME -j MARK --set-xmark 1
+    # --- TPROXY IPV6 ---
+    $ip -6 rule add fwmark $PROXY_MARK table 100 priority 1010 2>/dev/null || true
+    $ip -6 route add local default dev lo table 100 2>/dev/null || true
+
+    $ip6tables -t mangle -N XRAY_PRE 2>/dev/null || true
+    $ip6tables -t mangle -N XRAY_OUT 2>/dev/null || true
+    $ip6tables -t mangle -I PREROUTING 1 -j XRAY_PRE
+    $ip6tables -t mangle -I OUTPUT 1 -j XRAY_OUT
+
+    # IPv6 Bypass LAN
+    $ip6tables -t mangle -A XRAY_PRE -d ::1/128 -j RETURN
+    $ip6tables -t mangle -A XRAY_PRE -d fe80::/10 -j RETURN
+    $ip6tables -t mangle -A XRAY_PRE -d fc00::/7 -j RETURN
+
+    # IPv6 TPROXY PREROUTING
+    $ip6tables -t mangle -A XRAY_PRE -p tcp -m mark --mark $PROXY_MARK -j TPROXY --on-port $TPROXY_PORT --on-ip :: --tproxy-mark $PROXY_MARK
+    $ip6tables -t mangle -A XRAY_PRE -p udp -m mark --mark $PROXY_MARK -j TPROXY --on-port $TPROXY_PORT --on-ip :: --tproxy-mark $PROXY_MARK
+
+    for prefix in wlan+ ap+ rndis+; do
+        $ip6tables -t mangle -A XRAY_PRE -i $prefix -p tcp -j TPROXY --on-port $TPROXY_PORT --on-ip :: --tproxy-mark $PROXY_MARK
+        $ip6tables -t mangle -A XRAY_PRE -i $prefix -p udp -j TPROXY --on-port $TPROXY_PORT --on-ip :: --tproxy-mark $PROXY_MARK
+    done
+
+    # IPv6 OUTPUT
+    $ip6tables -t mangle -A XRAY_OUT -m mark --mark $FWMARK -j RETURN
+    $ip6tables -t mangle -A XRAY_OUT -d ::1/128 -j RETURN
+    $ip6tables -t mangle -A XRAY_OUT -d fe80::/10 -j RETURN
+    $ip6tables -t mangle -A XRAY_OUT -d fc00::/7 -j RETURN
+
+    $ip6tables -t mangle -A XRAY_OUT -m owner --uid-owner 1000 -j MARK --set-xmark $PROXY_MARK
+    $ip6tables -t mangle -A XRAY_OUT -m owner --uid-owner 1052 -j MARK --set-xmark $PROXY_MARK
+    $ip6tables -t mangle -A XRAY_OUT -m owner --uid-owner 9999-2147483647 -j MARK --set-xmark $PROXY_MARK
+    echo "TPROXY Rules Applied Successfully."
 }
 
 clear_routing_rules() {
-    # IPv4
-    $iptables -t mangle -D OUTPUT -j XRAY_MARK
-    $iptables -t mangle -F XRAY_MARK
-    $iptables -t mangle -X XRAY_MARK
-    $ip rule del fwmark 1 table 100 priority 1010
-    $iptables -D OUTPUT -p tcp --dport $TUN_PORT -d $TUN_ADDR -m owner --uid-owner 9999-2147483647 -j REJECT --reject-with tcp-reset
-    # IPv4 hotspot
-    $ip rule del pref 5000
-    $ip rule del pref 5010
-    $ip rule del pref 5020
-    $ip rule del pref 5025
-    $ip rule del pref 5026
-    $ip rule del pref 5027
-    $ip rule del pref 5030
-    $ip rule del pref 5040
-    $ip rule del pref 5050
-    $ip rule del pref 6000
-    $iptables -D FORWARD -o $TUN_NAME -j ACCEPT
-    $iptables -D FORWARD -i $TUN_NAME -j ACCEPT
-    $iptables -D PREROUTING -t nat ! -i $TUN_NAME -d 10.0.0.0/8 -p udp --dport 53 -j DNAT --to 1.1.1.1
-    $iptables -D PREROUTING -t nat ! -i $TUN_NAME -d 172.16.0.0/12 -p udp --dport 53 -j DNAT --to 1.1.1.1
-    $iptables -D PREROUTING -t nat ! -i $TUN_NAME -d 192.168.0.0/16 -p udp --dport 53 -j DNAT --to 1.1.1.1
-    $iptables -t mangle -D FORWARD -o $TUN_NAME -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1350
-    # IPv6
-    $ip6tables -t mangle -D OUTPUT -j XRAY_MARK
-    $ip6tables -t mangle -F XRAY_MARK
-    $ip6tables -t mangle -X XRAY_MARK
-    $ip -6 rule del fwmark 1 table 100 priority 1010
-    # IPv6 hotspot
-    $ip6tables -D FORWARD -i $TUN_NAME -j ACCEPT
-    $ip6tables -D FORWARD -o $TUN_NAME -j ACCEPT
-    $ip6tables -t mangle -D PREROUTING -p udp --dport 53 -j MARK --set-xmark 1
-    $ip6tables -t mangle -D PREROUTING -p tcp --dport 53 -j MARK --set-xmark 1
-    $ip6tables -t mangle -D PREROUTING ! -i $TUN_NAME -d ::1/128 -j RETURN
-    $ip6tables -t mangle -D PREROUTING ! -i $TUN_NAME -d fe80::/10 -j RETURN
-    $ip6tables -t mangle -D PREROUTING ! -i $TUN_NAME -d fc00::/7 -j RETURN
-    $ip6tables -t mangle -D PREROUTING ! -i $TUN_NAME -j MARK --set-xmark 1
+    # IPv4 Mangle & Routing
+    $iptables -t mangle -D PREROUTING -j XRAY_PRE 2>/dev/null
+    $iptables -t mangle -D OUTPUT -j XRAY_OUT 2>/dev/null
+    $iptables -t mangle -F XRAY_PRE 2>/dev/null
+    $iptables -t mangle -X XRAY_PRE 2>/dev/null
+    $iptables -t mangle -F XRAY_OUT 2>/dev/null
+    $iptables -t mangle -X XRAY_OUT 2>/dev/null
+    $iptables -D OUTPUT -p tcp --dport $SOCKS_PORT -d $SOCKS_ADDR -m owner --uid-owner 9999-2147483647 -j REJECT --reject-with tcp-reset
+    $ip rule del fwmark $PROXY_MARK table 100 priority 1010 2>/dev/null
+    $ip route flush table 100 2>/dev/null
 
-    # Down the tun device
-    $ip link set dev $TUN_NAME down
+    # IPv6 Mangle & Routing
+    $ip6tables -t mangle -D PREROUTING -j XRAY_PRE 2>/dev/null
+    $ip6tables -t mangle -D OUTPUT -j XRAY_OUT 2>/dev/null
+    $ip6tables -t mangle -F XRAY_PRE 2>/dev/null
+    $ip6tables -t mangle -X XRAY_PRE 2>/dev/null
+    $ip6tables -t mangle -F XRAY_OUT 2>/dev/null
+    $ip6tables -t mangle -X XRAY_OUT 2>/dev/null
+    $ip -6 rule del fwmark $PROXY_MARK table 100 priority 1010 2>/dev/null
+    $ip -6 route flush table 100 2>/dev/null
+    
+    echo "TPROXY Rules Cleared."
 }
 
 mount_proc_with_name() {
@@ -401,34 +384,12 @@ until [ "$(getprop sys.boot_completed)" = "1" ]; do
 done
 sleep 5
 
+# This is for WireGuard to create a virtual tunnel wg0
 if [ ! -e /dev/net/tun ]; then
     mkdir -p /dev/net
     mknod /dev/net/tun c 10 200
     chmod 666 /dev/net/tun
 fi
-
-# Start hev-socks5-tunnel
-cat <<EOF  >"$STUB_DIR/run/tunnel.yml"
-tunnel:
-  name: $TUN_NAME
-  mtu: 8500
-  ipv4: 198.18.0.1
-  ipv6: fdfe:dcba:9876::1
-
-socks5:
-  address: $TUN_ADDR
-  port: $TUN_PORT
-  udp: 'udp'
-  mark: $FWMARK
-
-misc:
-  log-file: stderr
-  log-level: warn
-EOF
-
-"$BINDIR/hev-socks5-tunnel" "$STUB_DIR/run/tunnel.yml" </dev/null &>"$TUN2SOCKS_LOG" &
-TUN2SOCKS_PID=$!
-echo "hev-socks5-tunnel is running with PID $TUN2SOCKS_PID"
 
 if [ -e "$DATADIR/config.json" ]; then
     echo "Restart previous xray on boot"

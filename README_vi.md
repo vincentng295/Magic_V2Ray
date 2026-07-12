@@ -54,7 +54,7 @@ Nếu thiết bị của bạn chưa được root, hoặc bạn đang tìm ki�
 
 Dự án này được xây dựng dựa trên thành quả của những người đi trước. **Magic V2Ray** có sử dụng các file thực thi (binary) được biên dịch sẵn từ các dự án mã nguồn mở sau:
 * **[Xray-core](https://github.com/XTLS/Xray-core):** Lõi hệ thống tối cao cho các mạng proxy thế hệ mới, xử lý các giao thức như VLESS, VMess, Trojan kết hợp với cơ chế giải mã gói tin (sniffing) linh hoạt.
-* **[hev-socks5-tunnel](https://github.com/heiher/hev-socks5-tunnel):** Công cụ hiệu năng cao được sử dụng để bọc các kênh inbound SOCKS5/HTTP vào một giao diện mạng ảo TUN native của Linux.
+* ~**[hev-socks5-tunnel](https://github.com/heiher/hev-socks5-tunnel):** Công cụ hiệu năng cao được sử dụng để bọc các kênh inbound SOCKS5/HTTP vào một giao diện mạng ảo TUN native của Linux.~
 * **[curl-android](https://github.com/vvb2060/curl-android):** curl tool and libcurl static library prefab for android
 
 ## Giấy phép (License)
