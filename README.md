@@ -20,13 +20,27 @@ It comes with a clean Web UI where you can easily organize your proxy configurat
 
 If you are used to standard V2Ray apps (like v2rayNG, Matsuri, Nekobox), here is why Magic V2Ray is a game-changer:
 
-- **Immortal System-Wide Coverage:** Standard apps run in user-space via Android's native `VPNService` API and get easily killed by Android's aggressive memory management (Low Memory Killer) when RAM is tight, dropping your connection or leaking your real IP. Magic V2Ray operates with Root/Kernel privileges, running silently and invincibly as a system daemon that the OS cannot kill.
-- **The Power of Core Routing:** Standard VPN apps force all traffic through a virtual network interface (`tun0`), creating a software bottleneck that increases ping and context-switching overhead. Magic V2Ray uses native Linux kernel routing (`iptables` / `ip rule` / `TPROXY`), intercepting network packets right at the core level. This leads to blazing-fast throughput and desktop-grade lower latency.
-- **Performance & Battery Optimization:**
-  + **Zero-Copy Context Switching:** Standard apps rely on Android’s `VpnService` API, forcing network packets to travel from the Application $\rightarrow$ Linux Kernel $\rightarrow$ copied up to the Java User-space (VPN App) $\rightarrow$ processed and thrown back down to the Kernel. This continuous context switching between Kernel and User-space consumes massive CPU cycles. Magic V2Ray uses Root privileges to interact directly with the Linux network stack (`iptables` / `ip rule`). Packets go straight from the App $\rightarrow$ routed by the Kernel natively into Xray $\rightarrow$ out to the Internet. The entire routing process happens at the native binary level, completely bypassing Android's heavy Java overhead.
-  + **No Single-Queue Bottleneck:** Android's `VpnService` manages all application traffic through a single, system-allocated queue. Under heavy load (e.g., streaming 4K video while downloading), this Java-managed queue quickly bottlenecks. Magic V2Ray splits traffic efficiently at the Netfilter/Mangle layer based on specific application profiles, unleashing packets the millisecond they are generated and unlocking maximum bandwidth.
-  + **Optimized Packet Handling:** Without a virtual VPN wrapper, connection latency (Ping) and initial TCP Handshake times are slashed by several milliseconds. Packets travel directly without being fragmented or bloated by the Android framework's VPN management headers.
-- **Seamless Dynamic Reconnects:** Instantly detects when you switch between Wi-Fi and 4G/5G, hot-reloading the firewall routing rules directly in the kernel without the typical 5-to-10 second connection freeze found in standard user-space VPN apps.
+- **Immortal System-Wide Coverage:** Standard apps run in user-space via Android's native `VpnService` API and get easily killed by Android's aggressive memory management (Low Memory Killer) when RAM is tight, dropping your connection or leaking your real IP. Magic V2Ray operates with Root privileges, running as a system daemon that the OS does not kill under memory pressure.
+- **Reaches traffic `VpnService` cannot:** A `VpnService` app only sees traffic from UIDs the framework routes to it. Magic V2Ray marks packets at the Netfilter layer, so it can also cover system UIDs, and it does not consume the single system-wide VPN slot — no conflict with a per-app VPN, and no persistent VPN key icon in the status bar.
+- **Native Hotspot / Tethering Support:** `VpnService` cannot carry tethered clients, because Android forwards their traffic outside the VPN's namespace. Magic V2Ray intercepts it at `PREROUTING` and policy-routes it into the same tunnel, so devices sharing your hotspot get the proxied connection too. See *LAN Gateway Sharing* below.
+- **Seamless Dynamic Reconnects:** Detects Wi-Fi ↔ 4G/5G handovers from kernel routing events (`ip monitor`) rather than polling, and re-applies the routing marks without waiting for a timeout.
+- **Universal Root Support:** Works across Magisk, KernelSU, and APatch.
+
+### A note on performance
+
+Earlier versions of this README claimed "zero-copy" operation, `TPROXY` routing, and lower latency than `VpnService` apps. **Those claims were not accurate and have been removed.**
+
+What actually happens today is:
+
+```
+app → kernel → xraytun0 (TUN) → hev-socks5-tunnel → SOCKS5 over loopback → Xray → internet
+```
+
+That is *two* user-space hops, not zero — a `VpnService` app has one. `TPROXY` is not used anywhere in the codebase. Expect throughput and latency broadly **comparable** to a well-implemented `VpnService` client, not dramatically better.
+
+The real reasons to use this module are the ones listed above: it survives low-memory kills, it covers UIDs a `VpnService` cannot, it shares to tethered devices, and it leaves the VPN slot free.
+
+A genuine `TPROXY` mode — which would remove the `hev-socks5-tunnel` hop and make the original claim true — is tracked as future work. It requires `xt_TPROXY` and `IP_TRANSPARENT` kernel support, which not every Android kernel ships, so it would land as an opt-in mode with automatic fallback.
 - **Built-in Smart Hotspot Sharing:** Standard VPN apps fail to share proxy connections via Wi-Fi Hotspot because Android routes tethered traffic through a separate network namespace that bypasses the `VpnService`. Magic V2Ray natively intercepts hotspot traffic at the Netfilter layer (`PREROUTING`). It injects custom `iptables`/`ip6tables` and `ip rule` structures to seamlessly force connected clients into the `xraytun0` core, allowing you to share your bypassed 4G/5G connection without any extra tethering apps.
 - **Universal Root Support:** Works flawlessly out-of-the-box across Magisk, KernelSU, and APatch, fitting perfectly into modern Android root environments.
 
