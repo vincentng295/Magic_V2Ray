@@ -10,7 +10,6 @@
 # Nothing else may write to stdout.
 
 MODDIR=${0%/*}
-BINDIR="$MODDIR/bin"
 DATADIR="/data/adb/magic_v2ray"
 STUB_DIR=/dev/sysctl_stubs
 RUN_DIR="$STUB_DIR/run"
@@ -31,11 +30,6 @@ exec 2>>"$LOG_FILE"
 if [ "$(sed -n 's/^debug=//p' "$MODDIR/module.prop" 2>/dev/null | head -n 1)" = "1" ]; then
     set -x
 fi
-
-# Always using system binaries for critical operations to ensure compatibility
-ip="/system/bin/ip"
-iptables="/system/bin/iptables"
-ip6tables="/system/bin/ip6tables"
 
 # --- FIFO plumbing ---------------------------------------------------------
 

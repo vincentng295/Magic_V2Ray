@@ -54,7 +54,6 @@ PIDFILE="$RUN_DIR/xray.pid"
 TIME_RES_FILE="$RUN_DIR/time_res"
 ADDR_INFO_FILE="$RUN_DIR/addr_info"
 LATENCY_HB_FILE="$RUN_DIR/latency.hb"
-SYSCTL_BAK="$RUN_DIR/sysctl.bak"
 PIPE_FILE="$RUN_DIR/control.pipe"
 IFACE_EVENT_PIPE="$RUN_DIR/iface_events.pipe"
 IFACE_MON_CHILD="$RUN_DIR/iface_monitor_child.pid"
@@ -159,7 +158,9 @@ mount_proc_with_name() {
     # never tracked: status read "crashed" forever, Start spawned untracked
     # duplicates, and Stop killed nothing.
     umount -l "$PROC_DIR/$name" 2>/dev/null
-    rm -rf "$PROC_DIR/$name" 2>/dev/null
+    # ${var:?} aborts instead of silently expanding to "/name" or "/" if
+    # either half of the path were ever empty/unset.
+    rm -rf "${PROC_DIR:?}/${name:?}" 2>/dev/null
 
     mkdir -p "$PROC_DIR/$name"
     if mount --bind "/proc/$pid" "$PROC_DIR/$name"; then
@@ -173,7 +174,9 @@ mount_proc_with_name() {
 umount_proc_with_name() {
     local name="$1"
     umount -l "$PROC_DIR/$name" 2>/dev/null
-    rm -rf "$PROC_DIR/$name" 2>/dev/null
+    # ${var:?} aborts instead of silently expanding to "/name" or "/" if
+    # either half of the path were ever empty/unset.
+    rm -rf "${PROC_DIR:?}/${name:?}" 2>/dev/null
 }
 
 is_proc_running() {
@@ -384,6 +387,12 @@ monitor_net_interfaces() {
         # Coalesce the burst: keep reading until the stream is quiet for 1s,
         # or until we have absorbed a reasonable number of messages.
         drained=0
+        # shellcheck disable=SC3045
+        # `read -t` is not in dash, which is what this repo's CI checks
+        # against for stricter portability signal — but this script's actual
+        # shebang target is /system/bin/sh, i.e. Android's mksh, which does
+        # support -t. Losing the debounce entirely (see the block comment at
+        # the top of monitor_net_interfaces) is worse than this dash gap.
         while [ "$drained" -lt 200 ] && read -r -t 1 line; do
             drained=$((drained + 1))
         done

@@ -52,24 +52,14 @@ jobs:
             node --check "$f"
           done
 
+      # Kept as a standalone file (rather than an inline `node -e '...'`) so
+      # the exact script CI runs can also be run locally: `node
+      # .github/scripts/check-i18n.js`. An earlier inline version had to dodge
+      # the outer single-quoted shell string by using `.` in place of a real
+      # quote character in its key-matching regex, which over-matched and
+      # produced false "missing key" failures.
       - name: i18n completeness
-        run: |
-          node -e '
-            const fs=require("fs");
-            const i18n=eval("(function(){"+fs.readFileSync("webroot/i18n.js","utf8")+"; return i18n;})()");
-            const src=fs.readFileSync("webroot/main.js","utf8")+fs.readFileSync("webroot/index.html","utf8");
-            const used=new Set();
-            for(const m of src.matchAll(/\bt\(\s*.([a-zA-Z0-9_]+)./g)) used.add(m[1]);
-            for(const m of src.matchAll(/data-i18n(?:-placeholder)?="([a-zA-Z0-9_]+)"/g)) used.add(m[1]);
-            const langs=Object.keys(i18n);
-            let bad=0;
-            for(const k of used){
-              const miss=langs.filter(l=>!(k in i18n[l]));
-              if(miss.length){ console.log("::error::i18n key \""+k+"\" missing in: "+miss.join(", ")); bad++; }
-            }
-            if(bad) process.exit(1);
-            console.log("i18n OK: "+used.size+" keys x "+langs.length+" languages");
-          '
+        run: node .github/scripts/check-i18n.js
 
       # The root exec bridge runs whatever string these files build, so a
       # regression that puts untrusted text back into a command is a root RCE.
