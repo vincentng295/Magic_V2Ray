@@ -1,2 +1,22 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Scripts and the Web UI are executed on Android. A CRLF line ending breaks
+# the shebang ("/system/bin/sh^M: not found") and corrupts heredocs, so these
+# are pinned to LF regardless of the checkout platform.
+*.sh        text eol=lf
+*.js        text eol=lf
+*.html      text eol=lf
+*.css       text eol=lf
+*.yml       text eol=lf
+module.prop text eol=lf
+META-INF/com/google/android/update-binary  text eol=lf
+META-INF/com/google/android/updater-script text eol=lf
+
+# Prebuilt binaries and databases must never be touched by EOL conversion.
+bin/arm64-v8a/*  binary
+bin/x86_64/*     binary
+bin/*.dat        binary
+*.jpg            binary
+*.png            binary
+*.zip            binary

@@ -8,6 +8,10 @@ const IP_HUNT_FILE = `${DATADIR}/ip_hunt.list`;
 const STUB_DIR = "/dev/sysctl_stubs";
 const TIME_RES_FILE = `${STUB_DIR}/run/time_res`;
 const ADDR_INFO_FILE = `${STUB_DIR}/run/addr_info`;
+// Refreshed by the UI while the Latency tab is visible. The backend probe
+// loop exits on its own once this stops being updated, so closing the WebUI
+// can no longer leave a per-second curl running until reboot.
+const LATENCY_HB_FILE = `${STUB_DIR}/run/latency.hb`;
  
 let profiles = {};
 let activeConfig = null;
@@ -140,8 +144,12 @@ let _logCurrentFilter = 'all';
 let _logLastLineCount = 0;
 let _logAllLines = [];
 
-// Network latency monitor
+// Network latency monitor.
+// Poll cadence matches the backend probe interval (service.sh
+// LATENCY_INTERVAL) — there is nothing new to read between probes, so a
+// faster poll was pure wakeup cost.
 const LATENCY_MAX_SAMPLES = 60;
+const LATENCY_POLL_MS = 2000;
 let _latencyPollTimer = null;
 let _latencySamples = [];
 

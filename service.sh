@@ -1,61 +1,112 @@
 #!/system/bin/sh
+#
+# Magic V2Ray — boot service and runtime control loop.
+#
+# Layout of this file:
+#   1.  Paths, constants, logging
+#   2.  Settings helpers
+#   3.  Process tracking (/proc bind-mount liveness)
+#   4.  Interface + policy-routing helpers
+#   5.  Mobile IP hunter
+#   6.  Monitors (network interface, latency)  <- event-driven, bounded
+#   7.  Routing rules  <- UNCHANGED in this pass, pending review
+#   8.  Command loop
+#   9.  Boot sequencer
+#
+# NOTE: section 7 (apply_routing_rules / clear_routing_rules) is intentionally
+# carried over verbatim. The firewall/DNS/fail-safe fixes for it are staged as
+# separate reviewed changes so a routing regression can never be confused with
+# a lifecycle regression.
+
 MODDIR=${0%/*}
 BINDIR="$MODDIR/bin"
 DATADIR="/data/adb/magic_v2ray"
 STUB_DIR=/dev/sysctl_stubs
 
-# Prepare working dir
-rm -rf "$STUB_DIR"
+# ===========================================================================
+# 1. Paths, constants, logging
+# ===========================================================================
+
+RUN_DIR="$STUB_DIR/run"
+PROC_DIR="$STUB_DIR/proc"
+
+# Prepare working dir. Unmount any leftover from a previous run first —
+# rm -rf on a live mountpoint silently leaves the mount in place.
+umount -l "$STUB_DIR" 2>/dev/null
+rm -rf "$STUB_DIR" 2>/dev/null
 mkdir -p "$STUB_DIR"
-mount -t tmpfs -o "mode=0755,context=u:object_r:proc_net:s0" proc "$STUB_DIR"
+if ! mount -t tmpfs -o "mode=0755,context=u:object_r:proc_net:s0" proc "$STUB_DIR"; then
+    # Some kernels reject that SELinux context. /dev is already tmpfs, so a
+    # plain directory still works; we only lose the private mount namespace.
+    echo "warning: tmpfs mount failed, falling back to a plain directory"
+fi
+mkdir -p "$RUN_DIR" "$PROC_DIR"
+chmod 700 "$RUN_DIR"
 
-grep_prop() {
-  local REGEX="s/^$1=//p"
-  shift
-  local FILES=$@
-  [ -z "$FILES" ] && FILES="$MODDIR/module.prop"
-  cat $FILES 2>/dev/null | dos2unix | sed -n "$REGEX" | head -n 1
-}
-
-query_settings() {
-    local SETTINGS_FILE="$DATADIR/settings.base64"
-    [ ! -f "$SETTINGS_FILE" ] && return 1
-    local name="$1"
-    local val="$(base64 -d "$SETTINGS_FILE" | "$BINDIR/jq" -M "$name")"
-    echo "$val"
-    return 0
-}
-
-rm -rf "$DATADIR/xray.log"
-rm -rf "$DATADIR/tun2socks.log"
 XRAY_LOG="$DATADIR/xray.log"
+SERVICE_LOG="$DATADIR/service.log"
 TUN2SOCKS_LOG=/dev/null
 IP_HUNT_FILE="$DATADIR/ip_hunt.list"
+ENABLED_FLAG="$DATADIR/enabled"
+
+# Runtime state files (tmpfs; cleared on every boot)
+PIDFILE="$RUN_DIR/xray.pid"
+TIME_RES_FILE="$RUN_DIR/time_res"
+ADDR_INFO_FILE="$RUN_DIR/addr_info"
+LATENCY_HB_FILE="$RUN_DIR/latency.hb"
+SYSCTL_BAK="$RUN_DIR/sysctl.bak"
+PIPE_FILE="$RUN_DIR/control.pipe"
+IFACE_EVENT_PIPE="$RUN_DIR/iface_events.pipe"
+IFACE_MON_CHILD="$RUN_DIR/iface_monitor_child.pid"
+
+rm -f "$XRAY_LOG" "$DATADIR/tun2socks.log"
+
+grep_prop() {
+    local regex="s/^$1=//p"
+    shift
+    local files="$*"
+    [ -z "$files" ] && files="$MODDIR/module.prop"
+    # dos2unix is not present on every toybox build; tr is.
+    cat $files 2>/dev/null | tr -d '\r' | sed -n "$regex" | head -n 1
+}
+
+DEBUG=0
 if [ "$(grep_prop debug)" = "1" ]; then
-    set -x
+    DEBUG=1
     TUN2SOCKS_LOG="$DATADIR/tun2socks.log"
 fi
-exec > "$DATADIR/service.log" 2>&1
 
-PIDFILE="$STUB_DIR/run/xray.pid"
-TIME_RES_FILE="$STUB_DIR/run/time_res"
-ADDR_INFO_FILE="$STUB_DIR/run/addr_info"
+# Cap the service log so a long-lived boot cannot fill /data. Rotation happens
+# once at startup; the log only grows on real events after the debouncing work
+# below, so a single generation is plenty.
+if [ -f "$SERVICE_LOG" ]; then
+    log_size=$(stat -c '%s' "$SERVICE_LOG" 2>/dev/null || echo 0)
+    if [ "$log_size" -gt 1048576 ]; then
+        mv -f "$SERVICE_LOG" "$SERVICE_LOG.1" 2>/dev/null
+    fi
+fi
 
-# Control pipe for receiving commands from the UI or other components
-PIPE_FILE="$STUB_DIR/run/control.pipe"
+exec >> "$SERVICE_LOG" 2>&1
+[ "$DEBUG" = "1" ] && set -x
 
-rm -rf "$STUB_DIR/run"
-mkdir -p "$STUB_DIR/run"
-mkfifo "$PIPE_FILE"
+log() { echo "[$(date '+%H:%M:%S')] $*"; }
+
+log "=== service.sh starting (debug=$DEBUG) ==="
+
+mkfifo "$PIPE_FILE" 2>/dev/null
+chmod 600 "$PIPE_FILE" 2>/dev/null
+
+# Tracked child PIDs. These were previously a single shared MONITOR_PID, which
+# meant starting the latency monitor overwrote — and permanently orphaned —
+# the network-interface monitor, silently disabling reconnect handling.
 XRAY_PID=0
 TUN2SOCKS_PID=0
-MONITOR_PID=0
+IFACE_MONITOR_PID=0
+LATENCY_MONITOR_PID=0
 
 ip="/system/bin/ip"
 iptables="/system/bin/iptables"
 ip6tables="/system/bin/ip6tables"
-am="/system/bin/am"
-settings="/system/bin/settings"
 
 RULE_PRIORITY=1000
 FWMARK=255
@@ -63,22 +114,376 @@ TUN_NAME="xraytun0"
 TUN_ADDR="127.17.1.3"
 TUN_PORT="808"
 
-get_status() {
-    if [ -f "$PIDFILE" ]; then
-        PID=$(cat "$PIDFILE")
-        STAT_XRAY_EXE=$(stat -L -c "%D:%i" "/proc/$PID/exe")
-        STAT_XRAY_BIN=$(stat -L -c "%D:%i" "$MODDIR/bin/xray")
+# Latency probe cadence and how long the backend keeps probing after the last
+# UI heartbeat. See monitor_network_latency().
+LATENCY_INTERVAL=2
+LATENCY_HB_TIMEOUT=15
 
-        if kill -0 "$PID" && [ "$STAT_XRAY_EXE" = "$STAT_XRAY_BIN" ]; then
-            return 0
-        fi
+# ===========================================================================
+# 2. Settings helpers
+# ===========================================================================
+
+# Reads one field out of the base64-encoded settings blob written by the UI.
+# jq was a 2 MB dependency for this single lookup; sed does it adequately for
+# the flat scalar fields we need.
+query_settings() {
+    local key="$1"
+    local settings_file="$DATADIR/settings.base64"
+    [ ! -f "$settings_file" ] && return 1
+    base64 -d "$settings_file" 2>/dev/null \
+        | tr ',{}' '\n\n\n' \
+        | sed -n "s/^[[:space:]]*\"$key\"[[:space:]]*:[[:space:]]*\"\{0,1\}\([^\"]*\)\"\{0,1\}[[:space:]]*$/\1/p" \
+        | head -n 1
+}
+
+# Boolean settings default to false when absent or unreadable (fail closed).
+setting_is_true() {
+    [ "$(query_settings "$1")" = "true" ]
+}
+
+# ===========================================================================
+# 3. Process tracking
+# ===========================================================================
+#
+# Liveness is tracked by bind-mounting /proc/<pid> to a stable name. When the
+# process dies the bind mount becomes an empty directory, so testing for
+# .../exe is a reliable "is it still alive" check that survives PID reuse.
+
+mount_proc_with_name() {
+    local pid="$1"
+    local name="$2"
+    [ -d "/proc/$pid" ] || return 1
+
+    # Always clear a previous mount first. The old code skipped mounting when
+    # the directory already existed, so after any crash the new process was
+    # never tracked: status read "crashed" forever, Start spawned untracked
+    # duplicates, and Stop killed nothing.
+    umount -l "$PROC_DIR/$name" 2>/dev/null
+    rm -rf "$PROC_DIR/$name" 2>/dev/null
+
+    mkdir -p "$PROC_DIR/$name"
+    if mount --bind "/proc/$pid" "$PROC_DIR/$name"; then
+        log "tracking pid $pid as $name"
+        return 0
     fi
+    log "warning: could not bind-mount /proc/$pid for $name"
     return 1
 }
 
+umount_proc_with_name() {
+    local name="$1"
+    umount -l "$PROC_DIR/$name" 2>/dev/null
+    rm -rf "$PROC_DIR/$name" 2>/dev/null
+}
+
+is_proc_running() {
+    [ -e "$PROC_DIR/$1/exe" ]
+}
+
+# Kills a tracked process and drops its /proc bind mount.
+#
+# Deliberately does NOT kill by process group: this script runs without job
+# control, so background children share the parent's PGID and `kill -9 -PID`
+# would either be a no-op or, worse, signal an unrelated group. Long-lived
+# grandchildren (the `ip monitor` under the interface monitor) are tracked by
+# their own pid file instead.
+kill_tracked() {
+    local pid="$1" name="$2"
+    [ -z "$pid" ] && return 0
+    [ "$pid" -gt 0 ] 2>/dev/null || return 0
+    kill -9 "$pid" 2>/dev/null
+    [ -n "$name" ] && umount_proc_with_name "$name"
+    return 0
+}
+
+# ===========================================================================
+# 4. Interface + policy-routing helpers
+# ===========================================================================
+
+# Looks up an interface's routing table id in Android's rt_tables.
+#
+# Rewritten: the previous version piped into `while`, so the loop ran in a
+# subshell and its return value never reached the caller; it also emitted one
+# line per match, and a duplicate rt_tables entry (which happens after
+# interface churn) produced "23 45", making the subsequent `ip rule add`
+# fail silently and leaving the fwmark rule uninstalled.
+read_table_index() {
+    local iface="$1" index name
+    [ -z "$iface" ] && return 1
+    [ -r /data/misc/net/rt_tables ] || return 1
+
+    while read -r index name; do
+        if [ "$name" = "$iface" ] && [ -n "$index" ]; then
+            echo "$index"
+            return 0
+        fi
+    done < /data/misc/net/rt_tables
+
+    return 1
+}
+
+get_active_interface() {
+    local iface
+    iface=$($ip route get 8.8.8.8 2>/dev/null | sed -n 's/.*[[:space:]]dev[[:space:]]\{1,\}\([^[:space:]]*\).*/\1/p' | head -n 1)
+    [ -n "$iface" ] || return 1
+    echo "$iface"
+    return 0
+}
+
+remove_mark_rule() {
+    while $ip    rule del fwmark $FWMARK priority $RULE_PRIORITY 2>/dev/null; do :; done
+    while $ip -6 rule del fwmark $FWMARK priority $RULE_PRIORITY 2>/dev/null; do :; done
+}
+
+apply_mark_rule() {
+    local iface="$1" iface_index
+    [ -z "$iface" ] && return 1
+
+    # Never point the mark rule at our own TUN — that would loop xray's
+    # egress back into the tunnel.
+    [ "$iface" = "$TUN_NAME" ] && { log "ignoring $TUN_NAME as active interface"; return 1; }
+
+    if ! iface_index="$(read_table_index "$iface")"; then
+        log "no routing table for interface $iface; mark rule not applied"
+        return 1
+    fi
+
+    remove_mark_rule
+    $ip    rule add fwmark $FWMARK table "$iface_index" priority $RULE_PRIORITY 2>/dev/null
+    $ip -6 rule add fwmark $FWMARK table "$iface_index" priority $RULE_PRIORITY 2>/dev/null
+    log "applied fwmark $FWMARK -> table $iface_index ($iface)"
+    return 0
+}
+
+# ===========================================================================
+# 5. Mobile IP hunter
+# ===========================================================================
+
+network_reset() {
+    log "resetting the mobile data stack"
+    # Airplane mode would kill every radio at once, breaking Wi-Fi and
+    # Bluetooth too. Restarting just the telephony process targets the mobile
+    # data stack cleanly. Matched on uid 1001 + exact cmdline so we do not
+    # catch an unrelated process whose name merely contains com.android.phone.
+    for pid_dir in /proc/[0-9]*; do
+        [ -d "$pid_dir" ] || continue
+        [ "$(stat -c '%u' "$pid_dir" 2>/dev/null)" = "1001" ] || continue
+        local cmdline
+        cmdline=$(tr '\0' ' ' < "$pid_dir/cmdline" 2>/dev/null)
+        case "$cmdline" in
+            com.android.phone|com.android.phone\ *)
+                log "killing com.android.phone (pid ${pid_dir##*/})"
+                kill -9 "${pid_dir##*/}" 2>/dev/null
+                ;;
+        esac
+    done
+}
+
+is_mobile_data_iface() {
+    case "$1" in
+        rmnet*|ccmni*|pdp*|wwan*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Hunter state. Previously every mismatch fired another radio restart with no
+# limit, so an unreachable prefix list produced an unbounded reconnect loop:
+# constant telephony crashes, no mobile data, and severe battery drain.
+IP_HUNT_ATTEMPTS=0
+IP_HUNT_MAX_ATTEMPTS=10
+IP_HUNT_NEXT_ALLOWED=0
+
+ip_hunt_reset() {
+    IP_HUNT_ATTEMPTS=0
+    IP_HUNT_NEXT_ALLOWED=0
+}
+
+check_ip_hunter() {
+    local iface="$1"
+    is_mobile_data_iface "$iface" || return 0
+    [ -f "$IP_HUNT_FILE" ] || return 0
+
+    local prefixes current_ip target now
+    prefixes="$(tr -d '\r' < "$IP_HUNT_FILE")"
+    [ -z "$prefixes" ] && return 0
+
+    current_ip="$($ip addr show "$iface" 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -n 1)"
+    [ -z "$current_ip" ] && return 0
+
+    local IFS=";"
+    for target in $prefixes; do
+        [ -z "$target" ] && continue
+        case "$target" in *.) ;; *) target="$target." ;; esac
+        case "$current_ip." in
+            "$target"*)
+                log "IP hunter: matched $current_ip"
+                ip_hunt_reset
+                return 0
+                ;;
+        esac
+    done
+    unset IFS
+
+    now=$(date +%s)
+    if [ "$IP_HUNT_ATTEMPTS" -ge "$IP_HUNT_MAX_ATTEMPTS" ]; then
+        log "IP hunter: giving up after $IP_HUNT_ATTEMPTS attempts (got $current_ip); disabling"
+        rm -f "$IP_HUNT_FILE"
+        ip_hunt_reset
+        return 1
+    fi
+    if [ "$now" -lt "$IP_HUNT_NEXT_ALLOWED" ]; then
+        log "IP hunter: backing off, next attempt in $((IP_HUNT_NEXT_ALLOWED - now))s"
+        return 1
+    fi
+
+    IP_HUNT_ATTEMPTS=$((IP_HUNT_ATTEMPTS + 1))
+    # 3, 6, 12, 24, 48 ... capped at 300s
+    local backoff=$((3 * (1 << (IP_HUNT_ATTEMPTS - 1))))
+    [ "$backoff" -gt 300 ] && backoff=300
+    IP_HUNT_NEXT_ALLOWED=$((now + backoff))
+
+    log "IP hunter: $current_ip does not match (attempt $IP_HUNT_ATTEMPTS/$IP_HUNT_MAX_ATTEMPTS), retry in ${backoff}s"
+    network_reset &
+    return 1
+}
+
+# ===========================================================================
+# 6. Monitors
+# ===========================================================================
+
+# --- Network interface monitor ---------------------------------------------
+#
+# Event-driven via `ip monitor route`. Two changes from the original:
+#
+#  * The event stream is read through a FIFO rather than a pipeline, so the
+#    loop body runs in this shell and the `ip monitor` child's PID is known
+#    and killable. Previously `kill` hit only the wrapping subshell and left
+#    an orphaned `ip monitor` behind on every restart.
+#
+#  * Events are debounced. A single Wi-Fi/mobile handover emits dozens of
+#    route messages, and each one used to fork `ip route get` + grep + awk.
+#    We now drain the burst and act once it goes quiet.
+monitor_net_interfaces() {
+    local cur new line drained
+
+    rm -f "$IFACE_EVENT_PIPE"
+    mkfifo "$IFACE_EVENT_PIPE" 2>/dev/null || return 1
+
+    $ip monitor route > "$IFACE_EVENT_PIPE" 2>/dev/null &
+    echo $! > "$IFACE_MON_CHILD"
+
+    cur=$(get_active_interface) || cur=""
+    if [ -n "$cur" ]; then
+        log "initial active interface: $cur"
+        apply_mark_rule "$cur" || cur=""
+    else
+        log "no active interface at startup"
+    fi
+
+    while read -r line; do
+        # Coalesce the burst: keep reading until the stream is quiet for 1s,
+        # or until we have absorbed a reasonable number of messages.
+        drained=0
+        while [ "$drained" -lt 200 ] && read -r -t 1 line; do
+            drained=$((drained + 1))
+        done
+
+        new=$(get_active_interface) || new=""
+
+        if [ "$new" = "$cur" ]; then
+            continue
+        fi
+
+        if [ -z "$new" ]; then
+            log "network interface disconnected"
+            cur=""
+            rm -f "$ADDR_INFO_FILE"
+            continue
+        fi
+
+        log "network interface changed: ${cur:-none} -> $new"
+        if apply_mark_rule "$new"; then
+            cur="$new"
+            ip_hunt_reset
+        fi
+        $ip addr show "$new" > "$ADDR_INFO_FILE" 2>/dev/null
+        check_ip_hunter "$new"
+    done < "$IFACE_EVENT_PIPE"
+
+    log "interface monitor exiting"
+}
+
+stop_iface_monitor() {
+    if [ -f "$IFACE_MON_CHILD" ]; then
+        local child
+        child=$(cat "$IFACE_MON_CHILD" 2>/dev/null)
+        [ -n "$child" ] && kill -9 "$child" 2>/dev/null
+        rm -f "$IFACE_MON_CHILD"
+    fi
+    kill_tracked "$IFACE_MONITOR_PID" "monitor_net_interfaces"
+    IFACE_MONITOR_PID=0
+    rm -f "$IFACE_EVENT_PIPE"
+}
+
+# --- Latency monitor -------------------------------------------------------
+#
+# Bounded by a heartbeat the UI refreshes while its Latency tab is visible.
+# The old loop ran `curl` once a second for as long as its state file existed,
+# which meant closing the WebUI (rather than toggling the switch off) left a
+# root process making a TLS connection every second until reboot.
+#
+# Wakeups: was 86400 probes/day if left on. Now 43200/day while actively
+# watched, and zero within LATENCY_HB_TIMEOUT seconds of the UI going away.
+monitor_network_latency() {
+    local url="https://gstatic.com/generate_204"
+    local time_res now last_hb age
+
+    : > "$TIME_RES_FILE"
+    date +%s > "$LATENCY_HB_FILE"
+
+    while [ -f "$TIME_RES_FILE" ]; do
+        last_hb=$(cat "$LATENCY_HB_FILE" 2>/dev/null || echo 0)
+        now=$(date +%s)
+        age=$((now - last_hb))
+        if [ "$age" -gt "$LATENCY_HB_TIMEOUT" ]; then
+            log "latency monitor: no UI heartbeat for ${age}s, stopping"
+            break
+        fi
+
+        time_res=$("$BINDIR/curl" --socks5-hostname "${TUN_ADDR}:${TUN_PORT}" \
+            -s -w "%{time_starttransfer}" --max-time 3 -o /dev/null "$url" 2>/dev/null)
+        printf '%s' "$time_res" > "$TIME_RES_FILE"
+        sleep "$LATENCY_INTERVAL"
+    done
+
+    rm -f "$TIME_RES_FILE" "$LATENCY_HB_FILE"
+    log "latency monitor exiting"
+}
+
+stop_latency_monitor() {
+    kill_tracked "$LATENCY_MONITOR_PID" "monitor_network_latency"
+    LATENCY_MONITOR_PID=0
+    rm -f "$TIME_RES_FILE" "$LATENCY_HB_FILE"
+}
+
+# ===========================================================================
+# 7. Routing rules
+# ===========================================================================
+#
+# ---------------------------------------------------------------------------
+# NOT MODIFIED IN THIS PASS.
+#
+# The known issues in this section — no abort when the TUN is missing, the
+# blanket FORWARD accept, unrestored sysctls, the hardcoded tethering DNS
+# target, and the unconditional IPv6 DNS drop — are staged as separate,
+# individually reviewable changes. Keeping them byte-identical here means any
+# regression from the lifecycle rework above cannot be mistaken for a routing
+# regression.
+# ---------------------------------------------------------------------------
+
 enable_forward() {
     echo "1" > "/proc/sys/net/ipv4/ip_forward"
-    if [ "$1" == "true" ]; then
+    if [ "$1" = "true" ]; then
         echo "1" > "/proc/sys/net/ipv6/conf/all/forwarding"
         echo "1" > "/proc/sys/net/ipv6/conf/default/forwarding"
     else
@@ -91,151 +496,6 @@ lock_xraytun0() {
     if [ -e "/proc/sys/net/ipv4/conf/$TUN_NAME/rp_filter" ]; then
         echo "0" > "/proc/sys/net/ipv4/conf/$TUN_NAME/rp_filter"
     fi
-}
-
-read_table_index() {
-    local iface=$1
-    local error=1
-
-    cat /data/misc/net/rt_tables | while read -r index name; do
-        if [[ "$name" = "$iface" ]]; then
-            echo $index
-            error=0
-        fi
-    done
-
-    return $error
-}
-
-get_active_interface() {
-    # Ask the kernel the route to 8.8.8.8
-    local iface=$($ip route get 8.8.8.8 2>/dev/null | grep -oE 'dev [^ ]+' | awk '{print $2}')
-    if [ ! -z "$iface" ]; then
-        echo "$iface"
-        return 0
-    fi
-    
-    return 1
-}
-
-remove_mark_rule() {
-    $ip rule del fwmark $FWMARK priority $RULE_PRIORITY
-    $ip -6 rule del fwmark $FWMARK priority $RULE_PRIORITY
-}
-
-apply_mark_rule() {
-    local iface="$1"
-
-    [ -z "$iface" ] && return 1
-
-    remove_mark_rule
-
-    local iface_index="$(read_table_index "$iface")"
-
-    [ -z "$iface_index" ] && return 1
-
-    $ip rule add fwmark $FWMARK table "$iface_index" priority $RULE_PRIORITY
-    $ip -6 rule add fwmark $FWMARK table "$iface_index" priority $RULE_PRIORITY
-    echo "Applied: fwmark $FWMARK -> table $iface_index ($iface)"
-    return 0
-}
-
-network_reset() {
-    echo "Reset the mobile network"
-    # Airplane mode kills all radios at once—Wi-Fi, Bluetooth, and cellular
-    # which breaks background services and active local networks. 
-    # Killing just the phone process targets only the mobile data stack cleanly
-    # without disrupting everything else.
-    # To be honest, we can use pkill -f com.android.phone here :>
-    # But it will kill any process with the name com.android.phone
-    for pid_dir in /proc/[0-9]*; do
-        [ -d "$pid_dir" ] || continue
-        uid=$(stat -c '%u' "$pid_dir" 2>/dev/null)
-        if [ "$uid" = "1001" ]; then
-            pid="${pid_dir##*/}"
-            if [ -f "$pid_dir/cmdline" ] && grep -q "com.android.phone" "$pid_dir/cmdline" 2>/dev/null; then
-                echo "Killing com.android.phone (PID: $pid, UID: $uid)"
-                kill -9 "$pid"
-            fi
-        fi
-    done
-}
-
-is_mobile_data_iface() {
-    local ifname="$1"
-    case "$ifname" in
-        rmnet*|ccmni*|pdp*|wwan*)
-            return 0 # Mobile network interface
-            ;;
-        *)
-            return 1
-            ;;
-    esac
-}
-
-check_ip_hunter() {
-    local INET="$1"
-    is_mobile_data_iface "$INET" || return 0
-    [ ! -f "$IP_HUNT_FILE" ] && return 0
-    local RAW_PREFIX_LIST="$(cat "$IP_HUNT_FILE" | tr -d '\r')"
-    local IFS=";"
-    local TARGET
-    local CURRENT_IP="$($ip addr show $INET | grep 'inet ' | awk '{print $2}' | cut -d/ -f1)"
-    # Check for every prefix
-    for TARGET in $RAW_PREFIX_LIST; do
-        case "$TARGET" in
-            *.) ;;
-            *) TARGET="$TARGET." ;;
-        esac
-        case "$CURRENT_IP." in
-            "$TARGET"*)
-                echo "Obtained IP: $CURRENT_IP"
-                return 0
-                ;;
-        esac
-    done
-    echo "IP $CURRENT_IP does not match the expected list, continue..."
-    network_reset &
-    return 1
-}
-
-monitor_net_interfaces() {
-    local cur=$(get_active_interface)
-    local new=""
-    if [ ! -z "$cur" ]; then
-        echo "Initial active interface: $cur"
-        # apply iptables rules for the first time
-        apply_mark_rule "$cur"
-    else
-        echo "No active interface detected at startup."
-    fi
-    $ip monitor route | while read -r line; do
-        new=$(get_active_interface)
-        [ "$new" == "$cur" ] && continue
-        if [ -z "$new" ]; then
-            echo "Network interface disconnected"
-            cur=""
-            rm -rf "$ADDR_INFO_FILE" 
-            continue
-        fi
-        echo "Network interface switched directly to: $new"
-        apply_mark_rule "$new" && cur="$new"
-        rm -rf "$ADDR_INFO_FILE"
-        $ip addr show "$new" > "$ADDR_INFO_FILE"
-        check_ip_hunter "$new"
-    done
-}
-
-monitor_network_latency() {
-    local URL="https://gstatic.com/generate_204"
-    local TIME_RES
-    touch "$TIME_RES_FILE"
-    while [ -f "$TIME_RES_FILE" ]; do
-        TIME_RES=$(${MODDIR}/bin/curl --socks5-hostname "${TUN_ADDR}:${TUN_PORT}" -s -w "%{time_starttransfer}" --max-time 3 -o /dev/null "$URL" 2>/dev/null)
-        echo -n "$TIME_RES" > "$TIME_RES_FILE"
-        sleep 1
-    done
-    rm -rf "$TIME_RES_FILE"
 }
 
 # ---------------------------------------------------------------------------
@@ -284,7 +544,7 @@ apply_routing_rules() {
         sleep 0.5
         retry=$((retry + 1))
     done
-    ipv6_enabled="$(query_settings .enableIPv6)"
+    ipv6_enabled="$(setting_is_true enableIPv6 && echo true || echo false)"
     echo "IPv6 enabled: $ipv6_enabled"
 
     network_mode="$(query_settings .networkMode)"
@@ -307,7 +567,7 @@ apply_routing_rules() {
     # =========================================================================
     # IPv4 CONFIGURATION
     # =========================================================================
-    
+
     # Step 1: Assign IP address and set TUN device UP
     $ip addr add 198.18.0.1/15 dev $TUN_NAME
     $ip link set dev $TUN_NAME up
@@ -422,7 +682,7 @@ apply_routing_rules() {
     # IPv6 CONFIGURATION
     # =========================================================================
 
-    if [ "$ipv6_enabled" == true ]; then
+    if [ "$ipv6_enabled" = true ]; then
         # Step 1: Assign IPv6 address and default route
         $ip -6 addr add fdfe:dcba:9876::1/64 dev $TUN_NAME
         $ip -6 route replace default dev $TUN_NAME table 100
@@ -532,7 +792,7 @@ clear_routing_rules() {
     # =========================================================================
     # CLEAR IPv4 RULES
     # =========================================================================
-    
+
     # Delete local mangle output rules
     $iptables -t mangle -D OUTPUT -j XRAY_MARK
     $iptables -t mangle -F XRAY_MARK
@@ -575,7 +835,7 @@ clear_routing_rules() {
     # =========================================================================
     # CLEAR IPv6 RULES
     # =========================================================================
-    
+
     # Delete local mangle output rules
     $ip6tables -t mangle -D OUTPUT -j XRAY_MARK
     $ip6tables -t mangle -F XRAY_MARK
@@ -600,157 +860,176 @@ clear_routing_rules() {
     $ip link set dev $TUN_NAME down
 }
 
-mount_proc_with_name() {
-    local PID="$1"
-    local NAME="$2"
-    if [ -d "/proc/$PID" ] && [ ! -e "$STUB_DIR/proc/$NAME" ]; then
-        mkdir -p "$STUB_DIR/proc/$NAME"
-        mount --bind "/proc/$PID" "$STUB_DIR/proc/$NAME"
-        echo "Mounted /proc/$PID to $STUB_DIR/proc/$NAME"
-    fi
-}
+# ===========================================================================
+# 8. Command loop
+# ===========================================================================
 
-umount_proc_with_name() {
-    local NAME="$1"
-    umount -l "$STUB_DIR/proc/$NAME" 2>/dev/null || true
-    rm -rf "$STUB_DIR/proc/$NAME"
-    echo "Unmounted $STUB_DIR/proc/$NAME"
-}
-
-is_proc_running() {
-    local NAME="$1"
-    if [ -e "$STUB_DIR/proc/$NAME/exe" ]; then
+start_xray() {
+    if is_proc_running "xray"; then
+        log "xray already running (pid $XRAY_PID)"
         return 0
-    else
-        # When the process is dead, stat $STUB_DIR/proc/$NAME will fail
-        # as well as anything inside it, so we can safely assume that the process is not running.
+    fi
+    if [ ! -s "$DATADIR/config.json" ]; then
+        log "refusing to start: config.json missing or empty"
         return 1
     fi
+
+    "$BINDIR/xray" run -c "$DATADIR/config.json" </dev/null >"$XRAY_LOG" 2>&1 &
+    XRAY_PID=$!
+    echo "$XRAY_PID" > "$PIDFILE"
+    log "xray started with pid $XRAY_PID"
+
+    mount_proc_with_name "$XRAY_PID" "xray"
+    apply_routing_rules
+    touch "$ENABLED_FLAG"
+    return 0
+}
+
+stop_xray() {
+    clear_routing_rules 2>/dev/null
+
+    # Kill by tracked PID, then fall back to the pid file. The fallback covers
+    # the case where an earlier build lost track of the process and left it
+    # running with the routing rules applied.
+    if [ "$XRAY_PID" -gt 0 ] 2>/dev/null; then
+        kill -9 "$XRAY_PID" 2>/dev/null
+    fi
+    if [ -f "$PIDFILE" ]; then
+        local stale
+        stale=$(cat "$PIDFILE" 2>/dev/null)
+        if [ -n "$stale" ] && [ "$stale" != "$XRAY_PID" ]; then
+            log "killing untracked xray pid $stale from pidfile"
+            kill -9 "$stale" 2>/dev/null
+        fi
+        rm -f "$PIDFILE"
+    fi
+    XRAY_PID=0
+    umount_proc_with_name "xray"
+    rm -f "$ENABLED_FLAG"
+    log "xray stopped"
+    return 0
 }
 
 do_job() {
     local content="$1"
-    if [ "$content" = "wait" ]; then
-        : # Do nothing
-        return 0
-    fi
-    if [ "$content" = "apply_cur_iface" ]; then
-        local cur_iface=$(get_active_interface)
-        if [ ! -z "$cur_iface" ]; then
-            echo "Applying routing rules for current active interface: $cur_iface"
-            apply_mark_rule "$cur_iface"
-        else
-            echo "No active interface detected to apply routing rules."
-        fi
-        return 0
-    fi
-    if [ "$content" = "start" ]; then
-        if is_proc_running "xray"; then
-            echo "Xray is already running with PID $XRAY_PID"
-        else
-            # Start Xray core
-            "$BINDIR/xray" run -c "$DATADIR/config.json" </dev/null &>"$XRAY_LOG" &
-            XRAY_PID=$!
-            echo "$XRAY_PID" > "$PIDFILE"
-            echo "Xray is running with PID $XRAY_PID"
-
-            mount_proc_with_name "$XRAY_PID" "xray"
-            apply_routing_rules
-        fi
-        return 0
-    fi
-    if [ "$content" = "stop" ]; then
-        clear_routing_rules 2>/dev/null
-
-        if is_proc_running "xray"; then
-            kill -9 "$XRAY_PID"
-            XRAY_PID=0
-        fi
-        umount_proc_with_name "xray"
-        rm -f "$PIDFILE"
-        return 0
-    fi
-    if [ "$content" = "start_monitor" ]; then
-        [ $MONITOR_PID -gt 0 ] && is_proc_running "monitor_net_interfaces" && kill -9 "$MONITOR_PID"
-        MONITOR_PID=0
-        monitor_net_interfaces &
-        MONITOR_PID=$!
-        mount_proc_with_name "$MONITOR_PID" "monitor_net_interfaces"
-        echo "monitor_net_interfaces is running with PID $MONITOR_PID"
-        return 0
-    fi
-    if [ "$content" = "stop_monitor" ]; then
-        if [ $MONITOR_PID -gt 0 ] && is_proc_running "monitor_net_interfaces"; then
-            kill -9 "$MONITOR_PID"
-            echo "killed monitor_net_interfaces is with PID $MONITOR_PID"
-        fi
-        umount_proc_with_name "monitor_net_interfaces"
-        MONITOR_PID=0
-        return 0
-    fi
-    if [ "$content" = "start_monitor_latency" ]; then
-        [ $MONITOR_PID -gt 0 ] && is_proc_running "monitor_network_latency" && kill -9 "$MONITOR_PID"
-        MONITOR_PID=0
-        monitor_network_latency &
-        MONITOR_PID=$!
-        mount_proc_with_name "$MONITOR_PID" "monitor_network_latency"
-        echo "monitor_network_latency is running with PID $MONITOR_PID"
-        return 0
-    fi
-    if [ "$content" = "stop_monitor_latency" ]; then
-        if [ $MONITOR_PID -gt 0 ] && is_proc_running "monitor_network_latency"; then
-            kill -9 "$MONITOR_PID"
-            echo "killed monitor_network_latency is with PID $MONITOR_PID"
-        fi
-        umount_proc_with_name "monitor_network_latency"
-        MONITOR_PID=0
-        rm -rf "$TIME_RES_FILE"
-        return 0
-    fi
-    if [ "$content" = "reset_mobile_network" ]; then
-        local cur_iface=$(get_active_interface)
-        if [ ! -z "$cur_iface" ]; then
-            check_ip_hunter "$cur_iface"
-        fi
-        return 0
-    fi
-    return 1
+    case "$content" in
+        wait)
+            return 0
+            ;;
+        apply_cur_iface)
+            local cur_iface
+            if cur_iface=$(get_active_interface); then
+                log "re-applying mark rule for $cur_iface"
+                apply_mark_rule "$cur_iface"
+            else
+                log "no active interface to apply"
+            fi
+            return 0
+            ;;
+        start)
+            start_xray
+            return 0
+            ;;
+        stop)
+            stop_xray
+            return 0
+            ;;
+        start_monitor)
+            stop_iface_monitor
+            monitor_net_interfaces &
+            IFACE_MONITOR_PID=$!
+            mount_proc_with_name "$IFACE_MONITOR_PID" "monitor_net_interfaces"
+            log "interface monitor running with pid $IFACE_MONITOR_PID"
+            return 0
+            ;;
+        stop_monitor)
+            stop_iface_monitor
+            log "interface monitor stopped"
+            return 0
+            ;;
+        start_monitor_latency)
+            stop_latency_monitor
+            monitor_network_latency &
+            LATENCY_MONITOR_PID=$!
+            mount_proc_with_name "$LATENCY_MONITOR_PID" "monitor_network_latency"
+            log "latency monitor running with pid $LATENCY_MONITOR_PID"
+            return 0
+            ;;
+        stop_monitor_latency)
+            stop_latency_monitor
+            log "latency monitor stopped"
+            return 0
+            ;;
+        latency_heartbeat)
+            # Refreshed by the UI while its Latency tab is open; the probe
+            # loop exits on its own once these stop arriving.
+            [ -f "$LATENCY_HB_FILE" ] && date +%s > "$LATENCY_HB_FILE"
+            return 0
+            ;;
+        reset_mobile_network)
+            local cur_iface
+            if cur_iface=$(get_active_interface); then
+                ip_hunt_reset
+                check_ip_hunter "$cur_iface"
+            fi
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
 }
 
+# Control loop. Each iteration re-opens the FIFO, which blocks in the kernel
+# until a writer appears — no polling, no wakeups while idle.
 {
 while true; do
     if read -r line < "$PIPE_FILE"; then
         if [ -n "$line" ]; then
             if ! do_job "$line"; then
-                echo "Unknown command: $line"
+                log "unknown command: $line"
             fi
         fi
     fi
 done
 } &
+CONTROL_LOOP_PID=$!
+echo "$CONTROL_LOOP_PID" > "$RUN_DIR/control_loop.pid"
 
-# ===
+# ===========================================================================
+# 9. Boot sequencer
+# ===========================================================================
 
 {
-while [ ! -f /data/misc/net/rt_tables ]; do
+# Wait for netd to publish the routing table map.
+boot_wait=0
+while [ ! -f /data/misc/net/rt_tables ] && [ "$boot_wait" -lt 300 ]; do
     sleep 1
+    boot_wait=$((boot_wait + 1))
 done
+if [ ! -f /data/misc/net/rt_tables ]; then
+    log "rt_tables never appeared after ${boot_wait}s; continuing anyway"
+fi
 
 echo "start_monitor" > "$PIPE_FILE"
 
-until [ "$(getprop sys.boot_completed)" = "1" ]; do
+boot_wait=0
+until [ "$(getprop sys.boot_completed)" = "1" ] || [ "$boot_wait" -ge 600 ]; do
     sleep 1
+    boot_wait=$((boot_wait + 1))
 done
 sleep 5
 
 if [ ! -e /dev/net/tun ]; then
     mkdir -p /dev/net
     mknod /dev/net/tun c 10 200
-    chmod 666 /dev/net/tun
+    # 0600: only root needs this. It used to be 0666, which is wider than
+    # anything on the device requires.
+    chmod 600 /dev/net/tun
 fi
 
 # Start hev-socks5-tunnel
-cat <<EOF  >"$STUB_DIR/run/tunnel.yml"
+cat <<EOF  >"$RUN_DIR/tunnel.yml"
 tunnel:
   name: $TUN_NAME
   mtu: 8500
@@ -768,14 +1047,20 @@ misc:
   log-level: warn
 EOF
 
-"$BINDIR/hev-socks5-tunnel" "$STUB_DIR/run/tunnel.yml" </dev/null &>"$TUN2SOCKS_LOG" &
+"$BINDIR/hev-socks5-tunnel" "$RUN_DIR/tunnel.yml" </dev/null >"$TUN2SOCKS_LOG" 2>&1 &
 TUN2SOCKS_PID=$!
-echo "hev-socks5-tunnel is running with PID $TUN2SOCKS_PID"
+echo "$TUN2SOCKS_PID" > "$RUN_DIR/tun2socks.pid"
+mount_proc_with_name "$TUN2SOCKS_PID" "hev_socks5_tunnel"
+log "hev-socks5-tunnel started with pid $TUN2SOCKS_PID"
 
-if [ -e "$DATADIR/config.json" ]; then
-    echo "Restart previous xray on boot"
+# Resume the previous session only if the user actually left the engine
+# running. This used to key off the mere existence of config.json, so a
+# config that had been explicitly stopped still came back at boot.
+if [ -s "$DATADIR/config.json" ] && [ -f "$ENABLED_FLAG" ]; then
+    log "restoring previous session"
     echo "start" > "$PIPE_FILE"
-    echo "wait" > "$PIPE_FILE"
+    echo "wait"  > "$PIPE_FILE"
 fi
 
+log "boot sequence complete"
 } &

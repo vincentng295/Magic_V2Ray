@@ -70,27 +70,139 @@ function execShellAsync(cmd) {
         });
     });
 }
- 
-function saveProfiles() {
-    const json = JSON.stringify(profiles);
-    const base64_encoded = utoa(json);
-    execShell(`printf '%s' '${base64_encoded}' > '${PROFILES_FILE}'`, () => {});
+
+// ---------------------------------------------------------------------------
+// Shell-safety layer.
+//
+// execShell() hands its argument to a root shell. Any value that originates
+// outside this file — a subscription payload, a node field, a category name,
+// a routing rule — is attacker-controlled and MUST NOT be interpolated into a
+// command as raw text. JSON does not escape the single quote, so a value
+// containing ' escapes single-quote wrapping and executes as root.
+//
+// Two safe primitives, and nothing else may build a command containing
+// untrusted text:
+//   shQuote(s)          - POSIX single-quote escaping, for short literals.
+//   writeFileB64(p, c)  - writes arbitrary bytes via base64, which cannot
+//                         contain a quote or metacharacter by construction.
+// ---------------------------------------------------------------------------
+
+// Wraps a value in single quotes, escaping any embedded quote as '\''.
+// Safe for any byte sequence; the result is a single shell word.
+function shQuote(str) {
+    return "'" + String(str).replace(/'/g, "'\\''") + "'";
 }
- 
+
+// Writes `content` to `path` without ever placing it in the command line as
+// text. Base64 output is [A-Za-z0-9+/=] only, so it cannot break quoting.
+// Files are created 0600 under a 077 umask — they hold server credentials.
+function writeFileB64(path, content, callback) {
+    let encoded;
+    try {
+        encoded = utoa(String(content));
+    } catch (e) {
+        console.error('[writeFileB64] encode failed', e);
+        if (callback) callback('', String(e), 1);
+        return;
+    }
+    const p = shQuote(path);
+    execShell(
+        `umask 077; printf '%s' ${shQuote(encoded)} | base64 -d > ${p} && chmod 600 ${p}`,
+        callback || (() => {})
+    );
+}
+
+function saveProfiles() {
+    writeFileB64(PROFILES_FILE, utoa(JSON.stringify(profiles)));
+}
+
 function saveActiveConfig() {
     if (activeConfig) {
-        const escaped = activeConfig.replace(/'/g, "'\\''");
-        execShell(`printf '%s' '${escaped}' > '${ACTIVE_FILE}'`, () => {});
+        writeFileB64(ACTIVE_FILE, activeConfig);
     } else {
-        execShell(`rm -f '${ACTIVE_FILE}'`, () => {});
+        execShell(`rm -f ${shQuote(ACTIVE_FILE)}`, () => {});
     }
 }
+
+// Builds the Xray config for a node and refuses to hand back anything that
+// would not start. convert_uri_to_xray_json() signals failure by returning a
+// JSON document with an `error` key; writing that to config.json used to
+// produce an engine that exits on launch while the routing rules stayed
+// applied — i.e. a silent total blackhole that also survived reboot.
+// Returns { ok: true, config } or { ok: false, error }.
+function resolveXrayConfigChecked(rawUri) {
+    let configStr;
+    try {
+        configStr = _resolveXrayConfig(rawUri);
+    } catch (e) {
+        return { ok: false, error: e.message || String(e) };
+    }
+    if (!configStr || typeof configStr !== 'string') {
+        return { ok: false, error: 'empty config' };
+    }
+    let parsed;
+    try {
+        parsed = JSON.parse(configStr);
+    } catch (e) {
+        return { ok: false, error: 'generated config is not valid JSON' };
+    }
+    if (parsed && parsed.error) {
+        return { ok: false, error: parsed.error };
+    }
+    if (!parsed || !Array.isArray(parsed.outbounds) || parsed.outbounds.length === 0) {
+        return { ok: false, error: 'generated config has no outbounds' };
+    }
+    return { ok: true, config: configStr };
+}
+
+// Regenerates config.json for the currently active node and restarts the
+// engine only if it is already running. Used by every "settings changed"
+// path so the write/validate/restart sequence exists in exactly one place.
+function applyActiveConfig(options = {}) {
+    const { force = false, onDone } = options;
+    if (!activeConfig) {
+        if (onDone) onDone(false);
+        return;
+    }
+    const [category, id] = activeConfig.split(':');
+    const node = profiles[category]?.nodes?.find(n => n.id === id);
+    if (!node) {
+        if (onDone) onDone(false);
+        return;
+    }
+
+    const res = resolveXrayConfigChecked(node.rawUri);
+    if (!res.ok) {
+        showToast(t('toast_config_invalid', { reason: res.error }), 'error');
+        if (onDone) onDone(false);
+        return;
+    }
+
+    writeFileB64(CONFIG_JSON, res.config, () => {
+        if (force) {
+            execShell(`sh ${MODDIR}/proxy_control.sh restart`, () => {
+                if (onDone) onDone(true);
+            });
+            return;
+        }
+        execShell(`sh ${MODDIR}/proxy_control.sh status`, (status) => {
+            if (status === 'running') {
+                toggleService('restart');
+            }
+            if (onDone) onDone(true);
+        });
+    });
+}
  
+// Loads profiles, the active-node pointer and advanced settings, in that
+// order, then binds the settings form. This used to be two functions, the
+// second monkey-patching the first at parse time; it only worked because of
+// statement ordering relative to the DOMContentLoaded listener.
 function loadState(callback) {
     execShell(`cat '${PROFILES_FILE}' 2>/dev/null || echo '{}'`, (profilesRaw) => {
         try {
-            const parsed = JSON.parse(decodeURIComponent(escape(atob(profilesRaw))));
-            // MIGRATION PATCH
+            const parsed = JSON.parse(decodeBase64(profilesRaw));
+            // MIGRATION PATCH: older builds stored a bare array per category.
             profiles = {};
             Object.keys(parsed).forEach(cat => {
                 if (Array.isArray(parsed[cat])) {
@@ -100,13 +212,24 @@ function loadState(callback) {
                 }
             });
         } catch (e) {
-            console.warn("[loadState] profiles.json parse error, reset to {}");
+            console.warn("[loadState] profiles parse error, reset to {}");
             profiles = {};
         }
 
         execShell(`cat '${ACTIVE_FILE}' 2>/dev/null || echo ''`, (activeRaw) => {
             activeConfig = activeRaw.trim() || null;
-            if (callback) callback();
+
+            execShell(`cat '${SETTINGS_FILE}' 2>/dev/null || echo ''`, (settingsRaw) => {
+                if (settingsRaw.trim()) {
+                    try {
+                        advSettings = JSON.parse(decodeBase64(settingsRaw.trim()));
+                    } catch (e) {
+                        console.warn("[loadState] settings corrupt, falling back to defaults.");
+                    }
+                }
+                bindSettingsToFormView();
+                if (callback) callback();
+            });
         });
     });
 }
@@ -131,33 +254,46 @@ function updateStatusDisplay() {
     });
 }
  
+function _markStatusPending() {
+    const badge = document.getElementById('service-status');
+    if (!badge) return;
+    badge.innerText = t('status_loading');
+    badge.className = 'status-badge active';
+    setTimeout(updateStatusDisplay, 1200);
+}
+
+// Only these verbs may be forwarded to proxy_control.sh. `action` reaches us
+// from inline handlers, so it is validated against a fixed list rather than
+// interpolated straight into the command.
+const PROXY_CONTROL_ACTIONS = [
+    'start', 'stop', 'restart', 'status', 'reapply',
+    'start_monitor_latency', 'stop_monitor_latency', 'reset_mobile_network',
+    'gateway_start', 'gateway_stop', 'gateway_status'
+];
+
 async function toggleService(action) {
     if (action === 'start' || action === 'restart') {
-        toggleService('reapply'); // Ensure the current network interface is applied before starting/restarting
-        if (activeConfig) {
-            const [category, id] = activeConfig.split(':');
-            const node = profiles[category]?.nodes?.find(n => n.id === id); 
-            if (node) {
-                const xrayConfig = _resolveXrayConfig(node.rawUri);
-                execShell(`echo '${xrayConfig}' > '${CONFIG_JSON}'`, () => {
-                    execShell(`sh ${MODDIR}/proxy_control.sh restart`, () => {
-                        const badge = document.getElementById('service-status');
-                        badge.innerText = t('status_loading');
-                        badge.className = 'status-badge active';
-                        setTimeout(updateStatusDisplay, 1200);
-                    });
-                });
-            }
-        } else {
+        if (!activeConfig) {
             showToast(t('toast_no_active_config'), "error");
+            return;
         }
+        // Re-apply the mark rule for the live interface first, and only start
+        // once that has actually completed — this used to be fire-and-forget,
+        // racing the engine start against the routing rule it depends on.
+        execShell(`sh ${MODDIR}/proxy_control.sh reapply`, () => {
+            applyActiveConfig({
+                force: true,
+                onDone: (ok) => { if (ok) _markStatusPending(); }
+            });
+        });
+        return;
+    }
+    if (!PROXY_CONTROL_ACTIONS.includes(action)) {
+        console.error('[toggleService] refusing unknown action:', action);
         return;
     }
     execShell(`sh ${MODDIR}/proxy_control.sh ${action}`, () => {
-        const badge = document.getElementById('service-status');
-        badge.innerText = t('status_loading');
-        badge.className = 'status-badge active';
-        setTimeout(updateStatusDisplay, 1200);
+        _markStatusPending();
     });
 }
 
@@ -219,35 +355,46 @@ function processImport() {
 
 async function fetchSubscription(category, url, isReload = false) {
     const status = await execShellAsync(`sh ${MODDIR}/proxy_control.sh status`);
-    const escapedUrl = url.replace(/'/g, "'\\''");
-    const extraArgs = (status === 'running')? "--socks5-hostname 127.17.1.3:808" : "";
+    const viaProxy = (status === 'running') ? "--socks5-hostname 127.17.1.3:808" : "";
+
+    // Certificate validation is ON by default. It used to be disabled
+    // unconditionally (-k), which let any on-path attacker substitute the
+    // subscription body — and subscription content reaches a root shell.
+    // Hosts with a self-signed certificate can opt out per subscription.
+    const allowInsecure = profiles[category]?.insecure === true;
+    const tlsArgs = allowInsecure ? "-k" : "";
+    if (allowInsecure) {
+        showToast(t('toast_sub_insecure_warn'), 'info');
+    }
+
     showLoading(`${t("toast_fetch_sub")}${category}...`);
-    execShell(`${MODDIR}/bin/curl ${extraArgs} -sLk --max-time 15 '${escapedUrl}'`, (res) => {
+
+    const cmd = `${MODDIR}/bin/curl ${viaProxy} ${tlsArgs} -sSL -f --max-redirs 3 ` +
+                `--proto '=http,https' --proto-redir '=http,https' ` +
+                `--max-time 15 ${shQuote(url)}`;
+
+    execShell(cmd, (res) => {
+        hideLoading();
+
         if (!res || res.trim() === "") {
-            hideLoading();
             return showToast(t('toast_fetch_failed'), "error");
         }
         if (res.includes("Failed to connect") || res.includes("Could not resolve")) {
-            hideLoading();
             return showToast(t('toast_fetch_reason') + res.split('\n')[0], "error");
         }
 
+        // A subscription body is either a plain URI list or one big base64
+        // blob wrapping that list.
         let parsedContent = res.trim();
         const cleanRes = parsedContent.replace(/[\s\r\n]+/g, '');
-        if (/^[A-Za-z0-9+/=]+$/.test(cleanRes)) {
-            try {
-                const decodedAll = decodeBase64(cleanRes);
-                if (decodedAll && decodedAll.includes('://')) {
-                    parsedContent = decodedAll;
-                }
-            } catch (e) {
-                console.log("Not a pure single Base64 block, parsing line by line...");
+        if (/^[A-Za-z0-9+/=_-]+$/.test(cleanRes)) {
+            const decodedAll = tryDecodeBase64(cleanRes);
+            if (decodedAll && decodedAll.includes('://')) {
+                parsedContent = decodedAll;
             }
         }
 
-        const xrayConfigs = extractUrisFromText(parsedContent);
-        parseAndAppendNodes(category, xrayConfigs, url, isReload);
-        hideLoading();
+        parseAndAppendNodes(category, extractUrisFromText(parsedContent), url, isReload);
     });
 }
  
@@ -583,15 +730,21 @@ function selectNode(category, id) {
     const node = profiles[category]?.nodes?.find(n => n.id === id);
     if (!node) return;
  
+    // Reject a node whose config cannot be generated *before* making it
+    // active — otherwise the next start writes an unusable config.json,
+    // xray exits, and the routing rules blackhole the device.
+    const res = resolveXrayConfigChecked(node.rawUri);
+    if (!res.ok) {
+        showToast(t('toast_config_invalid', { reason: res.error }), 'error');
+        return;
+    }
+
     activeConfig = `${category}:${id}`;
     saveActiveConfig();
-    xrayConfig = _resolveXrayConfig(node.rawUri);
- 
-    // dump xray config to file and restart service if running
-    execShell(`sh ${MODDIR}/proxy_control.sh status`, (status) => {
-        renderProfiles();
-        if (status === 'running') toggleService('restart');
-    });
+    renderProfiles();
+
+    // Write the config and restart only if the engine is already running.
+    applyActiveConfig();
 }
  
 function removeCategory(category) {
@@ -604,14 +757,28 @@ function removeCategory(category) {
     renderProfiles();
 }
  
+// Builds a <button> whose handler is attached as a function reference.
+// Category names and node fields come from subscriptions and free-text user
+// input; interpolating them into an onclick="" attribute (as this used to do)
+// let a name containing a double quote break out of the attribute and inject
+// script into a page that holds a root exec bridge.
+function _mkButton(label, className, handler) {
+    const btn = document.createElement('button');
+    if (className) btn.className = className;
+    btn.textContent = label;
+    btn.addEventListener('click', handler);
+    return btn;
+}
+
 function renderProfiles() {
     const container = document.getElementById('profiles-container');
     container.innerHTML = "";
     const categories = Object.keys(profiles).filter(c => profiles[c]?.nodes?.length > 0);
     if (categories.length === 0) {
-        container.innerHTML = `<p style="color: var(--text-muted); font-size:14px; text-align:center; padding: 24px 0;">
-            ${t('no_configs')}
-        </p>`;
+        const p = document.createElement('p');
+        p.style.cssText = "color: var(--text-muted); font-size:14px; text-align:center; padding: 24px 0;";
+        p.textContent = t('no_configs');
+        container.appendChild(p);
         return;
     }
     for (const category of categories) {
@@ -619,28 +786,52 @@ function renderProfiles() {
         group.className = "category-group";
         const hasUrl = !!profiles[category].url;
         const isExpanded = categoryExpandedState[category] || false;
-        const arrowIcon = isExpanded ? "▽" : "▷";
-        const displayStyle = isExpanded ? "block" : "none";
 
-        group.innerHTML = `
-            <div class="category-header" style="position: relative; display: flex; justify-content: space-between; align-items: center;">
-                <strong>${escapeHtml(category)} (${profiles[category].nodes.length})</strong>
-                <div class="category-menu-container" style="display: flex; align-items: center; gap: 8px;">
-                    <button class="btn-menu-trigger" onclick="toggleCategoryExpand(event, '${escapeAttr(category)}')" style="font-weight: bold; width: 28px;">${arrowIcon}</button>
-                    <button class="btn-menu-trigger" onclick="toggleCategoryMenu(event, this)">⋮</button>
-                    <div class="category-dropdown-menu">
-                        ${hasUrl ? `<button onclick="reloadCategory('${escapeAttr(category)}'); closeAllMenus();">${t('menu_reload')}</button>` : ''}
-                        <button onclick="openEditSubModal('${escapeAttr(category)}'); closeAllMenus();">${t('menu_edit_sub')}</button>
-                        <button onclick="deduplicateCategory('${escapeAttr(category)}'); closeAllMenus();">${t('menu_deduplicate')}</button>
-                        <button class="btn-ping-category" onclick="checkHttpWithClose(event, '${escapeAttr(category)}')">${t('menu_check_http')}</button>
-                        <button class="btn-ping-category" onclick="checkIpWithClose(event, '${escapeAttr(category)}')">${t('menu_check_ip')}</button>
-                        <button class="btn-delete-item" onclick="removeCategory('${escapeAttr(category)}'); closeAllMenus();">${t('menu_delete')}</button>
-                    </div>
-                </div>
-            </div>
-            <div class="nodes-list" style="display: ${displayStyle};"></div>
-        `;
-        const listNode = group.querySelector('.nodes-list');
+        const header = document.createElement('div');
+        header.className = 'category-header';
+        header.style.cssText = "position: relative; display: flex; justify-content: space-between; align-items: center;";
+
+        const title = document.createElement('strong');
+        title.textContent = `${category} (${profiles[category].nodes.length})`;
+        header.appendChild(title);
+
+        const menuWrap = document.createElement('div');
+        menuWrap.className = 'category-menu-container';
+        menuWrap.style.cssText = "display: flex; align-items: center; gap: 8px;";
+
+        const expandBtn = _mkButton(isExpanded ? "▽" : "▷", 'btn-menu-trigger',
+            (e) => toggleCategoryExpand(e, category));
+        expandBtn.style.cssText = "font-weight: bold; width: 28px;";
+        menuWrap.appendChild(expandBtn);
+
+        const kebab = _mkButton("⋮", 'btn-menu-trigger', function (e) { toggleCategoryMenu(e, this); });
+        menuWrap.appendChild(kebab);
+
+        const dropdown = document.createElement('div');
+        dropdown.className = 'category-dropdown-menu';
+        if (hasUrl) {
+            dropdown.appendChild(_mkButton(t('menu_reload'), '',
+                () => { reloadCategory(category); closeAllMenus(); }));
+        }
+        dropdown.appendChild(_mkButton(t('menu_edit_sub'), '',
+            () => { openEditSubModal(category); closeAllMenus(); }));
+        dropdown.appendChild(_mkButton(t('menu_deduplicate'), '',
+            () => { deduplicateCategory(category); closeAllMenus(); }));
+        dropdown.appendChild(_mkButton(t('menu_check_http'), 'btn-ping-category',
+            (e) => checkHttpWithClose(e, category)));
+        dropdown.appendChild(_mkButton(t('menu_check_ip'), 'btn-ping-category',
+            (e) => checkIpWithClose(e, category)));
+        dropdown.appendChild(_mkButton(t('menu_delete'), 'btn-delete-item',
+            () => { removeCategory(category); closeAllMenus(); }));
+        menuWrap.appendChild(dropdown);
+
+        header.appendChild(menuWrap);
+        group.appendChild(header);
+
+        const listNode = document.createElement('div');
+        listNode.className = 'nodes-list';
+        listNode.style.display = isExpanded ? "block" : "none";
+        group.appendChild(listNode);
         profiles[category].nodes.forEach(node => {
             const isSelected = activeConfig === `${category}:${node.id}`;
             const isChain = node.protocol === 'chain';
@@ -662,36 +853,67 @@ function renderProfiles() {
                     metaLine = '⛓ CHAIN';
                 }
             } else {
-                metaLine = `${node.protocol.toUpperCase()} | ${escapeHtml(node.address)}:${escapeHtml(node.port)}`;
+                // Assigned via textContent below, so no manual escaping here.
+                metaLine = `${(node.protocol || '').toUpperCase()} | ${node.address}:${node.port}`;
             }
 
-            // Chain nodes open chain modal for editing; regular nodes open edit-node-modal
-            const editAction = isChain
-                ? `openProxyChainEditModal(event, '${escapeAttr(category)}', '${node.id}')`
-                : `openEditNodeModal(event, '${escapeAttr(category)}', '${node.id}')`;
+            const info = document.createElement('div');
+            info.className = 'config-info';
+            info.style.cssText = "flex: 1; display: flex; flex-direction: column;";
+            const nameEl = document.createElement('div');
+            nameEl.className = 'config-name';
+            nameEl.textContent = node.name;
+            const metaEl = document.createElement('div');
+            metaEl.className = 'config-meta';
+            metaEl.textContent = metaLine;
+            info.appendChild(nameEl);
+            info.appendChild(metaEl);
+            info.addEventListener('click', () => selectNode(category, node.id));
+            item.appendChild(info);
 
-            item.innerHTML = `
-                <div class="config-info" style="flex: 1; display: flex; flex-direction: column;">
-                    <div class="config-name">${escapeHtml(node.name)}</div>
-                    <div class="config-meta">${metaLine}</div>
-                </div>
-                <div class="node-actions-container">
-                    ${isSelected ? '<span>📌</span>' : ''}
-                    <div class="node-menu-container" style="display: flex; align-items: center; justify-content: flex-end; gap: 8px; position: relative;">
-                        <span id="ping-${category}-${node.id}" class="ping-info" style="text-align: right; white-space: nowrap;"></span>
-                        <button class="btn-menu-trigger" onclick="toggleNodeMenu(event, this)" style="flex-shrink: 0;">⋮</button>
-                        <div class="node-dropdown-menu">
-                            <button onclick="${editAction}">${t('menu_edit')}</button>
-                            <button onclick="copyNodePayloadUrl(event, '${escapeAttr(category)}', '${node.id}')">${t('menu_copy_payload')}</button>
-                            <button onclick="copyNodeFullConfig(event, '${escapeAttr(category)}', '${node.id}')">${t('menu_copy_full_config')}</button>
-                            <button class="btn-ping-category" onclick="checkSingleHttpWithClose(event, '${escapeAttr(category)}', '${node.id}')">${t('menu_check_http')}</button>
-                            <button class="btn-ping-category" onclick="checkSingleIpWithClose(event, '${escapeAttr(category)}', '${node.id}')">${t('menu_check_ip')}</button>
-                            <button class="btn-delete-item" onclick="deleteNode(event, '${escapeAttr(category)}', '${node.id}')">${t('menu_delete')}</button>
-                        </div>
-                    </div>
-                </div>
-            `;
-            item.querySelector('.config-info').onclick = () => selectNode(category, node.id);
+            const actions = document.createElement('div');
+            actions.className = 'node-actions-container';
+            if (isSelected) {
+                const pin = document.createElement('span');
+                pin.textContent = '📌';
+                actions.appendChild(pin);
+            }
+
+            const nodeMenuWrap = document.createElement('div');
+            nodeMenuWrap.className = 'node-menu-container';
+            nodeMenuWrap.style.cssText = "display: flex; align-items: center; justify-content: flex-end; gap: 8px; position: relative;";
+
+            const pingSpan = document.createElement('span');
+            pingSpan.id = `ping-${category}-${node.id}`;
+            pingSpan.className = 'ping-info';
+            pingSpan.style.cssText = "text-align: right; white-space: nowrap;";
+            nodeMenuWrap.appendChild(pingSpan);
+
+            const nodeKebab = _mkButton("⋮", 'btn-menu-trigger', function (e) { toggleNodeMenu(e, this); });
+            nodeKebab.style.flexShrink = '0';
+            nodeMenuWrap.appendChild(nodeKebab);
+
+            const nodeDropdown = document.createElement('div');
+            nodeDropdown.className = 'node-dropdown-menu';
+            // Chain nodes open the chain modal; regular nodes open edit-node-modal
+            nodeDropdown.appendChild(_mkButton(t('menu_edit'), '', (e) => (
+                isChain ? openProxyChainEditModal(e, category, node.id)
+                        : openEditNodeModal(e, category, node.id)
+            )));
+            nodeDropdown.appendChild(_mkButton(t('menu_copy_payload'), '',
+                (e) => copyNodePayloadUrl(e, category, node.id)));
+            nodeDropdown.appendChild(_mkButton(t('menu_copy_full_config'), '',
+                (e) => copyNodeFullConfig(e, category, node.id)));
+            nodeDropdown.appendChild(_mkButton(t('menu_check_http'), 'btn-ping-category',
+                (e) => checkSingleHttpWithClose(e, category, node.id)));
+            nodeDropdown.appendChild(_mkButton(t('menu_check_ip'), 'btn-ping-category',
+                (e) => checkSingleIpWithClose(e, category, node.id)));
+            nodeDropdown.appendChild(_mkButton(t('menu_delete'), 'btn-delete-item',
+                (e) => deleteNode(e, category, node.id)));
+            nodeMenuWrap.appendChild(nodeDropdown);
+
+            actions.appendChild(nodeMenuWrap);
+            item.appendChild(actions);
             listNode.appendChild(item);
         });
         container.appendChild(group);
@@ -1656,20 +1878,13 @@ function saveEditedNode() {
         profiles[currentEditingCategory].nodes[nodeIdx] = nodeEntry;
     }
 
+    const wasActive = !isNew && activeConfig === `${currentEditingCategory}:${currentEditingNodeId}`;
+
     saveProfiles();
     closeEditNodeModal();
     renderProfiles();
 
-    if (!isNew && activeConfig === `${currentEditingCategory}:${currentEditingNodeId}`) {
-        const xrayConfig = _resolveXrayConfig(newUri);
-        execShell(`echo '${xrayConfig}' > '${CONFIG_JSON}'`, () => {
-            execShell(`sh ${MODDIR}/proxy_control.sh status`, (status) => {
-                if (status === 'running') {
-                    toggleService('restart');
-                }
-            });
-        });
-    }
+    if (wasActive) applyActiveConfig();
 }
 
 function openEditSubModal(category) {
@@ -1679,6 +1894,7 @@ function openEditSubModal(category) {
     document.getElementById('edit-sub-cat-name').value = category;
     document.getElementById('edit-sub-url').value = catData.url || '';
     document.getElementById('edit-sub-dedup').checked = catData.dedup !== false; // default true
+    document.getElementById('edit-sub-insecure').checked = catData.insecure === true; // default false
     document.getElementById('edit-sub-modal').dataset.originalCat = category;
     document.getElementById('edit-sub-modal').style.display = 'block';
 }
@@ -1693,6 +1909,7 @@ function saveEditedSubscription() {
     const newName = document.getElementById('edit-sub-cat-name').value.trim();
     const newUrl = document.getElementById('edit-sub-url').value.trim();
     const newDedup = document.getElementById('edit-sub-dedup').checked;
+    const newInsecure = document.getElementById('edit-sub-insecure').checked;
 
     if (!newName) return;
     if (!profiles[originalCat]) return;
@@ -1711,6 +1928,7 @@ function saveEditedSubscription() {
 
     profiles[newName].url = newUrl || null;
     profiles[newName].dedup = newDedup;
+    profiles[newName].insecure = newInsecure;
 
     saveProfiles();
     closeEditSubModal();
@@ -1873,12 +2091,7 @@ function saveProxyChain() {
             profiles[editingCat].nodes[idx] = chainEntry;
             // Regenerate config if this chain is active
             if (activeConfig === `${editingCat}:${editingId}`) {
-                const xrayConfig = _resolveXrayConfig(chainEntry.rawUri);
-                execShell(`echo '${xrayConfig}' > '${CONFIG_JSON}'`, () => {
-                    execShell(`sh ${MODDIR}/proxy_control.sh status`, (status) => {
-                        if (status === 'running') toggleService('restart');
-                    });
-                });
+                applyActiveConfig();
             }
         }
     } else {
@@ -1974,7 +2187,56 @@ function handleFileImport(event) {
 document.addEventListener('click', () => {
     closeAllMenus();
 });
+
+// ---------------------------------------------------------------------------
+// Background-work gating.
+//
+// Every recurring task in this UI drives a root shell exec, and some of them
+// drive a network probe on the device. None of that should keep running when
+// the user is not looking at it. Two levels:
+//
+//   * visibilitychange - the WebUI is backgrounded (home button, app switch).
+//     Timers are suspended; the backend latency probe then stops on its own
+//     once its heartbeat goes stale.
+//   * pagehide - the WebUI is being torn down. Stop the backend probe
+//     explicitly rather than waiting for the heartbeat timeout.
+// ---------------------------------------------------------------------------
+function _suspendBackgroundWork() {
+    stopLatencyPolling();
+    stopLogAutoRefresh();
+}
+
+function _resumeBackgroundWork() {
+    const activeTab = document.querySelector('.tab-content.active')?.id;
+    if (activeTab === 'tab-latency') {
+        syncLatencyMonitorState();
+    } else if (activeTab === 'tab-log') {
+        startLogAutoRefresh();
+    }
+}
+
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        _suspendBackgroundWork();
+    } else {
+        _resumeBackgroundWork();
+    }
+});
+
+window.addEventListener('pagehide', () => {
+    _suspendBackgroundWork();
+    // Best-effort: the exec may not complete if we are killed immediately,
+    // which is exactly why the backend also self-terminates on heartbeat
+    // timeout rather than relying on this.
+    if (document.getElementById('latency-monitor-toggle')?.checked) {
+        execShell(`sh ${MODDIR}/proxy_control.sh stop_monitor_latency`, () => {});
+    }
+});
  
+// NOTE: the profile/node list is now built with createElement + textContent,
+// so no manual escaping is needed there. escapeAttr() was deleted outright —
+// it only escaped ' and was being interpolated into "-quoted attributes,
+// which was the XSS vector. Do not reintroduce string-built event handlers.
 function escapeHtml(str) {
     return String(str)
         .replace(/&/g, '&amp;')
@@ -1983,16 +2245,16 @@ function escapeHtml(str) {
         .replace(/"/g, '&quot;');
 }
  
-function escapeAttr(str) {
-    return String(str).replace(/'/g, "\\'");
-}
-
-function switchTab(tabId) {
+function switchTab(tabId, evt) {
     document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-    
+
     document.getElementById(tabId).classList.add('active');
-    event.currentTarget.classList.add('active');
+    // Was reading the deprecated global `event`, which is undefined in strict
+    // mode and on non-Chromium engines. Fall back to matching by tab id.
+    const trigger = (evt && evt.currentTarget)
+        || document.querySelector(`.tab-btn[data-tab="${tabId}"]`);
+    if (trigger) trigger.classList.add('active');
 
     if (tabId === 'tab-log') {
         startLogAutoRefresh();
@@ -2016,23 +2278,6 @@ function toggleSubSettingField(triggerId, subPanelId) {
     const isChecked = document.getElementById(triggerId).checked;
     document.getElementById(subPanelId).style.display = isChecked ? 'block' : 'none';
 }
-
-const originalLoadState = loadState;
-loadState = function(callback) {
-    originalLoadState(() => {
-        execShell(`cat '${SETTINGS_FILE}' 2>/dev/null || echo ''`, (settingsRaw) => {
-            if (settingsRaw.trim()) {
-                try {
-                    advSettings = JSON.parse(decodeURIComponent(escape(atob(settingsRaw.trim()))));
-                } catch (e) {
-                    console.warn("[loadState] Custom settings corrupt, fallback to defaults.");
-                }
-            }
-            bindSettingsToFormView();
-            if (callback) callback();
-        });
-    });
-};
 
 function updateDnsGroupVisibility() {
     const localDnsOn = document.getElementById('set-localdns').checked;
@@ -2072,7 +2317,9 @@ function bindSettingsToFormView() {
     document.getElementById('set-routeonly').checked = advSettings.routeOnly;
     document.getElementById('set-enableipv6').checked = advSettings.enableIPv6;
     document.getElementById('set-preferipv6').checked = advSettings.preferIpv6;
-    document.getElementById('set-dnsviaproxy').checked = advSettings.dnsViaProxy || true;
+    // `x || true` is always true — the checkbox could never render unchecked
+    // even though the value was being persisted correctly.
+    document.getElementById('set-dnsviaproxy').checked = advSettings.dnsViaProxy !== false;
     document.getElementById('set-pinned-cert').value = advSettings.pinnedPeerCertSha256 || "";
 
     // DNS group
@@ -2131,30 +2378,10 @@ function saveAdvancedSettingsForm(isLangOnly = false) {
 
     advSettings.lang = currentLang;
 
-    const jsonStr = JSON.stringify(advSettings);
-    const base64Encoded = utoa(jsonStr);
-    
-    execShell(`printf '%s' '${base64Encoded}' > '${SETTINGS_FILE}'`, () => {
-        if (isLangOnly) {
-            return;
-        }
+    writeFileB64(SETTINGS_FILE, utoa(JSON.stringify(advSettings)), () => {
+        if (isLangOnly) return;
         showToast(t('toast_settings_saved'), "success");
-        
-        if (activeConfig) {
-            const [category, id] = activeConfig.split(':');
-            const node = profiles[category]?.nodes?.find(n => n.id === id); 
-            if (node) {
-                const xrayConfig = _resolveXrayConfig(node.rawUri);
-                execShell(`echo '${xrayConfig}' > '${CONFIG_JSON}'`, () => {
-                    execShell(`sh ${MODDIR}/proxy_control.sh status`, (status) => {
-                        if (status === 'running') {
-                            toggleService('restart');
-                        }
-                    });
-                });
-                return;
-            }
-        }
+        applyActiveConfig();
     });
 }
 
@@ -2333,23 +2560,8 @@ async function deleteRoutingRule(index) {
 // Persists advSettings (including routingRules) to disk and, if a proxy is
 // currently active, regenerates its Xray config and restarts if running.
 function persistRoutingRules() {
-    const jsonStr = JSON.stringify(advSettings);
-    const base64Encoded = utoa(jsonStr);
-
-    execShell(`printf '%s' '${base64Encoded}' > '${SETTINGS_FILE}'`, () => {
-        if (!activeConfig) return;
-        const [category, id] = activeConfig.split(':');
-        const node = profiles[category]?.nodes?.find(n => n.id === id);
-        if (!node) return;
-
-        const xrayConfig = _resolveXrayConfig(node.rawUri);
-        execShell(`echo '${xrayConfig}' > '${CONFIG_JSON}'`, () => {
-            execShell(`sh ${MODDIR}/proxy_control.sh status`, (status) => {
-                if (status === 'running') {
-                    toggleService('restart');
-                }
-            });
-        });
+    writeFileB64(SETTINGS_FILE, utoa(JSON.stringify(advSettings)), () => {
+        applyActiveConfig();
     });
 }
 
@@ -2536,13 +2748,34 @@ function showToast(message, type = 'success') {
     }, 3000);
 }
 
-function _buildXrayTestInbound(node, index) {
-    const testIp = `127.17.1.${4 + (index % 250)}`;
-    const testPort = 21000 + (index % 1000);
-    const tmpFile = `/dev/tmp_config_${node.id}.json`;
-    let xrayConfigObj;
+// Probe slots. Only NODE_TEST_CONCURRENCY probes run at once, so a small pool
+// of listen address/port pairs is enough and — unlike the old
+// `index % 250` scheme — cannot collide once a category exceeds 250 nodes.
+const NODE_TEST_CONCURRENCY = 10;
+const NODE_TEST_SLOTS = 16;
+const _nodeTestSlotBusy = new Array(NODE_TEST_SLOTS).fill(false);
+
+function _acquireTestSlot() {
+    for (let i = 0; i < NODE_TEST_SLOTS; i++) {
+        if (!_nodeTestSlotBusy[i]) { _nodeTestSlotBusy[i] = true; return i; }
+    }
+    return -1;
+}
+
+function _releaseTestSlot(slot) {
+    if (slot >= 0 && slot < NODE_TEST_SLOTS) _nodeTestSlotBusy[slot] = false;
+}
+
+function _buildXrayTestInbound(node, slot) {
+    const testIp = `127.17.1.${10 + slot}`;
+    const testPort = 21000 + slot;
+    // Probe configs contain the node's full credentials. They used to be
+    // written to /dev at the default umask (0644, world-traversable dir);
+    // they now live in the module's private tmpfs, 0600.
+    const tmpFile = `${STUB_DIR}/run/nodetest/${slot}.json`;
     const rawConfigStr = _resolveXrayConfig(node.rawUri);
-    xrayConfigObj = JSON.parse(rawConfigStr);
+    const xrayConfigObj = JSON.parse(rawConfigStr);
+    if (xrayConfigObj.error) throw new Error(xrayConfigObj.error);
     xrayConfigObj.inbounds = [{
         tag: "socks-test-in",
         port: testPort,
@@ -2553,138 +2786,114 @@ function _buildXrayTestInbound(node, index) {
     return { testIp, testPort, tmpFile, configB64: utoa(JSON.stringify(xrayConfigObj)) };
 }
 
-async function _execNodeHttpCheck(node, index, pingSpan) {
-    if (pingSpan) {
-        pingSpan.innerText = "...";
-        pingSpan.style.color = "var(--text-muted)";
-    }
+// Builds the probe script. The spawned xray is bounded three ways: an explicit
+// kill, a `trap` covering the abnormal-exit paths, and an outer `timeout` in
+// case the shell itself is torn down. Previously an interrupted probe left a
+// root xray running with the node's credentials in memory.
+function _buildProbeScript(tmpFile, configB64, innerCmd) {
+    return `
+        umask 077
+        mkdir -p ${shQuote(STUB_DIR + '/run/nodetest')} 2>/dev/null
+        chmod 700 ${shQuote(STUB_DIR + '/run/nodetest')} 2>/dev/null
+        XPID=""
+        cleanup() { [ -n "$XPID" ] && kill -9 "$XPID" 2>/dev/null; rm -f ${shQuote(tmpFile)}; }
+        trap cleanup EXIT HUP INT TERM
+        printf '%s' ${shQuote(configB64)} | base64 -d > ${shQuote(tmpFile)}
+        ${MODDIR}/bin/xray run -c ${shQuote(tmpFile)} >/dev/null 2>&1 &
+        XPID=$!
+        sleep 1
+        ${innerCmd}
+        cleanup
+        trap - EXIT
+        printf '%s' "$RES"
+    `;
+}
 
-    let testIp, testPort, tmpFile, configB64;
-    try {
-        ({ testIp, testPort, tmpFile, configB64 } = _buildXrayTestInbound(node, index));
-    } catch (e) {
-        if (pingSpan) {
-            pingSpan.innerText = "?";
-            pingSpan.style.color = "var(--red, #ff1744)";
-        }
+function _setPingSpan(pingSpan, text, colorVar) {
+    if (!pingSpan) return;
+    pingSpan.innerText = text;
+    pingSpan.style.color = colorVar;
+}
+
+// Runs one probe against a node in an isolated xray instance.
+// `mode` is 'http' (latency in ms) or 'ip' (egress IP address).
+async function _execNodeProbe(node, pingSpan, mode) {
+    _setPingSpan(pingSpan, "...", "var(--text-muted)");
+
+    const slot = _acquireTestSlot();
+    if (slot === -1) {
+        _setPingSpan(pingSpan, "?", "var(--red, #ff1744)");
         return;
     }
 
-    const cmd = `
-        printf '%s' '${configB64}' | base64 -d > ${tmpFile}
-        ${MODDIR}/bin/xray run -c ${tmpFile} >/dev/null 2>&1 &
-        XPID=$!
-        sleep 1
-        TIME_RES=$(${MODDIR}/bin/curl --socks5-hostname ${testIp}:${testPort} -s -w "%{time_starttransfer}" --max-time 3 -o /dev/null http://gstatic.com/generate_204 2>/dev/null)
-        kill -9 $XPID >/dev/null 2>&1
-        rm -f ${tmpFile}
-        echo "\${TIME_RES}"
-    `;
-
-    const output = await execShellAsync(cmd);
-    const val = parseFloat(output.trim());
-
-    if (pingSpan) {
-        if (!isNaN(val) && val > 0) {
-            const ms = Math.round(val * 1000);
-            pingSpan.innerText = `${ms}ms`;
-            pingSpan.style.color = "var(--green, #00e676)";
-        } else {
-            pingSpan.innerText = "?";
-            pingSpan.style.color = "var(--red, #ff1744)";
-        }
-    }
-}
-
-async function _execNodeIpCheck(node, index, pingSpan) {
-    if (pingSpan) {
-        pingSpan.innerText = "...";
-        pingSpan.style.color = "var(--text-muted)";
-    }
-
-    let testIp, testPort, tmpFile, configB64;
     try {
-        ({ testIp, testPort, tmpFile, configB64 } = _buildXrayTestInbound(node, index));
-    } catch (e) {
-        if (pingSpan) {
-            pingSpan.innerText = "?";
-            pingSpan.style.color = "var(--red, #ff1744)";
+        let built;
+        try {
+            built = _buildXrayTestInbound(node, slot);
+        } catch (e) {
+            _setPingSpan(pingSpan, "?", "var(--red, #ff1744)");
+            return;
         }
-        return;
-    }
+        const { testIp, testPort, tmpFile, configB64 } = built;
 
-    const cmd = `
-        printf '%s' '${configB64}' | base64 -d > ${tmpFile}
-        ${MODDIR}/bin/xray run -c ${tmpFile} >/dev/null 2>&1 &
-        XPID=$!
-        sleep 1
-        IP_RES=$(${MODDIR}/bin/curl --socks5-hostname ${testIp}:${testPort} -s --max-time 3 https://icanhazip.com 2>/dev/null)
-        kill -9 $XPID >/dev/null 2>&1
-        rm -f ${tmpFile}
-        echo "\${IP_RES}"
-    `;
+        const innerCmd = mode === 'http'
+            ? `RES=$(${MODDIR}/bin/curl --socks5-hostname ${testIp}:${testPort} -s ` +
+              `-w "%{time_starttransfer}" --max-time 3 -o /dev/null ` +
+              `http://gstatic.com/generate_204 2>/dev/null)`
+            : `RES=$(${MODDIR}/bin/curl --socks5-hostname ${testIp}:${testPort} -s ` +
+              `--max-time 3 https://icanhazip.com 2>/dev/null)`;
 
-    const output = await execShellAsync(cmd);
-    const ip = output.trim();
+        // Hard ceiling on the whole probe so a wedged xray or curl cannot
+        // hold the slot — or a root process — indefinitely.
+        const output = await execShellAsync(
+            `timeout 15 sh -c ${shQuote(_buildProbeScript(tmpFile, configB64, innerCmd))}`
+        );
 
-    if (pingSpan) {
-        if (ip) {
-            pingSpan.innerText = ip;
-            pingSpan.style.color = "var(--green, #00e676)";
+        if (mode === 'http') {
+            const val = parseFloat(output.trim());
+            if (!isNaN(val) && val > 0) {
+                _setPingSpan(pingSpan, `${Math.round(val * 1000)}ms`, "var(--green, #00e676)");
+            } else {
+                _setPingSpan(pingSpan, "?", "var(--red, #ff1744)");
+            }
         } else {
-            pingSpan.innerText = "?";
-            pingSpan.style.color = "var(--red, #ff1744)";
+            const ip = output.trim();
+            if (ip) {
+                _setPingSpan(pingSpan, ip, "var(--green, #00e676)");
+            } else {
+                _setPingSpan(pingSpan, "?", "var(--red, #ff1744)");
+            }
         }
+    } finally {
+        _releaseTestSlot(slot);
     }
 }
 
-async function pingCategoryCheckHttp(category) {
+
+async function _pingCategory(category, mode) {
     const catData = profiles[category];
     if (!catData || !catData.nodes || catData.nodes.length === 0) return;
 
-    const CONCURRENCY_LIMIT = 10;
-    const nodesToTest = catData.nodes.map((node, index) => ({ node, index }));
-
-    await parallelWithLimit(nodesToTest, CONCURRENCY_LIMIT, async ({ node, index }) => {
+    await parallelWithLimit(catData.nodes, NODE_TEST_CONCURRENCY, async (node) => {
         const pingSpan = document.getElementById(`ping-${category}-${node.id}`);
-        await _execNodeHttpCheck(node, index, pingSpan);
+        await _execNodeProbe(node, pingSpan, mode);
     });
 }
 
-async function pingCategoryCheckIp(category) {
-    const catData = profiles[category];
-    if (!catData || !catData.nodes || catData.nodes.length === 0) return;
-
-    const CONCURRENCY_LIMIT = 10;
-    const nodesToTest = catData.nodes.map((node, index) => ({ node, index }));
-
-    await parallelWithLimit(nodesToTest, CONCURRENCY_LIMIT, async ({ node, index }) => {
-        const pingSpan = document.getElementById(`ping-${category}-${node.id}`);
-        await _execNodeIpCheck(node, index, pingSpan);
-    });
-}
+const pingCategoryCheckHttp = (category) => _pingCategory(category, 'http');
+const pingCategoryCheckIp = (category) => _pingCategory(category, 'ip');
 
 // --- Single-node (per-config) HTTP / IP checks ---
 
-async function checkSingleNodeHttp(category, nodeId) {
-    const catData = profiles[category];
-    if (!catData || !catData.nodes) return;
-    const index = catData.nodes.findIndex(n => n.id === nodeId);
-    if (index === -1) return;
-    const node = catData.nodes[index];
+async function _checkSingleNode(category, nodeId, mode) {
+    const node = profiles[category]?.nodes?.find(n => n.id === nodeId);
+    if (!node) return;
     const pingSpan = document.getElementById(`ping-${category}-${node.id}`);
-    await _execNodeHttpCheck(node, index, pingSpan);
+    await _execNodeProbe(node, pingSpan, mode);
 }
 
-async function checkSingleNodeIp(category, nodeId) {
-    const catData = profiles[category];
-    if (!catData || !catData.nodes) return;
-    const index = catData.nodes.findIndex(n => n.id === nodeId);
-    if (index === -1) return;
-    const node = catData.nodes[index];
-    const pingSpan = document.getElementById(`ping-${category}-${node.id}`);
-    await _execNodeIpCheck(node, index, pingSpan);
-}
+const checkSingleNodeHttp = (category, nodeId) => _checkSingleNode(category, nodeId, 'http');
+const checkSingleNodeIp = (category, nodeId) => _checkSingleNode(category, nodeId, 'ip');
 
 async function checkHttpWithClose(event, category) {
     showLoading(`${t("toast_check_http")}${category}...`);
@@ -3007,7 +3216,7 @@ function toggleLatencyMonitor() {
 function startLatencyPolling() {
     stopLatencyPolling();
     pollLatency();
-    _latencyPollTimer = setInterval(pollLatency, 1000);
+    _latencyPollTimer = setInterval(pollLatency, LATENCY_POLL_MS);
 }
 
 function stopLatencyPolling() {
@@ -3020,8 +3229,14 @@ function stopLatencyPolling() {
 const _LATENCY_ADDR_SPLIT_MARKER = '___ADDR_INFO_SPLIT___';
 
 function pollLatency() {
+    // One exec does all three jobs: refresh the liveness heartbeat, read the
+    // latest probe result, and read the interface address dump. Sending the
+    // heartbeat separately would have doubled the wakeup cost of polling.
     execShell(
-        `cat '${TIME_RES_FILE}' 2>/dev/null; echo '${_LATENCY_ADDR_SPLIT_MARKER}'; cat '${ADDR_INFO_FILE}' 2>/dev/null`,
+        `[ -f ${shQuote(LATENCY_HB_FILE)} ] && date +%s > ${shQuote(LATENCY_HB_FILE)}; ` +
+        `cat ${shQuote(TIME_RES_FILE)} 2>/dev/null; ` +
+        `echo '${_LATENCY_ADDR_SPLIT_MARKER}'; ` +
+        `cat ${shQuote(ADDR_INFO_FILE)} 2>/dev/null`,
         (output) => {
             const dot = document.getElementById('latency-status-dot');
             const parts = (output || '').split(_LATENCY_ADDR_SPLIT_MARKER);
@@ -3155,8 +3370,10 @@ function saveIpHunterPrefixes() {
         return;
     }
 
-    execShell(`mkdir -p '${DATADIR}' && printf '%s' '${sanitized}' > '${IP_HUNT_FILE}'`, () => {
-        showToast(t('toast_ip_hunter_saved'), 'success');
+    execShell(`mkdir -p ${shQuote(DATADIR)} && chmod 700 ${shQuote(DATADIR)}`, () => {
+        writeFileB64(IP_HUNT_FILE, sanitized, () => {
+            showToast(t('toast_ip_hunter_saved'), 'success');
+        });
     });
 }
 

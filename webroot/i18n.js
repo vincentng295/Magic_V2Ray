@@ -194,6 +194,10 @@ const i18n = {
         lbl_sub_cat_name: "Category name",
         lbl_sub_url: "Subscription URL",
         lbl_sub_dedup: "Deduplicate configurations when fetching",
+        lbl_header_type: "Header Type",
+        loading_please_wait: "Please wait...",
+        lbl_sub_insecure: "Skip TLS certificate check",
+        desc_sub_insecure: "Unsafe — only for hosts with a self-signed certificate. Anyone on the network can then replace this subscription's contents.",
         toast_dedup_done: "Removed {removed} duplicate(s). {total} node(s) remaining.",
 
         // Log tab
@@ -224,6 +228,8 @@ const i18n = {
         ip_hunter_placeholder: "10.120;10.121;10.122",
         ip_hunter_hint: "Enter IPv4 network prefixes separated by semicolons (;), e.g. 10.120;10.121;10.122",
         toast_ip_hunter_saved: "IP hunter prefixes saved.",
+        toast_config_invalid: "Cannot build a usable config: {reason}",
+        toast_sub_insecure_warn: "Fetching without TLS verification — contents are not trustworthy.",
         toast_ip_hunter_disabled: "IP hunter disabled.",
         toast_ip_hunter_invalid: "Enter at least one valid IPv4 prefix.",
         latency_stat_avg: "Avg",
@@ -472,6 +478,10 @@ const i18n = {
         lbl_sub_cat_name: "分组名称",
         lbl_sub_url: "订阅链接",
         lbl_sub_dedup: "拉取时自动去除重复配置",
+        lbl_header_type: "伪装类型",
+        loading_please_wait: "请稍候…",
+        lbl_sub_insecure: "跳过 TLS 证书校验",
+        desc_sub_insecure: "不安全 — 仅适用于自签名证书的主机。启用后，网络中的任何人都可以替换此订阅的内容。",
         toast_dedup_done: "已移除 {removed} 个重复节点，剩余 {total} 个节点。",
 
         // Log tab
@@ -502,6 +512,8 @@ const i18n = {
         ip_hunter_placeholder: "10.120;10.121;10.122",
         ip_hunter_hint: "输入 IPv4 网段前缀，用分号（;）分隔，例如 10.120;10.121;10.122",
         toast_ip_hunter_saved: "IP 猎手前缀已保存。",
+        toast_config_invalid: "无法生成可用的配置：{reason}",
+        toast_sub_insecure_warn: "正在不验证 TLS 的情况下获取订阅 — 内容不可信。",
         toast_ip_hunter_disabled: "IP 猎手已禁用。",
         toast_ip_hunter_invalid: "请至少输入一个有效的 IPv4 前缀。",
         latency_stat_avg: "平均",
@@ -750,6 +762,10 @@ const i18n = {
         lbl_sub_cat_name: "分組名稱",
         lbl_sub_url: "訂閱連結",
         lbl_sub_dedup: "拉取時自動去除重複設定",
+        lbl_header_type: "偽裝類型",
+        loading_please_wait: "請稍候…",
+        lbl_sub_insecure: "略過 TLS 憑證驗證",
+        desc_sub_insecure: "不安全 — 僅適用於自簽憑證的主機。啟用後，網路上的任何人都可以替換此訂閱的內容。",
         toast_dedup_done: "已移除 {removed} 個重複節點，剩餘 {total} 個節點。",
 
         // Log tab
@@ -780,6 +796,8 @@ const i18n = {
         ip_hunter_placeholder: "10.120;10.121;10.122",
         ip_hunter_hint: "輸入 IPv4 網段前綴，以分號（;）分隔，例如 10.120;10.121;10.122",
         toast_ip_hunter_saved: "IP 獵手前綴已儲存。",
+        toast_config_invalid: "無法產生可用的設定：{reason}",
+        toast_sub_insecure_warn: "正在不驗證 TLS 的情況下取得訂閱 — 內容不可信。",
         toast_ip_hunter_disabled: "IP 獵手已停用。",
         toast_ip_hunter_invalid: "請至少輸入一個有效的 IPv4 前綴。",
         latency_stat_avg: "平均",
@@ -1028,6 +1046,10 @@ const i18n = {
         lbl_sub_cat_name: "Tên danh mục",
         lbl_sub_url: "URL đăng ký",
         lbl_sub_dedup: "Loại trùng khi tải về",
+        lbl_header_type: "Kiểu header",
+        loading_please_wait: "Vui lòng đợi...",
+        lbl_sub_insecure: "Bỏ qua kiểm tra chứng chỉ TLS",
+        desc_sub_insecure: "Không an toàn — chỉ dùng cho máy chủ có chứng chỉ tự ký. Khi bật, bất kỳ ai trong mạng cũng có thể thay thế nội dung của subscription này.",
         toast_dedup_done: "Đã xóa {removed} bản trùng. Còn lại {total} nút.",
 
         // Log tab
@@ -1058,6 +1080,8 @@ const i18n = {
         ip_hunter_placeholder: "10.120;10.121;10.122",
         ip_hunter_hint: "Nhập các dải IPv4 (prefix) cách nhau bởi dấu chấm phẩy (;), ví dụ 10.120;10.121;10.122",
         toast_ip_hunter_saved: "Đã lưu danh sách prefix cho IP hunter.",
+        toast_config_invalid: "Không tạo được cấu hình hợp lệ: {reason}",
+        toast_sub_insecure_warn: "Đang tải subscription mà không xác thực TLS — nội dung không đáng tin.",
         toast_ip_hunter_disabled: "Đã tắt IP hunter.",
         toast_ip_hunter_invalid: "Vui lòng nhập ít nhất một prefix IPv4 hợp lệ.",
         latency_stat_avg: "TB",

@@ -1,4 +1,6 @@
-// Helper to decode Base64 safely for both Browser and Node.js environments
+// Helper to decode Base64 safely for both Browser and Node.js environments.
+// Accepts both the standard and the URL-safe alphabet and tolerates missing
+// padding, because subscription providers emit all three variants.
 function decodeBase64(str) {
     str = str.trim().replace(/-/g, '+').replace(/_/g, '/');
     while (str.length % 4) str += '=';
@@ -8,6 +10,17 @@ function decodeBase64(str) {
     return decodeURIComponent(atob(str).split('').map(c => {
         return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
     }).join(''));
+}
+
+// Same as decodeBase64 but yields null instead of throwing, for callers that
+// treat "not base64" as a normal branch rather than an error.
+function tryDecodeBase64(str) {
+    try {
+        const out = decodeBase64(str);
+        return out || null;
+    } catch (e) {
+        return null;
+    }
 }
 
 function utoa(str) {
@@ -201,20 +214,16 @@ function convert_uri_to_xray_json(uri, optional_settings) {
         routingRules: []
     };
 
-    const b64decode = s => {
-        try { 
-            return decodeURIComponent(escape(atob(s.trim()))); 
-        } catch { 
-            return null; 
-        }
-    };
-
     let outbound = null;
     uri = uri.trim();
 
     try {
         if (uri.startsWith('vmess://')) {
-            const c = JSON.parse(b64decode(uri.substring(8)));
+            // Strip any #remark fragment before decoding — some providers append one.
+            const vmessPayload = uri.substring(8).split('#')[0];
+            const vmessJson = tryDecodeBase64(vmessPayload);
+            if (!vmessJson) throw new Error("Cannot parse VMESS Base64");
+            const c = JSON.parse(vmessJson);
             if (!c) throw new Error("Cannot parse VMESS Base64");
             
             outbound = {

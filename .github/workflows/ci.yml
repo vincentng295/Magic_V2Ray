@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  shell:
+    name: Shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck dash
+
+      # Android runs these under busybox ash / mksh. Parsing them with dash
+      # catches bashisms that ash would tolerate on some devices and reject on
+      # others — the class of bug that only shows up on one user's ROM.
+      - name: POSIX parse check (dash)
+        run: |
+          for f in service.sh proxy_control.sh uninstall.sh customize.sh action.sh; do
+            echo "== $f"
+            dash -n "$f"
+          done
+
+      - name: shellcheck
+        run: |
+          shellcheck --shell=dash --severity=warning \
+            service.sh proxy_control.sh uninstall.sh action.sh
+          # customize.sh is sourced by the root manager, which predefines
+          # ui_print/abort/set_perm* and $MODPATH/$ZIPFILE/$ARCH.
+          shellcheck --shell=dash --severity=warning \
+            --exclude=SC2154 \
+            -e SC2148 customize.sh
+
+  webui:
+    name: Web UI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Syntax check
+        run: |
+          for f in webroot/*.js; do
+            echo "== $f"
+            node --check "$f"
+          done
+
+      - name: i18n completeness
+        run: |
+          node -e '
+            const fs=require("fs");
+            const i18n=eval("(function(){"+fs.readFileSync("webroot/i18n.js","utf8")+"; return i18n;})()");
+            const src=fs.readFileSync("webroot/main.js","utf8")+fs.readFileSync("webroot/index.html","utf8");
+            const used=new Set();
+            for(const m of src.matchAll(/\bt\(\s*.([a-zA-Z0-9_]+)./g)) used.add(m[1]);
+            for(const m of src.matchAll(/data-i18n(?:-placeholder)?="([a-zA-Z0-9_]+)"/g)) used.add(m[1]);
+            const langs=Object.keys(i18n);
+            let bad=0;
+            for(const k of used){
+              const miss=langs.filter(l=>!(k in i18n[l]));
+              if(miss.length){ console.log("::error::i18n key \""+k+"\" missing in: "+miss.join(", ")); bad++; }
+            }
+            if(bad) process.exit(1);
+            console.log("i18n OK: "+used.size+" keys x "+langs.length+" languages");
+          '
+
+      # The root exec bridge runs whatever string these files build, so a
+      # regression that puts untrusted text back into a command is a root RCE.
+      # Fail the build if the unsafe patterns come back.
+      - name: Guard against shell injection regressions
+        run: |
+          set -e
+          fail=0
+          if grep -nE "execShell\(\`[^\`]*\\\$\{(xrayConfig|config_json|newUri|rawUri|url|category|escapedUrl)\}" webroot/*.js; then
+            echo "::error::untrusted value interpolated into a shell command"
+            fail=1
+          fi
+          if grep -nE "^\s*execShell\(\`echo '" webroot/*.js; then
+            echo "::error::use writeFileB64() instead of echo '...' > file"
+            fail=1
+          fi
+          # Match calls/definitions, not prose that mentions the old helper.
+          if grep -nE "escapeAttr[[:space:]]*\(" webroot/*.js | grep -vE ":[[:space:]]*(//|\*)"; then
+            echo "::error::escapeAttr was removed; do not build event handlers as strings"
+            fail=1
+          fi
+          if grep -nE "curl[^\"'\`]*[[:space:]]-[a-zA-Z]*k" webroot/*.js | grep -v "allowInsecure"; then
+            echo "::error::unconditional 'curl -k' reintroduced"
+            fail=1
+          fi
+          exit $fail
+
+  manifest:
+    name: Packaging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # customize.sh is the complete file manifest (SKIPUNZIP=1). Anything it
+      # forgets is simply absent at runtime — this is exactly how uninstall.sh
+      # went missing and left user credentials on disk after removal.
+      - name: Every extracted path exists in the repo
+        run: |
+          set -e
+          fail=0
+          for f in $(grep -oE '"[a-zA-Z0-9_./*-]+"' customize.sh \
+                     | tr -d '"' | grep -E '^(webroot|bin|[a-z_]+\.sh|module\.prop)' \
+                     | sed 's|/\*$||' | sort -u); do
+            if [ ! -e "$f" ]; then echo "::error::customize.sh extracts '$f' which is not in the repo"; fail=1; fi
+          done
+          exit $fail
+
+      - name: Required files are in the manifest
+        run: |
+          set -e
+          fail=0
+          for f in service.sh proxy_control.sh uninstall.sh action.sh module.prop; do
+            grep -q "\"$f\"" customize.sh || { echo "::error::$f is never extracted by customize.sh"; fail=1; }
+          done
+          exit $fail
+
+      - name: updateJson must be https
+        run: |
+          grep -q '^updateJson=https://' module.prop \
+            || { echo "::error::updateJson must use https"; exit 1; }

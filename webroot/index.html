@@ -24,11 +24,11 @@
         </header>
 
         <div class="tabs-navigation">
-            <button class="tab-btn active" onclick="switchTab('tab-dashboard')" data-i18n="tab_dashboard">Dashboard</button>
-            <button class="tab-btn" onclick="switchTab('tab-settings')" data-i18n="tab_settings">Traffic Settings</button>
-            <button class="tab-btn" onclick="switchTab('tab-routing')" data-i18n="tab_routing">Routing Settings</button>
-            <button class="tab-btn" onclick="switchTab('tab-log')" data-i18n="tab_log">Xray Log</button>
-            <button class="tab-btn" onclick="switchTab('tab-latency')" data-i18n="tab_latency">Network Latency</button>
+            <button class="tab-btn active" data-tab="tab-dashboard" onclick="switchTab('tab-dashboard', event)" data-i18n="tab_dashboard">Dashboard</button>
+            <button class="tab-btn" data-tab="tab-settings" onclick="switchTab('tab-settings', event)" data-i18n="tab_settings">Traffic Settings</button>
+            <button class="tab-btn" data-tab="tab-routing" onclick="switchTab('tab-routing', event)" data-i18n="tab_routing">Routing Settings</button>
+            <button class="tab-btn" data-tab="tab-log" onclick="switchTab('tab-log', event)" data-i18n="tab_log">Xray Log</button>
+            <button class="tab-btn" data-tab="tab-latency" onclick="switchTab('tab-latency', event)" data-i18n="tab_latency">Network Latency</button>
         </div>
 
         <div id="tab-dashboard" class="tab-content active">
@@ -888,6 +888,13 @@
                     </label>
                     <input type="checkbox" id="edit-sub-dedup" checked>
                     <span class="toggle-slider"></span>
+                </div>
+                <div class="setting-item-row toggle-row" style="padding: 0;">
+                    <label for="edit-sub-insecure">
+                        <span data-i18n="lbl_sub_insecure">Skip TLS certificate check</span>
+                        <small data-i18n="desc_sub_insecure">Unsafe — only for hosts with a self-signed certificate. Anyone on the network can then replace this subscription's contents.</small>
+                    </label>
+                    <input type="checkbox" id="edit-sub-insecure">
                 </div>
             </div>
         </div>
