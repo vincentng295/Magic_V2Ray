@@ -1,3 +1,6 @@
+# shellcheck disable=SC2034
+# Read by the root manager's install framework, which sources this file —
+# not used within customize.sh itself, hence the "unused" false positive.
 SKIPUNZIP=1
 
 DATADIR="/data/adb/magic_v2ray"
