@@ -139,7 +139,8 @@ async function toggleService(action) {
             const node = profiles[category]?.nodes?.find(n => n.id === id); 
             if (node) {
                 const xrayConfig = _resolveXrayConfig(node.rawUri);
-                execShell(`echo '${xrayConfig}' > '${CONFIG_JSON}'`, () => {
+                const xrayConfigB64 = utoa(xrayConfig);
+                execShell(`printf '%s' '${xrayConfigB64}' | base64 -d > '${CONFIG_JSON}'`, () => {
                     execShell(`sh ${MODDIR}/proxy_control.sh restart`, () => {
                         const badge = document.getElementById('service-status');
                         badge.innerText = t('status_loading');
@@ -1662,7 +1663,8 @@ function saveEditedNode() {
 
     if (!isNew && activeConfig === `${currentEditingCategory}:${currentEditingNodeId}`) {
         const xrayConfig = _resolveXrayConfig(newUri);
-        execShell(`echo '${xrayConfig}' > '${CONFIG_JSON}'`, () => {
+        const xrayConfigB64 = utoa(xrayConfig);
+        execShell(`printf '%s' '${xrayConfigB64}' | base64 -d > '${CONFIG_JSON}'`, () => {
             execShell(`sh ${MODDIR}/proxy_control.sh status`, (status) => {
                 if (status === 'running') {
                     toggleService('restart');
@@ -1874,7 +1876,8 @@ function saveProxyChain() {
             // Regenerate config if this chain is active
             if (activeConfig === `${editingCat}:${editingId}`) {
                 const xrayConfig = _resolveXrayConfig(chainEntry.rawUri);
-                execShell(`echo '${xrayConfig}' > '${CONFIG_JSON}'`, () => {
+                const xrayConfigB64 = utoa(xrayConfig);
+                execShell(`printf '%s' '${xrayConfigB64}' | base64 -d > '${CONFIG_JSON}'`, () => {
                     execShell(`sh ${MODDIR}/proxy_control.sh status`, (status) => {
                         if (status === 'running') toggleService('restart');
                     });
@@ -2145,7 +2148,8 @@ function saveAdvancedSettingsForm(isLangOnly = false) {
             const node = profiles[category]?.nodes?.find(n => n.id === id); 
             if (node) {
                 const xrayConfig = _resolveXrayConfig(node.rawUri);
-                execShell(`echo '${xrayConfig}' > '${CONFIG_JSON}'`, () => {
+                const xrayConfigB64 = utoa(xrayConfig);
+                execShell(`printf '%s' '${xrayConfigB64}' | base64 -d > '${CONFIG_JSON}'`, () => {
                     execShell(`sh ${MODDIR}/proxy_control.sh status`, (status) => {
                         if (status === 'running') {
                             toggleService('restart');
@@ -2343,7 +2347,8 @@ function persistRoutingRules() {
         if (!node) return;
 
         const xrayConfig = _resolveXrayConfig(node.rawUri);
-        execShell(`echo '${xrayConfig}' > '${CONFIG_JSON}'`, () => {
+        const xrayConfigB64 = utoa(xrayConfig);
+        execShell(`printf '%s' '${xrayConfigB64}' | base64 -d > '${CONFIG_JSON}'`, () => {
             execShell(`sh ${MODDIR}/proxy_control.sh status`, (status) => {
                 if (status === 'running') {
                     toggleService('restart');
