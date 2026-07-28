@@ -2604,11 +2604,17 @@ async function fetchRoutingPresetFromUrl() {
     }
 
     const status = await execShellAsync(`sh ${MODDIR}/proxy_control.sh status`);
-    const escapedUrl = url.replace(/'/g, "'\\''");
-    const extraArgs = (status === 'running') ? "--socks5-hostname 127.17.1.3:808" : "";
+    const viaProxy = (status === 'running') ? "--socks5-hostname 127.17.1.3:808" : "";
+
+    // Certificate validation is ON by default, matching fetchSubscription().
+    // Routing presets reach a root shell just like subscription bodies do,
+    // so the same TLS and shell-quoting hardening applies here.
+    const cmd = `${MODDIR}/bin/curl ${viaProxy} -sSL -f --max-redirs 3 ` +
+                `--proto '=http,https' --proto-redir '=http,https' ` +
+                `--max-time 15 ${shQuote(url)}`;
 
     showLoading('toast_fetch_sub');
-    execShell(`${MODDIR}/bin/curl ${extraArgs} -sLk --max-time 15 '${escapedUrl}'`, (res) => {
+    execShell(cmd, (res) => {
         hideLoading();
         if (!res || res.trim() === "") {
             return showToast(t('toast_fetch_failed'), 'error');
