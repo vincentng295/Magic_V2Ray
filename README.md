@@ -26,24 +26,6 @@ If you are used to standard V2Ray apps (like v2rayNG, Matsuri, Nekobox), here is
 - **Seamless Dynamic Reconnects:** Detects Wi-Fi ↔ 4G/5G handovers from kernel routing events (`ip monitor`) rather than polling, and re-applies the routing marks without waiting for a timeout.
 - **Universal Root Support:** Works across Magisk, KernelSU, and APatch.
 
-### A note on performance
-
-Earlier versions of this README claimed "zero-copy" operation, `TPROXY` routing, and lower latency than `VpnService` apps. **Those claims were not accurate and have been removed.**
-
-What actually happens today is:
-
-```
-app → kernel → xraytun0 (TUN) → hev-socks5-tunnel → SOCKS5 over loopback → Xray → internet
-```
-
-That is *two* user-space hops, not zero — a `VpnService` app has one. `TPROXY` is not used anywhere in the codebase. Expect throughput and latency broadly **comparable** to a well-implemented `VpnService` client, not dramatically better.
-
-The real reasons to use this module are the ones listed above: it survives low-memory kills, it covers UIDs a `VpnService` cannot, it shares to tethered devices, and it leaves the VPN slot free.
-
-A genuine `TPROXY` mode — which would remove the `hev-socks5-tunnel` hop and make the original claim true — is tracked as future work. It requires `xt_TPROXY` and `IP_TRANSPARENT` kernel support, which not every Android kernel ships, so it would land as an opt-in mode with automatic fallback.
-- **Built-in Smart Hotspot Sharing:** Standard VPN apps fail to share proxy connections via Wi-Fi Hotspot because Android routes tethered traffic through a separate network namespace that bypasses the `VpnService`. Magic V2Ray natively intercepts hotspot traffic at the Netfilter layer (`PREROUTING`). It injects custom `iptables`/`ip6tables` and `ip rule` structures to seamlessly force connected clients into the `xraytun0` core, allowing you to share your bypassed 4G/5G connection without any extra tethering apps.
-- **Universal Root Support:** Works flawlessly out-of-the-box across Magisk, KernelSU, and APatch, fitting perfectly into modern Android root environments.
-
 ---
 
 ## You dont have root?
