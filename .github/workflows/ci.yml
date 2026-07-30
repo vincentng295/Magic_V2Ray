@@ -156,3 +156,44 @@ jobs:
           name: magic_v2ray-universal
           path: dist/*-universal.zip
           if-no-files-found: error
+
+  release:
+      name: Publish Release
+      runs-on: ubuntu-latest
+      needs: [build]
+      if: |
+        github.ref == 'refs/heads/main' &&
+        contains(github.event.head_commit.message, '[release]')
+      permissions:
+        contents: write
+      steps:
+        - uses: actions/checkout@v4
+
+        - name: Download all module zips
+          uses: actions/download-artifact@v4
+          with:
+            path: dist
+            pattern: magic_v2ray-*
+            merge-multiple: true
+
+        - name: Derive tag and release name from module.prop
+          id: ver
+          run: |
+            set -e
+            version_line=$(grep -E '^version=' module.prop | cut -d= -f2-)
+            # "v1.x & Xray-core@v26.7.11" -> tag "v1.x"
+            tag=$(echo "$version_line" | sed -E 's/^([^ ]+).*/\1/')
+            if [ -z "$tag" ]; then
+              echo "::error::could not parse tag from module.prop version= line"
+              exit 1
+            fi
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
+            echo "release_name=$version_line" >> "$GITHUB_OUTPUT"
+
+        - name: Create GitHub Release
+          uses: softprops/action-gh-release@v2
+          with:
+            tag_name: ${{ steps.ver.outputs.tag }}
+            name: ${{ steps.ver.outputs.release_name }}
+            body_path: CHANGELOG.md
+            files: dist/*.zip
