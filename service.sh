@@ -58,6 +58,15 @@ PIPE_FILE="$RUN_DIR/control.pipe"
 IFACE_EVENT_PIPE="$RUN_DIR/iface_events.pipe"
 IFACE_MON_CHILD="$RUN_DIR/iface_monitor_child.pid"
 
+# List of UIDs we want them to be routed into Xray-core
+XRAY_UID_LIST="
+1000
+1051
+1052
+1053
+9999-2147483647
+"
+
 rm -f "$XRAY_LOG" "$DATADIR/tun2socks.log"
 
 grep_prop() {
@@ -606,23 +615,23 @@ apply_routing_rules() {
         $iptables -t mangle -A XRAY_MARK -o pdp+ -j RETURN
         $iptables -t mangle -A XRAY_MARK -o wwan+ -j RETURN
 
-        $iptables -t mangle -A XRAY_MARK -m owner --uid-owner 1000 -j MARK --set-xmark 1
-        $iptables -t mangle -A XRAY_MARK -m owner --uid-owner 1052 -j MARK --set-xmark 1
-        $iptables -t mangle -A XRAY_MARK -m owner --uid-owner 9999-2147483647 -j MARK --set-xmark 1
+        for uid in $XRAY_UID_LIST; do
+            $iptables -t mangle -A XRAY_MARK -m owner --uid-owner "$uid" -j MARK --set-xmark 1
+        done
     elif [ "$network_mode" = "2" ]; then
         # Only mark traffic that is BOTH on a mobile interface AND in the
         # allowed uid range; anything else falls through to the final
         # RETURN below and bypasses the proxy untouched.
         for mobile_if in rmnet+ ccmni+ pdp+ wwan+; do
-            $iptables -t mangle -A XRAY_MARK -o "$mobile_if" -m owner --uid-owner 1000 -j MARK --set-xmark 1
-            $iptables -t mangle -A XRAY_MARK -o "$mobile_if" -m owner --uid-owner 1052 -j MARK --set-xmark 1
-            $iptables -t mangle -A XRAY_MARK -o "$mobile_if" -m owner --uid-owner 9999-2147483647 -j MARK --set-xmark 1
+            for uid in $XRAY_UID_LIST; do 
+                $iptables -t mangle -A XRAY_MARK -o "$mobile_if" -m owner --uid-owner "$uid" -j MARK --set-xmark 1
+            done
         done
         $iptables -t mangle -A XRAY_MARK -j RETURN
     else
-        $iptables -t mangle -A XRAY_MARK -m owner --uid-owner 1000 -j MARK --set-xmark 1
-        $iptables -t mangle -A XRAY_MARK -m owner --uid-owner 1052 -j MARK --set-xmark 1
-        $iptables -t mangle -A XRAY_MARK -m owner --uid-owner 9999-2147483647 -j MARK --set-xmark 1
+        for uid in $XRAY_UID_LIST; do 
+            $iptables -t mangle -A XRAY_MARK -m owner --uid-owner "$uid" -j MARK --set-xmark 1
+        done
     fi
     $iptables -t mangle -A OUTPUT -j XRAY_MARK
 
@@ -716,20 +725,20 @@ apply_routing_rules() {
             $ip6tables -t mangle -A XRAY_MARK -o pdp+ -j RETURN
             $ip6tables -t mangle -A XRAY_MARK -o wwan+ -j RETURN
 
-            $ip6tables -t mangle -A XRAY_MARK -m owner --uid-owner 1000 -j MARK --set-xmark 1
-            $ip6tables -t mangle -A XRAY_MARK -m owner --uid-owner 1052 -j MARK --set-xmark 1
-            $ip6tables -t mangle -A XRAY_MARK -m owner --uid-owner 9999-2147483647 -j MARK --set-xmark 1
+            for uid in $XRAY_UID_LIST; do
+                $ip6tables -t mangle -A XRAY_MARK -m owner --uid-owner "$uid" -j MARK --set-xmark 1
+            done
         elif [ "$network_mode" = "2" ]; then
             for mobile_if in rmnet+ ccmni+ pdp+ wwan+; do
-                $ip6tables -t mangle -A XRAY_MARK -o "$mobile_if" -m owner --uid-owner 1000 -j MARK --set-xmark 1
-                $ip6tables -t mangle -A XRAY_MARK -o "$mobile_if" -m owner --uid-owner 1052 -j MARK --set-xmark 1
-                $ip6tables -t mangle -A XRAY_MARK -o "$mobile_if" -m owner --uid-owner 9999-2147483647 -j MARK --set-xmark 1
+                for uid in $XRAY_UID_LIST; do
+                    $ip6tables -t mangle -A XRAY_MARK -o "$mobile_if" -m owner --uid-owner "$uid" -j MARK --set-xmark 1
+                done
             done
             $ip6tables -t mangle -A XRAY_MARK -j RETURN
         else
-            $ip6tables -t mangle -A XRAY_MARK -m owner --uid-owner 1000 -j MARK --set-xmark 1
-            $ip6tables -t mangle -A XRAY_MARK -m owner --uid-owner 1052 -j MARK --set-xmark 1
-            $ip6tables -t mangle -A XRAY_MARK -m owner --uid-owner 9999-2147483647 -j MARK --set-xmark 1
+            for uid in $XRAY_UID_LIST; do
+                $ip6tables -t mangle -A XRAY_MARK -m owner --uid-owner "$uid" -j MARK --set-xmark 1
+            done
         fi
         $ip6tables -t mangle -A OUTPUT -j XRAY_MARK
 
