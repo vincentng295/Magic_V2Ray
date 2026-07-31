@@ -21,6 +21,44 @@ rm -f "$OUT"/*.zip
 VERSION=$(sed -n 's/^version=//p' module.prop | head -n 1 | tr ' /&' '_' | tr -d '\r')
 MODID=$(sed -n 's/^id=//p' module.prop | head -n 1 | tr -d '\r')
 
+# Xray-core version is embedded in module.prop's version string, e.g.
+#   version=v1.10.1 & Xray-core@v26.7.28
+XRAY_VERSION=$(sed -n 's/^version=//p' module.prop | head -n 1 | tr -d '\r' | sed -n 's/.*Xray-core@\(v[0-9.]*\).*/\1/p')
+[[ -n "$XRAY_VERSION" ]] || { echo "could not parse Xray-core version from module.prop" >&2; exit 1; }
+
+XRAY_BASE_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}"
+
+# Maps our arch dir names to the asset name Xray-core publishes under.
+xray_asset_for() {
+    case "$1" in
+        arm64-v8a) echo "Xray-android-arm64-v8a.zip" ;;
+        x86_64)    echo "Xray-android-amd64.zip" ;;
+        *) echo "unknown arch: $1" >&2; exit 1 ;;
+    esac
+}
+
+# Downloads and unpacks the xray binary for one arch into bin/<arch>/xray,
+# skipping the fetch if the binary is already present.
+fetch_xray() {
+    local arch="$1"
+    local dest="bin/${arch}"
+    if [[ -x "${dest}/xray" ]]; then
+        echo "==> bin/${arch}/xray already present, skipping download"
+        return
+    fi
+    local asset; asset=$(xray_asset_for "$arch")
+    local url="${XRAY_BASE_URL}/${asset}"
+    local tmp; tmp=$(mktemp -d)
+    echo "==> fetching ${url}"
+    curl -fsSL -o "${tmp}/${asset}" "$url"
+    mkdir -p "$dest"
+    unzip -q -o "${tmp}/${asset}" -d "$tmp"
+    need "${tmp}/xray"
+    install -m 0755 "${tmp}/xray" "${dest}/xray"
+    rm -rf "$tmp"
+    echo "    installed ${dest}/xray (${XRAY_VERSION})"
+}
+
 # Files every build contains, regardless of architecture.
 COMMON=(
     META-INF
@@ -55,9 +93,9 @@ pack() {
 target="${1:-all}"
 
 case "$target" in
-    arm64|all)     pack arm64-v8a bin/arm64-v8a ;;&
-    x64|x86_64|all) pack x86_64    bin/x86_64 ;;&
-    universal|all) pack universal  bin/arm64-v8a bin/x86_64 ;;&
+    arm64|all)     fetch_xray arm64-v8a; pack arm64-v8a bin/arm64-v8a ;;&
+    x64|x86_64|all) fetch_xray x86_64;    pack x86_64    bin/x86_64 ;;&
+    universal|all) fetch_xray arm64-v8a; fetch_xray x86_64; pack universal bin/arm64-v8a bin/x86_64 ;;&
     arm64|x64|x86_64|universal|all) ;;
     *) echo "usage: $0 [arm64|x64|universal|all]" >&2; exit 2 ;;
 esac
