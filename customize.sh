@@ -52,7 +52,7 @@ unzip -j -o "$ZIPFILE" "module.prop"      -d "$MODPATH" >&2 || abort "! Failed t
 #    silently at boot with no indication of why.
 # ---------------------------------------------------------------------------
 ui_print "- Verifying payload..."
-for f in bin/xray bin/hev-socks5-tunnel bin/curl bin/geoip.dat bin/geosite.dat \
+for f in bin/xray bin/curl bin/geoip.dat bin/geosite.dat \
          service.sh proxy_control.sh uninstall.sh action.sh webroot/index.html; do
     [ -s "$MODPATH/$f" ] || abort "! Missing or empty after extraction: $f"
 done

@@ -31,8 +31,8 @@ XRAY_BASE_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSIO
 # Maps our arch dir names to the asset name Xray-core publishes under.
 xray_asset_for() {
     case "$1" in
-        arm64-v8a) echo "Xray-android-arm64-v8a.zip" ;;
-        x86_64)    echo "Xray-android-amd64.zip" ;;
+        arm64-v8a) echo "Xray-linux-arm64-v8a.zip" ;;
+        x86_64)    echo "Xray-linux-64.zip" ;;
         *) echo "unknown arch: $1" >&2; exit 1 ;;
     esac
 }

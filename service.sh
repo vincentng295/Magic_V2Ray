@@ -22,6 +22,7 @@ MODDIR=${0%/*}
 BINDIR="$MODDIR/bin"
 DATADIR="/data/adb/magic_v2ray"
 STUB_DIR=/dev/sysctl_stubs
+CONFIG_FILE="$DATADIR/config.v2.json"
 
 # ===========================================================================
 # 1. Paths, constants, logging
@@ -45,7 +46,6 @@ chmod 700 "$RUN_DIR"
 
 XRAY_LOG="$DATADIR/xray.log"
 SERVICE_LOG="$DATADIR/service.log"
-TUN2SOCKS_LOG=/dev/null
 IP_HUNT_FILE="$DATADIR/ip_hunt.list"
 ENABLED_FLAG="$DATADIR/enabled"
 
@@ -67,7 +67,7 @@ XRAY_UID_LIST="
 9999-2147483647
 "
 
-rm -f "$XRAY_LOG" "$DATADIR/tun2socks.log"
+rm -f "$XRAY_LOG" "$DATADIR/tun2socks.log"  # tun2socks.log: cleanup of leftover file from pre-tun-inbound installs
 
 grep_prop() {
     local regex="s/^$1=//p"
@@ -81,7 +81,6 @@ grep_prop() {
 DEBUG=0
 if [ "$(grep_prop debug)" = "1" ]; then
     DEBUG=1
-    TUN2SOCKS_LOG="$DATADIR/tun2socks.log"
 fi
 
 # Cap the service log so a long-lived boot cannot fill /data. Rotation happens
@@ -108,7 +107,6 @@ chmod 600 "$PIPE_FILE" 2>/dev/null
 # meant starting the latency monitor overwrote — and permanently orphaned —
 # the network-interface monitor, silently disabling reconnect handling.
 XRAY_PID=0
-TUN2SOCKS_PID=0
 IFACE_MONITOR_PID=0
 LATENCY_MONITOR_PID=0
 
@@ -586,8 +584,8 @@ apply_routing_rules() {
     # IPv4 CONFIGURATION
     # =========================================================================
 
-    # Step 1: Assign IP address and set TUN device UP
-    $ip addr add 198.18.0.1/15 dev $TUN_NAME
+    # Step 1: Set TUN device UP (xray's "gateway" config assigns the address
+    # itself now — see helper.js's tun-in inbound)
     $ip link set dev $TUN_NAME up
     $ip route replace default dev $TUN_NAME table 100
 
@@ -683,17 +681,20 @@ apply_routing_rules() {
     # Hide proxy port from non-system apps
     $iptables -I OUTPUT -p tcp --dport $TUN_PORT -d $TUN_ADDR -m owner --uid-owner 9999-2147483647 -j REJECT --reject-with tcp-reset
 
-    # Step 5: Fake ICMP replies (hev-socks5-tunnel does not proxy ICMP, so
-    # redirect outgoing pings to the loopback instead of leaking them
-    # through the real interface / letting them time out on the TUN device)
-    $iptables -t nat -N XRAY_FAKE_ICMP
-    $iptables -t nat -A XRAY_FAKE_ICMP -d 127.0.0.0/8 -j RETURN
-    $iptables -t nat -A XRAY_FAKE_ICMP -d 10.0.0.0/8 -j RETURN
-    $iptables -t nat -A XRAY_FAKE_ICMP -d 172.16.0.0/12 -j RETURN
-    $iptables -t nat -A XRAY_FAKE_ICMP -d 192.168.0.0/16 -j RETURN
-    $iptables -t nat -A XRAY_FAKE_ICMP -p icmp -j DNAT --to-destination 127.0.0.1
-    $iptables -t nat -I OUTPUT -p icmp -j XRAY_FAKE_ICMP
-    $iptables -t nat -I PREROUTING ! -i $TUN_NAME -p icmp -j XRAY_FAKE_ICMP
+    # ICMP now needs no special handling — xray's tun-in inbound
+    # proxies ICMP Echo request/reply natively (see LIMITATIONS in
+    # README-proxy-tun-in.md: only Echo is supported, and replies are
+    # generated locally by the TUN stack rather than validating real remote
+    # reachability, but that's a strict improvement over the old
+    # redirect-to-loopback workaround this replaces).
+    # $iptables -t nat -N XRAY_FAKE_ICMP
+    # $iptables -t nat -A XRAY_FAKE_ICMP -d 127.0.0.0/8 -j RETURN
+    # $iptables -t nat -A XRAY_FAKE_ICMP -d 10.0.0.0/8 -j RETURN
+    # $iptables -t nat -A XRAY_FAKE_ICMP -d 172.16.0.0/12 -j RETURN
+    # $iptables -t nat -A XRAY_FAKE_ICMP -d 192.168.0.0/16 -j RETURN
+    # $iptables -t nat -A XRAY_FAKE_ICMP -p icmp -j DNAT --to-destination 127.0.0.1
+    # $iptables -t nat -I OUTPUT -p icmp -j XRAY_FAKE_ICMP
+    # $iptables -t nat -I PREROUTING ! -i $TUN_NAME -p icmp -j XRAY_FAKE_ICMP
 
 
     # =========================================================================
@@ -701,8 +702,8 @@ apply_routing_rules() {
     # =========================================================================
 
     if [ "$ipv6_enabled" = true ]; then
-        # Step 1: Assign IPv6 address and default route
-        $ip -6 addr add fdfe:dcba:9876::1/64 dev $TUN_NAME
+        # Step 1: Default route (address itself comes from xray's "gateway"
+        # config now, same as the IPv4 side above)
         $ip -6 route replace default dev $TUN_NAME table 100
 
         # Step 2: Routing Rule for marked IPv6 packets
@@ -818,12 +819,6 @@ clear_routing_rules() {
     $ip rule del fwmark 1 table 100 priority 1010
     $iptables -D OUTPUT -p tcp --dport $TUN_PORT -d $TUN_ADDR -m owner --uid-owner 9999-2147483647 -j REJECT --reject-with tcp-reset
 
-    # Delete fake ICMP chain
-    $iptables -t nat -D OUTPUT -p icmp -j XRAY_FAKE_ICMP
-    $iptables -t nat -D PREROUTING -p icmp -j XRAY_FAKE_ICMP
-    $iptables -t nat -F XRAY_FAKE_ICMP
-    $iptables -t nat -X XRAY_FAKE_ICMP
-
     # Delete hotspot rules & ip rules
     $ip rule del pref 5000
     $ip rule del pref 5010
@@ -887,12 +882,12 @@ start_xray() {
         log "xray already running (pid $XRAY_PID)"
         return 0
     fi
-    if [ ! -s "$DATADIR/config.json" ]; then
+    if [ ! -s "$CONFIG_FILE" ]; then
         log "refusing to start: config.json missing or empty"
         return 1
     fi
 
-    "$BINDIR/xray" run -c "$DATADIR/config.json" </dev/null >"$XRAY_LOG" 2>&1 &
+    "$BINDIR/xray" run -c "$CONFIG_FILE" </dev/null >"$XRAY_LOG" 2>&1 &
     XRAY_PID=$!
     echo "$XRAY_PID" > "$PIDFILE"
     log "xray started with pid $XRAY_PID"
@@ -1046,35 +1041,15 @@ if [ ! -e /dev/net/tun ]; then
     chmod 600 /dev/net/tun
 fi
 
-# Start hev-socks5-tunnel
-cat <<EOF  >"$RUN_DIR/tunnel.yml"
-tunnel:
-  name: $TUN_NAME
-  mtu: 8500
-  ipv4: 198.18.0.1
-  ipv6: fdfe:dcba:9876::1
-
-socks5:
-  address: $TUN_ADDR
-  port: $TUN_PORT
-  udp: 'udp'
-  mark: $FWMARK
-
-misc:
-  log-file: stderr
-  log-level: warn
-EOF
-
-"$BINDIR/hev-socks5-tunnel" "$RUN_DIR/tunnel.yml" </dev/null >"$TUN2SOCKS_LOG" 2>&1 &
-TUN2SOCKS_PID=$!
-echo "$TUN2SOCKS_PID" > "$RUN_DIR/tun2socks.pid"
-mount_proc_with_name "$TUN2SOCKS_PID" "hev_socks5_tunnel"
-log "hev-socks5-tunnel started with pid $TUN2SOCKS_PID"
+# xraytun0 is no longer created by a separate hev-socks5-tunnel process: it is
+# now the "tun-in" inbound inside xray's own config.json, brought up as part
+# of start_xray below (apply_routing_rules waits for the interface to appear
+# the same way it used to wait for hev-socks5-tunnel).
 
 # Resume the previous session only if the user actually left the engine
 # running. This used to key off the mere existence of config.json, so a
 # config that had been explicitly stopped still came back at boot.
-if [ -s "$DATADIR/config.json" ] && [ -f "$ENABLED_FLAG" ]; then
+if [ -s "$CONFIG_FILE" ] && [ -f "$ENABLED_FLAG" ]; then
     log "restoring previous session"
     echo "start" > "$PIPE_FILE"
     echo "wait"  > "$PIPE_FILE"

@@ -90,7 +90,10 @@ function convert_chain_uris_to_xray_json(hop1Uri, hop2Uri, optional_settings) {
             protocol: "freedom",
             tag: "direct",
             streamSettings: {
-                sockopt: { mark: 255 }
+                sockopt: { 
+                    mark: 255, 
+                    domainStrategy: "UseIP",
+                }
             }
         },
         {
@@ -242,7 +245,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                 streamSettings: {
                     network: c.net || "tcp",
                     security: c.tls || "none",
-                    sockopt: { mark: 255, "dialerProxy": "direct" }
+                    sockopt: { mark: 255, domainStrategy: "UseIP", "dialerProxy": "direct" }
                 }
             };
 
@@ -333,7 +336,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                 streamSettings: { 
                     network: net, 
                     security: sec,
-                    sockopt: { mark: 255, "dialerProxy": "direct" }
+                    sockopt: { mark: 255, domainStrategy: "UseIP", "dialerProxy": "direct" }
                 }
             };
 
@@ -460,7 +463,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                 },
                 streamSettings: {
                     network: "tcp",
-                    sockopt: { mark: 255, "dialerProxy": "direct" }
+                    sockopt: { mark: 255, domainStrategy: "UseIP", "dialerProxy": "direct" }
                 }
             };
 
@@ -626,7 +629,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                     address: p.get('address') ? p.get('address').split(',') : ["10.0.0.2/32"]
                 },
                 streamSettings: {
-                    sockopt: { mark: 255, "dialerProxy": "direct" }
+                    sockopt: { mark: 255, domainStrategy: "UseIP", "dialerProxy": "direct" }
                 }
             };
             if (p.get('reserved')) {
@@ -685,7 +688,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                         serverName: p.get('sni') || u.hostname
                     },
                     hysteriaSettings: hySettings,
-                    sockopt: { mark: 255, "dialerProxy": "direct" }
+                    sockopt: { mark: 255, domainStrategy: "UseIP", "dialerProxy": "direct" }
                 }
             };
         }
@@ -709,7 +712,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                 },
                 streamSettings: {
                     network: "tcp",
-                    sockopt: { mark: 255, "dialerProxy": "direct" }
+                    sockopt: { mark: 255, domainStrategy: "UseIP", "dialerProxy": "direct" }
                 }
             };
         }
@@ -732,7 +735,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                 streamSettings: {
                     network: "tcp",
                     security: u.protocol === 'https:' ? "tls" : "none",
-                    sockopt: { mark: 255, "dialerProxy": "direct" }
+                    sockopt: { mark: 255, domainStrategy: "UseIP", "dialerProxy": "direct" }
                 }
             };
             if (u.protocol === 'https:') {
@@ -764,6 +767,10 @@ function convert_uri_to_xray_json(uri, optional_settings) {
         };
     }
 
+    // dns-out's dialerProxy preserves the existing dnsViaProxy toggle: the
+    // upstream query to 1.1.1.1/etc. still goes direct or through the user's
+    // proxy, same choice as before — only *how* Xray dispatches port-53
+    // traffic to that decision changed (see dns-out outbound below).
     const dnsOutboundTag = settings.dnsViaProxy ? "proxy" : "direct";
 
     // Resolve effective fakeip flag — new field (fakeDnsLocal) takes priority when
@@ -837,6 +844,10 @@ function convert_uri_to_xray_json(uri, optional_settings) {
         },
         inbounds: [
             {
+                // Kept only for manual testing (e.g. curl --socks5-hostname
+                // against 127.17.1.3:808, the latency probe in service.sh).
+                // It is no longer in the data path for device-wide traffic —
+                // that now goes through the native "tun-in" inbound below.
                 "tag": "socks-test-in",
                 "port": 808,
                 "listen": "127.17.1.3",
@@ -844,6 +855,51 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                 "settings": {
                     "auth": "noauth",
                     "udp": true
+                },
+                "sniffing": {
+                    "enabled": settings.sniffing,
+                    "destOverride": ["http", "tls", "quic"],
+                    "routeOnly": settings.routeOnly
+                }
+            },
+            {
+                // Replaces hev-socks5-tunnel: xray now owns the TUN device
+                // directly (see README-proxy-tun-in.md). "gateway" makes
+                // Xray assign the interface addresses itself on Linux, so
+                // service.sh no longer needs to `ip addr add` them — it still
+                // owns bringing the link up / policy routing / iptables.
+                // "port" is ignored for this inbound (it never listens).
+                //
+                // No "autoSystemRoutingTable" here on purpose: that option is
+                // for "send everything into the TUN" setups, but this project
+                // does fine-grained per-uid routing via fwmark + service.sh's
+                // own ip rule/table 100 — exactly the "need more fine-grained
+                // policy routing, configure the OS manually" case the docs
+                // call out.
+                //
+                // No "autoOutboundsInterface" either: it also binds Xray's
+                // *internal* DNS ("local" mode) sockets to the detected
+                // physical interface, which then can't reach loopback
+                // resolvers (e.g. ::1:53) and fails with EPERM on this
+                // Android-root setup. The existing fwmark-255 exemption in
+                // service.sh's XRAY_MARK chain already prevents Xray's own
+                // traffic from looping back into the TUN, so this option is
+                // redundant here and was actively breaking DNS resolution
+                // for outbound server domains — left off.
+                //
+                // "port" omitted — docs confirm tun inbounds never listen on
+                // one, it's ignored either way.
+                //
+                // mtu 1500 (Xray's own documented default) instead of the old
+                // hev-socks5-tunnel value of 8500 — 8500 exceeds the real
+                // link MTU on mobile/Wi-Fi and risks fragmentation/black-holed
+                // packets; 1500 matches the underlying physical interface.
+                "tag": "tun-in",
+                "protocol": "tun",
+                "settings": {
+                    "name": "xraytun0",
+                    "mtu": 1500,
+                    "gateway": ["198.18.0.1/15", "fdfe:dcba:9876::1/64"]
                 },
                 "sniffing": {
                     "enabled": settings.sniffing,
@@ -859,7 +915,8 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                 "tag": "direct",
                 "streamSettings": {
                     "sockopt": { 
-                        mark: 255
+                        mark: 255,
+                        domainStrategy: "UseIP",
                     }
                 }
             },
@@ -869,19 +926,35 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                 "settings": {
                     "response": { "type": "http" }
                 }
+            },
+            {
+                // Handles port-53 traffic routed here below. Unlike sending
+                // port 53 straight to "direct"/"proxy" (blind UDP forward),
+                // this lets Xray's own DNS module answer the query — the
+                // only way fakeip substitution actually works. dialerProxy
+                // keeps the dnsViaProxy toggle's original meaning: the
+                // upstream lookup itself still goes direct or via proxy.
+                "protocol": "dns",
+                "tag": "dns-out",
+                "streamSettings": {
+                    "sockopt": { mark: 255, "dialerProxy": dnsOutboundTag }
+                }
             }
         ],
         routing: {
             "domainStrategy": useFakeIp ? "AsIs" : "IPIfNonMatch",
             "rules": [
-                // Narrow rule first (2 conditions): user DNS from socks-test-in inbound.
+                // Narrow rule first (2 conditions): user DNS from socks-test-in
+                // and tun-in inbounds (tun-in carries device-wide DNS now that
+                // it replaces hev-socks5-tunnel as the data path).
                 {
                     "type": "field",
                     "inboundTag": [
                         "socks-test-in",
+                        "tun-in",
                     ],
                     "port": 53,
-                    "outboundTag": dnsOutboundTag
+                    "outboundTag": "dns-out"
                 },
                 // Wider rule second (1 condition): tagless internal WireGuard DNS.
                 // Must sit BELOW the inboundTag rule or it shadows it.
@@ -916,6 +989,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                     "type": "field",
                     "inboundTag": [
                         "socks-test-in",
+                        "tun-in",
                     ],
                     "network": "tcp,udp",
                     "outboundTag": "proxy"
