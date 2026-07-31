@@ -22,7 +22,7 @@ If you are used to standard V2Ray apps (like v2rayNG, Matsuri, Nekobox), here is
 
 - **Immortal System-Wide Coverage:** Standard apps run in user-space via Android's native `VpnService` API and get easily killed by Android's aggressive memory management (Low Memory Killer) when RAM is tight, dropping your connection or leaking your real IP. Magic V2Ray operates with Root privileges, running as a system daemon that the OS does not kill under memory pressure.
 - **Reaches traffic `VpnService` cannot:** A `VpnService` app only sees traffic from UIDs the framework routes to it. Magic V2Ray marks packets at the Netfilter layer, so it can also cover system UIDs, and it does not consume the single system-wide VPN slot — no conflict with a per-app VPN, and no persistent VPN key icon in the status bar.
-- **Native Hotspot / Tethering Support:** `VpnService` cannot carry tethered clients, because Android forwards their traffic outside the VPN's namespace. Magic V2Ray intercepts it at `PREROUTING` and policy-routes it into the same tunnel, so devices sharing your hotspot get the proxied connection too. See *LAN Gateway Sharing* below.
+- **Native Hotspot / Tethering Support:** `VpnService` cannot carry tethered clients, because Android forwards their traffic outside the VPN's namespace. Magic V2Ray intercepts it at `PREROUTING` and policy-routes it into the same tunnel, so devices sharing your hotspot get the proxied connection too.
 - **Seamless Dynamic Reconnects:** Detects Wi-Fi ↔ 4G/5G handovers from kernel routing events (`ip monitor`) rather than polling, and re-applies the routing marks without waiting for a timeout.
 - **Universal Root Support:** Works across Magisk, KernelSU, and APatch.
 
@@ -55,7 +55,6 @@ If your device is not rooted, or if you are looking for a regular GUI applicatio
 
 This project uses pre-built binaries from the following open-source projects:
 * **[Xray-core](https://github.com/XTLS/Xray-core):** The underlying engine that handles next-generation proxy protocols.
-* **[hev-socks5-tunnel](https://github.com/heiher/hev-socks5-tunnel):** A high-performance utility used to wrap proxy channels into a virtual network interface.
 * **[curl-android](https://github.com/vvb2060/curl-android):** curl tool and libcurl static library prefab for android
 
 ## License
