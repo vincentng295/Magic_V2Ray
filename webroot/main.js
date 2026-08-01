@@ -1294,7 +1294,7 @@ function getFullNodeDetails(node) {
     // WireGuard
     if (protocol === 'wireguard') {
         try {
-            const u = new URL(uri.replace(/^wg:\/\//, 'wireguard://'));
+            const u = new URL(uri.replace(/^(wg|wireguard):\/\//i, 'https://'));
             const p = new URLSearchParams(u.search);
             d.wgSecretKey = u.username ? decodeURIComponent(u.username) : "";
             d.wgPublicKey = p.get('publickey') || p.get('PublicKey') || "";
@@ -1308,7 +1308,7 @@ function getFullNodeDetails(node) {
     // Hysteria2
     if (protocol === 'hysteria2') {
         try {
-            const fixedUri = uri.replace(/^hy2:\/\//, 'hysteria2://');
+            const fixedUri = uri.replace(/^(hy2|hysteria2):\/\//i, 'https://');
             const u = new URL(fixedUri);
             const p = new URLSearchParams(u.search);
             d.uuid = decodeURIComponent(u.username);
