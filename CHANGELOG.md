@@ -1,6 +1,8 @@
-# Release Notes — Version 1.10.1
+# Release Notes — Version 1.11
 
-Fixing the "No Internet connection" error in Chrome on certain devices by adding UID `1051`, `1053` to Xray-core route list
+- Update Update Xray-core to v26.7.28
+- Support parsing Ipv6 URI into xray config
+- Fix parsing WireGuard, Shadowsocks and Hy2 on Android x86
 
 ---
 
