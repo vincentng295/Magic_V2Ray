@@ -760,6 +760,12 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                 };
             }
 
+            const hyTlsSettings = {
+                serverName: p.get('sni') || p.get('peer') || unwrapIPv6(u.hostname)
+            };
+            const hyAlpn = p.get('alpn');
+            if (hyAlpn) hyTlsSettings.alpn = hyAlpn.split(',').map(s => s.trim()).filter(Boolean);
+
             outbound = {
                 tag: "proxy",
                 protocol: "hysteria",
@@ -767,9 +773,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                 streamSettings: {
                     network: "hysteria",
                     security: "tls",
-                    tlsSettings: {
-                        serverName: p.get('sni') || unwrapIPv6(u.hostname)
-                    },
+                    tlsSettings: hyTlsSettings,
                     hysteriaSettings: hySettings,
                     sockopt: { mark: 255, "dialerProxy": "direct" }
                 }
@@ -782,15 +786,24 @@ function convert_uri_to_xray_json(uri, optional_settings) {
             // Hysteria2 node configured with obfs silently ran WITHOUT
             // obfuscation — connecting fine to a plain server but failing
             // (or exposing the traffic pattern) against an obfs-only one.
-            // Xray-core expresses this as a separate streamSettings.udpmasks
-            // list, sitting alongside — not inside — hysteriaSettings.
+            //
+            // Xray-core used to expose this as a flat streamSettings.udpmasks
+            // array; that field has since been folded into the unified
+            // "finalmask" packet-masking subsystem, which nests UDP masks
+            // under streamSettings.finalmask.udp (alongside a sibling "tcp"
+            // array and a "quicParams" block for congestion/udpHop). V2RayNG
+            // and current Xray-core builds only understand the new shape —
+            // udpmasks is no longer read, so obfuscation silently vanished
+            // even though this code thought it had set it.
             const obfsType = (p.get('obfs') || '').toLowerCase();
             const obfsPassword = p.get('obfs-password') || p.get('obfsPassword') || '';
             if (obfsPassword && (obfsType === 'salamander' || !obfsType)) {
-                outbound.streamSettings.udpmasks = [{
-                    type: 'salamander',
-                    settings: { password: obfsPassword }
-                }];
+                outbound.streamSettings.finalmask = {
+                    udp: [{
+                        type: 'salamander',
+                        settings: { password: obfsPassword }
+                    }]
+                };
             }
         }
         else if (uri.startsWith('socks://') || uri.startsWith('socks5://')) {
@@ -1325,13 +1338,19 @@ function convert_outbound_to_uri(outbound) {
             const cfg = outbound.settings || {};
             const tls = ss.tlsSettings || {};
             const hy  = ss.hysteriaSettings || {};
-            // Obfuscation lives in streamSettings.udpmasks, not
-            // hysteriaSettings — see the parse side. Read it back so a
-            // round-tripped/shared URI doesn't silently drop obfs.
-            const salamander = (ss.udpmasks || []).find(m => m && m.type === 'salamander');
+            // Obfuscation lives in streamSettings.finalmask.udp (formerly
+            // the flat streamSettings.udpmasks array, now folded into the
+            // unified finalmask packet-masking subsystem) — not inside
+            // hysteriaSettings. Read it back so a round-tripped/shared URI
+            // doesn't silently drop obfs. Also fall back to the legacy
+            // udpmasks field so configs saved before this fix still export.
+            const salamander = ((ss.finalmask && ss.finalmask.udp) || ss.udpmasks || [])
+                .find(m => m && m.type === 'salamander');
 
             const q = {};
             if (tls.serverName) q.sni = tls.serverName;
+            if (tls.alpn?.length) q.alpn = tls.alpn.join(',');
+            if (tls.allowInsecure) q.insecure = '1';
             if (hy.down) q.down = hy.down;
             if (hy.up)   q.up   = hy.up;
             if (hy.udpIdleTimeout) q.udpIdleTimeout = hy.udpIdleTimeout;
