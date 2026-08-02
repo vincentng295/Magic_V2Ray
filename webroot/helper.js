@@ -29,6 +29,61 @@ function utoa(str) {
     return btoa(binString);
 }
 
+// ---------------------------------------------------------------------------
+// IPv6 host helpers.
+//
+// `new URL(...)`'s `.hostname` (and any manual host:port split on a URI)
+// always keeps an IPv6 literal wrapped in brackets, e.g. "[2001:db8::1]",
+// because that's the only unambiguous way to embed it in a combined
+// "host:port" string. Xray-core's *standalone* address fields (vless/trojan
+// vnext/servers address, shadowsocks server address, hysteria "settings"
+// address, socks/http server address) are NOT combined with a port in the
+// same string, so they want the bare address instead — passing the
+// brackets through verbatim makes Xray treat "[2001:db8::1]" as a literal
+// (unresolvable) domain name rather than an IPv6 address. WireGuard's
+// "endpoint" field is the one exception: it IS a combined host:port string,
+// so it must keep the brackets and is left untouched by this helper.
+// ---------------------------------------------------------------------------
+function unwrapIPv6(host) {
+    if (typeof host === 'string' && host.length > 2 && host.charAt(0) === '[' && host.charAt(host.length - 1) === ']') {
+        return host.slice(1, -1);
+    }
+    return host;
+}
+
+// Inverse of unwrapIPv6: re-wrap a bare IPv6 literal in brackets before it
+// is interpolated back into a "host:port" position inside a URI (the
+// convert_outbound_to_uri direction). Without this, "2001:db8::1:8388"
+// would be ambiguous / wrongly split by any later host:port parser.
+function bracketIPv6(address) {
+    if (typeof address === 'string' && address.indexOf(':') !== -1 && address.charAt(0) !== '[') {
+        return `[${address}]`;
+    }
+    return address;
+}
+
+// Some subscription generators / third-party tools emit wg://, hysteria2://
+// (and occasionally vless/trojan/socks/http) URIs with a bare IPv6 host —
+// no brackets — e.g. "wg://key@2606:4700::1:51820". The WHATWG URL parser
+// cannot make sense of that (ambiguous colons) and throws immediately, so
+// the node is rejected outright. Detect that shape and add brackets before
+// handing the URI to `new URL()`, so these still parse instead of failing.
+// A correctly-formed URI (already bracketed, or a plain domain/IPv4 host
+// with at most one colon for the port) is returned unchanged.
+function normalizeUriIPv6Host(uri) {
+    const m = uri.match(/^([a-zA-Z][a-zA-Z0-9+.-]*:\/\/(?:[^@/?#]*@)?)([^/?#]+)([/?#].*)?$/);
+    if (!m) return uri;
+    const prefix = m[1];
+    const authority = m[2];
+    const rest = m[3] || '';
+    if (authority.charAt(0) === '[' || (authority.match(/:/g) || []).length < 2) return uri;
+    // Split off a trailing :port (1-5 digits) if present; the remainder is the host.
+    const portMatch = authority.match(/^(.*):(\d{1,5})$/);
+    const host = portMatch ? portMatch[1] : authority;
+    const port = portMatch ? `:${portMatch[2]}` : '';
+    return `${prefix}[${host}]${port}${rest}`;
+}
+
 
 /**
  * Build an Xray config for a 2-hop proxy chain.
@@ -216,6 +271,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
 
     let outbound = null;
     uri = uri.trim();
+    uri = normalizeUriIPv6Host(uri);
 
     try {
         if (uri.startsWith('vmess://')) {
@@ -319,7 +375,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
             const u = new URL(fakeHttpUri);
             const p = new URLSearchParams(u.search);
             const user = decodeURIComponent(u.username);
-            const host = u.hostname;
+            const host = unwrapIPv6(u.hostname);
             const port = +u.port || 443;
             const net = p.get('type') || 'tcp';
             const sec = p.get('security') || 'none';
@@ -415,8 +471,11 @@ function convert_uri_to_xray_json(uri, optional_settings) {
             }
         }
         else if (uri.startsWith('ss://') || uri.startsWith('shadowsocks://')) {
-            // Extract user info portion (before the @)
-            const atIdx = uri.indexOf('@');
+            // Extract user info portion (before the @). Use the *last* @: a
+            // plain-text (non-base64) userinfo whose password contains a
+            // literal, un-percent-encoded '@' would otherwise get split at
+            // the wrong position, corrupting both password and host.
+            const atIdx = uri.lastIndexOf('@');
             if (atIdx === -1) throw new Error("Invalid Shadowsocks URI: missing @");
             const schemeEnd = uri.indexOf('://') + 3;
             const rawUserPart = uri.substring(schemeEnd, atIdx);
@@ -444,7 +503,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
             const hostPort = qIdx !== -1 ? afterAt.substring(0, qIdx) : afterAt;
             const ssQueryStr = qIdx !== -1 ? afterAt.substring(qIdx + 1) : '';
             const lastColon = hostPort.lastIndexOf(':');
-            const ssHost = hostPort.substring(0, lastColon);
+            const ssHost = unwrapIPv6(hostPort.substring(0, lastColon));
             const ssPort = parseInt(hostPort.substring(lastColon + 1)) || 443;
 
             outbound = {
@@ -648,7 +707,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
             // streamSettings.hysteriaSettings instead.
             const hy2Settings = {
                 version: 2,
-                address: u.hostname,
+                address: unwrapIPv6(u.hostname),
                 port: +u.port || 443
             };
 
@@ -682,12 +741,30 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                     network: "hysteria",
                     security: "tls",
                     tlsSettings: {
-                        serverName: p.get('sni') || u.hostname
+                        serverName: p.get('sni') || unwrapIPv6(u.hostname)
                     },
                     hysteriaSettings: hySettings,
                     sockopt: { mark: 255, "dialerProxy": "direct" }
                 }
             };
+
+            // Obfuscation (Salamander). Accepts the SIP008/mihomo-style
+            // ?obfs=salamander&obfs-password=... convention (also tolerating
+            // the camelCase ?obfsPassword= variant this project's own edit
+            // form emits/reads). This was previously ignored entirely, so a
+            // Hysteria2 node configured with obfs silently ran WITHOUT
+            // obfuscation — connecting fine to a plain server but failing
+            // (or exposing the traffic pattern) against an obfs-only one.
+            // Xray-core expresses this as a separate streamSettings.udpmasks
+            // list, sitting alongside — not inside — hysteriaSettings.
+            const obfsType = (p.get('obfs') || '').toLowerCase();
+            const obfsPassword = p.get('obfs-password') || p.get('obfsPassword') || '';
+            if (obfsPassword && (obfsType === 'salamander' || !obfsType)) {
+                outbound.streamSettings.udpmasks = [{
+                    type: 'salamander',
+                    settings: { password: obfsPassword }
+                }];
+            }
         }
         else if (uri.startsWith('socks://') || uri.startsWith('socks5://')) {
             // Fix parser on old Chrome
@@ -699,7 +776,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                 protocol: "socks",
                 settings: {
                     servers: [{
-                        address: u.hostname,
+                        address: unwrapIPv6(u.hostname),
                         port: +u.port || 443,
                         users: u.username ? [{
                             user: decodeURIComponent(u.username),
@@ -721,7 +798,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                 protocol: "http",
                 settings: {
                     servers: [{
-                        address: u.hostname,
+                        address: unwrapIPv6(u.hostname),
                         port: +u.port || (u.protocol === 'https:' ? 443 : 80),
                         users: u.username ? [{
                             user: decodeURIComponent(u.username),
@@ -737,7 +814,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
             };
             if (u.protocol === 'https:') {
                 outbound.streamSettings.tlsSettings = {
-                    serverName: u.hostname
+                    serverName: unwrapIPv6(u.hostname)
                 };
             }
         }
@@ -1081,7 +1158,7 @@ function convert_outbound_to_uri(outbound) {
 
             const queryStr = buildQuery(q);
             const nodeTag = (proto === 'vless' ? 'VLESS Node' : 'Trojan Node');
-            return `${proto}://${pct(user)}@${host}:${port}?${queryStr}#${pct(nodeTag)}`;
+            return `${proto}://${pct(user)}@${bracketIPv6(host)}:${port}?${queryStr}#${pct(nodeTag)}`;
         }
 
         if (proto === 'shadowsocks') {
@@ -1089,6 +1166,9 @@ function convert_outbound_to_uri(outbound) {
             // userinfo = base64(method:password)  — SIP002 style
             const userInfo = btoa(`${srv.method}:${srv.password}`);
             const nodeTag = 'SS Node';
+            // srv.address is the bare IPv6 form (see unwrapIPv6 on the parse
+            // side) — re-bracket it before it lands in a host:port position.
+            const ssHost = bracketIPv6(srv.address);
 
             // quic is legacy-only (never produced by the edit UI); keep routing it
             // through the old SIP003 plugin= form since Xray's own quic outbound
@@ -1099,7 +1179,7 @@ function convert_outbound_to_uri(outbound) {
                 const tlsS = ss.tlsSettings || {};
                 if (tlsS.serverName) pluginParts.push(`host=${tlsS.serverName}`);
                 const pluginQuery = `?plugin=${pct(pluginParts.join(';'))}`;
-                return `ss://${userInfo}@${srv.address}:${srv.port}${pluginQuery}#${pct(nodeTag)}`;
+                return `ss://${userInfo}@${ssHost}:${srv.port}${pluginQuery}#${pct(nodeTag)}`;
             }
 
             // Every other transport (tcp/kcp/ws/httpupgrade/xhttp/h2/grpc) plus
@@ -1166,17 +1246,20 @@ function convert_outbound_to_uri(outbound) {
 
             const queryStr = buildQuery(q);
             const suffix = queryStr ? `?${queryStr}` : '';
-            return `ss://${userInfo}@${srv.address}:${srv.port}${suffix}#${pct(nodeTag)}`;
+            return `ss://${userInfo}@${ssHost}:${srv.port}${suffix}#${pct(nodeTag)}`;
         }
 
         if (proto === 'wireguard') {
             const cfg  = outbound.settings;
             const peer = (cfg.peers || [])[0] || {};
 
-            // endpoint → host:port
+            // endpoint → host:port. Already bracketed if it's IPv6 and came
+            // from this project's own parser; bracketIPv6() is a no-op in
+            // that case and only kicks in for a raw, unbracketed IPv6
+            // endpoint from some other source.
             const endpoint = peer.endpoint || 'unknown:51820';
             const lastColon = endpoint.lastIndexOf(':');
-            const wgHost = endpoint.substring(0, lastColon);
+            const wgHost = bracketIPv6(endpoint.substring(0, lastColon));
             const wgPort = endpoint.substring(lastColon + 1);
 
             // secretKey — encode +, /, = per the WireGuard URI convention
@@ -1215,6 +1298,10 @@ function convert_outbound_to_uri(outbound) {
             const cfg = outbound.settings || {};
             const tls = ss.tlsSettings || {};
             const hy  = ss.hysteriaSettings || {};
+            // Obfuscation lives in streamSettings.udpmasks, not
+            // hysteriaSettings — see the parse side. Read it back so a
+            // round-tripped/shared URI doesn't silently drop obfs.
+            const salamander = (ss.udpmasks || []).find(m => m && m.type === 'salamander');
 
             const q = {};
             if (tls.serverName) q.sni = tls.serverName;
@@ -1225,31 +1312,38 @@ function convert_outbound_to_uri(outbound) {
                 q.mport = hy.udphop.port;
                 if (hy.udphop.interval) q.hopInterval = hy.udphop.interval;
             }
+            if (salamander && salamander.settings && salamander.settings.password) {
+                q.obfs = 'salamander';
+                q['obfs-password'] = salamander.settings.password;
+            }
 
             const queryStr = buildQuery(q);
             const nodeTag  = 'Hysteria2 Node';
             const auth     = pct(hy.auth || '');
-            return `hy2://${auth}@${cfg.address}:${cfg.port}?${queryStr}#${pct(nodeTag)}`;
+            const hyHost   = bracketIPv6(cfg.address);
+            return `hy2://${auth}@${hyHost}:${cfg.port}?${queryStr}#${pct(nodeTag)}`;
         }
 
         if (proto === 'socks') {
             const srv = outbound.settings.servers[0];
             const nodeTag = 'SOCKS Node';
+            const socksHost = bracketIPv6(srv.address);
             if (srv.users?.length) {
                 const u = srv.users[0];
-                return `socks://${pct(u.user)}:${pct(u.pass)}@${srv.address}:${srv.port}#${pct(nodeTag)}`;
+                return `socks://${pct(u.user)}:${pct(u.pass)}@${socksHost}:${srv.port}#${pct(nodeTag)}`;
             }
-            return `socks://${srv.address}:${srv.port}#${pct(nodeTag)}`;
+            return `socks://${socksHost}:${srv.port}#${pct(nodeTag)}`;
         }
         if (proto === 'http') {
             const srv  = outbound.settings.servers[0];
             const scheme = sec === 'tls' ? 'https' : 'http';
             const nodeTag = 'HTTP Node';
+            const httpHost = bracketIPv6(srv.address);
             if (srv.users?.length) {
                 const u = srv.users[0];
-                return `${scheme}://${pct(u.user)}:${pct(u.pass)}@${srv.address}:${srv.port}#${pct(nodeTag)}`;
+                return `${scheme}://${pct(u.user)}:${pct(u.pass)}@${httpHost}:${srv.port}#${pct(nodeTag)}`;
             }
-            return `${scheme}://${srv.address}:${srv.port}#${pct(nodeTag)}`;
+            return `${scheme}://${httpHost}:${srv.port}#${pct(nodeTag)}`;
         }
 
         return `Error: unsupported protocol "${proto}"`;

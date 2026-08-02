@@ -485,6 +485,13 @@ function reloadCategory(category) {
 function parseProxyUri(uri) {
     try {
         uri = uri.trim();
+        // Normalize once, up front: a bare (un-bracketed) IPv6 host, e.g.
+        // "vless://uuid@2606:4700::1:443", is invalid per RFC 3986 and the
+        // WHATWG URL parser rejects it outright. From here on `uri` (and
+        // therefore every `rawUri` we persist below) is the corrected,
+        // properly-bracketed form — the fix lives in the stored URI itself,
+        // not just in a transient copy used for parsing.
+        uri = normalizeUriIPv6Host(uri);
         const protocolMatch = uri.match(/^([^:]+):\/\//);
         if (!protocolMatch) return null;
         const protocol = protocolMatch[1].toLowerCase();
@@ -552,7 +559,7 @@ function parseProxyUri(uri) {
                         password = decodeURIComponent(userPart.substring(ci + 1));
                     }
                     const lastColon = hostPart.lastIndexOf(':');
-                    address = hostPart.substring(0, lastColon);
+                    address = unwrapIPv6(hostPart.substring(0, lastColon));
                     port = hostPart.substring(lastColon + 1);
                 } else {
                     // Entire remaining is base64
@@ -566,7 +573,7 @@ function parseProxyUri(uri) {
                             const ci = u.indexOf(':');
                             if (ci !== -1) { method = u.substring(0, ci); password = u.substring(ci + 1); }
                             const lc = h.lastIndexOf(':');
-                            address = h.substring(0, lc); port = h.substring(lc + 1);
+                            address = unwrapIPv6(h.substring(0, lc)); port = h.substring(lc + 1);
                         }
                     }
                 }
@@ -595,7 +602,7 @@ function parseProxyUri(uri) {
                     id: Math.random().toString(36).substr(2, 9),
                     name,
                     protocol: 'wireguard',
-                    address: u.hostname,
+                    address: unwrapIPv6(u.hostname),
                     port: u.port || "443",
                     uuid: u.username ? decodeURIComponent(u.username) : "",
                     security: "none",
@@ -609,15 +616,17 @@ function parseProxyUri(uri) {
             try {
                 const fixedUri = uri.replace(/^(hy2|hysteria2):\/\//i, 'https://');
                 const u = new URL(fixedUri);
+                const p = new URLSearchParams(u.search);
                 const name = u.hash ? decodeURIComponent(u.hash.substring(1)) : "Hysteria2";
                 return {
                     id: Math.random().toString(36).substr(2, 9),
                     name,
                     protocol: 'hysteria2',
-                    address: u.hostname,
+                    address: unwrapIPv6(u.hostname),
                     port: u.port || "443",
                     uuid: decodeURIComponent(u.username),
                     security: "tls",
+                    hy2ObfsPassword: p.get('obfs-password') || p.get('obfsPassword') || "",
                     rawUri: uri
                 };
             } catch(e) { return null; }
@@ -633,7 +642,7 @@ function parseProxyUri(uri) {
                     id: Math.random().toString(36).substr(2, 9),
                     name,
                     protocol: 'socks',
-                    address: u.hostname,
+                    address: unwrapIPv6(u.hostname),
                     port: u.port || "443",
                     uuid: u.username ? decodeURIComponent(u.username) : "",
                     security: "none",
@@ -651,7 +660,7 @@ function parseProxyUri(uri) {
                     id: Math.random().toString(36).substr(2, 9),
                     name,
                     protocol: 'http',
-                    address: u.hostname,
+                    address: unwrapIPv6(u.hostname),
                     port: u.port || "8080",
                     uuid: u.username ? decodeURIComponent(u.username) : "",
                     security: "none",
@@ -682,7 +691,7 @@ function parseProxyUri(uri) {
  
         if (hostBlock.startsWith('[')) {
             const bracketEnd = hostBlock.indexOf(']');
-            address = hostBlock.substring(0, bracketEnd + 1);
+            address = unwrapIPv6(hostBlock.substring(0, bracketEnd + 1));
             if (hostBlock[bracketEnd + 1] === ':') {
                 port = hostBlock.substring(bracketEnd + 2);
             }
@@ -854,7 +863,7 @@ function renderProfiles() {
                 }
             } else {
                 // Assigned via textContent below, so no manual escaping here.
-                metaLine = `${(node.protocol || '').toUpperCase()} | ${node.address}:${node.port}`;
+                metaLine = `${(node.protocol || '').toUpperCase()} | ${bracketIPv6(node.address)}:${node.port}`;
             }
 
             const info = document.createElement('div');
@@ -1123,11 +1132,11 @@ function getFullNodeDetails(node) {
     } else {
         try {
             // Fix parser on old Chrome
-            const fakeHttpUri = uri.replace(/^(vless|trojan|wg|wireguard|hy2|hysteria2|socks5|socks):\/\//i, 'https://');
+            const fakeHttpUri = normalizeUriIPv6Host(uri).replace(/^(vless|trojan|wg|wireguard|hy2|hysteria2|socks5|socks):\/\//i, 'https://');
             const u = new URL(fakeHttpUri);
             const p = new URLSearchParams(u.search);
             d.uuid = decodeURIComponent(u.username);
-            d.address = u.hostname;
+            d.address = unwrapIPv6(u.hostname);
             d.port = u.port || "443";
             d.network = p.get('type') || 'tcp';
             d.security = p.get('security') || 'none';
@@ -1294,7 +1303,7 @@ function getFullNodeDetails(node) {
     // WireGuard
     if (protocol === 'wireguard') {
         try {
-            const u = new URL(uri.replace(/^(wg|wireguard):\/\//i, 'https://'));
+            const u = new URL(normalizeUriIPv6Host(uri).replace(/^(wg|wireguard):\/\//i, 'https://'));
             const p = new URLSearchParams(u.search);
             d.wgSecretKey = u.username ? decodeURIComponent(u.username) : "";
             d.wgPublicKey = p.get('publickey') || p.get('PublicKey') || "";
@@ -1308,7 +1317,7 @@ function getFullNodeDetails(node) {
     // Hysteria2
     if (protocol === 'hysteria2') {
         try {
-            const fixedUri = uri.replace(/^(hy2|hysteria2):\/\//i, 'https://');
+            const fixedUri = normalizeUriIPv6Host(uri).replace(/^(hy2|hysteria2):\/\//i, 'https://');
             const u = new URL(fixedUri);
             const p = new URLSearchParams(u.search);
             d.uuid = decodeURIComponent(u.username);
@@ -1325,7 +1334,7 @@ function getFullNodeDetails(node) {
     // SOCKS
     if (protocol === 'socks') {
         try {
-            const u = new URL(uri);
+            const u = new URL(normalizeUriIPv6Host(uri));
             d.proxyUsername = u.username ? decodeURIComponent(u.username) : "";
             d.proxyPassword = u.password ? decodeURIComponent(u.password) : "";
         } catch(e) {}
@@ -1334,7 +1343,7 @@ function getFullNodeDetails(node) {
     // HTTP proxy
     if (protocol === 'http') {
         try {
-            const u = new URL(uri);
+            const u = new URL(normalizeUriIPv6Host(uri));
             d.proxyUsername = u.username ? decodeURIComponent(u.username) : "";
             d.proxyPassword = u.password ? decodeURIComponent(u.password) : "";
         } catch(e) {}
@@ -1349,7 +1358,7 @@ function serializeNodeDetailsToUri(d, protocol) {
         const method = d.ssMethod || "aes-256-gcm";
         const password = d.uuid || "";
         const userPart = btoa(`${method}:${password}`);
-        let urlStr = `ss://${userPart}@${d.address}:${d.port}`;
+        let urlStr = `ss://${userPart}@${bracketIPv6(d.address)}:${d.port}`;
 
         // Same transport/security query params as vless/trojan — covers
         // tcp/kcp/ws/httpupgrade/xhttp/h2/grpc plus tls/reality.
@@ -1417,7 +1426,7 @@ function serializeNodeDetailsToUri(d, protocol) {
         if (d.wgLocalAddress) params.set('address', d.wgLocalAddress);
         if (d.wgMTU) params.set('mtu', d.wgMTU);
         const user = d.wgSecretKey ? encodeURIComponent(d.wgSecretKey) : "";
-        let urlStr = `wireguard://${user}@${d.address}:${d.port}`;
+        let urlStr = `wireguard://${user}@${bracketIPv6(d.address)}:${d.port}`;
         const pStr = params.toString();
         if (pStr) urlStr += "?" + pStr;
         if (d.name) urlStr += "#" + encodeURIComponent(d.name);
@@ -1434,7 +1443,7 @@ function serializeNodeDetailsToUri(d, protocol) {
         if (d.hy2PortHopping) params.set('mport', d.hy2PortHopping);
         if (d.hy2HopInterval) params.set('hopInterval', d.hy2HopInterval);
         const user = d.uuid ? encodeURIComponent(d.uuid) : "";
-        let urlStr = `hysteria2://${user}@${d.address}:${d.port}`;
+        let urlStr = `hysteria2://${user}@${bracketIPv6(d.address)}:${d.port}`;
         const pStr = params.toString();
         if (pStr) urlStr += "?" + pStr;
         if (d.name) urlStr += "#" + encodeURIComponent(d.name);
@@ -1449,7 +1458,7 @@ function serializeNodeDetailsToUri(d, protocol) {
             if (d.proxyPassword) auth += ":" + encodeURIComponent(d.proxyPassword);
             auth += "@";
         }
-        let urlStr = `socks://${auth}${d.address}:${d.port}`;
+        let urlStr = `socks://${auth}${bracketIPv6(d.address)}:${d.port}`;
         if (d.name) urlStr += "#" + encodeURIComponent(d.name);
         return urlStr;
     }
@@ -1462,7 +1471,7 @@ function serializeNodeDetailsToUri(d, protocol) {
             if (d.proxyPassword) auth += ":" + encodeURIComponent(d.proxyPassword);
             auth += "@";
         }
-        let urlStr = `http://${auth}${d.address}:${d.port}`;
+        let urlStr = `http://${auth}${bracketIPv6(d.address)}:${d.port}`;
         if (d.name) urlStr += "#" + encodeURIComponent(d.name);
         return urlStr;
     }
@@ -1505,7 +1514,7 @@ function serializeNodeDetailsToUri(d, protocol) {
         }
         return "vmess://" + utoa(JSON.stringify(c));
     } else {
-        let urlStr = `${protocol}://${encodeURIComponent(d.uuid)}@${d.address}:${d.port}`;
+        let urlStr = `${protocol}://${encodeURIComponent(d.uuid)}@${bracketIPv6(d.address)}:${d.port}`;
         let params = new URLSearchParams();
         if (d.network && d.network !== 'tcp') params.set('type', d.network);
         if (d.security !== 'none') params.set('security', d.security);
