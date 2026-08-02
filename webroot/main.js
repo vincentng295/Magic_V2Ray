@@ -1132,12 +1132,28 @@ function getFullNodeDetails(node) {
     } else {
         try {
             // Fix parser on old Chrome
-            const fakeHttpUri = normalizeUriIPv6Host(uri).replace(/^(vless|trojan|wg|wireguard|hy2|hysteria2|socks5|socks):\/\//i, 'https://');
+            // NOTE: ss/shadowsocks must be included here too — on older
+            // WebView engines, `new URL()` only extracts authority
+            // (hostname/port/username) for "special" schemes (http, https,
+            // ws, wss, ftp, file). A non-special scheme like "ss:" silently
+            // yields an EMPTY hostname/port instead of throwing, so without
+            // this swap the block below unconditionally overwrote a
+            // correctly-parsed d.address/d.port (from parseProxyUri) with
+            // blank values when the edit modal was opened.
+            const fakeHttpUri = normalizeUriIPv6Host(uri).replace(/^(vless|trojan|wg|wireguard|hy2|hysteria2|socks5|socks|ss|shadowsocks):\/\//i, 'https://');
             const u = new URL(fakeHttpUri);
             const p = new URLSearchParams(u.search);
             d.uuid = decodeURIComponent(u.username);
-            d.address = unwrapIPv6(u.hostname);
-            d.port = u.port || "443";
+            // Shadowsocks keeps the address/port already parsed by
+            // parseProxyUri (node.address/node.port, set as d's defaults
+            // above) instead of trusting `u.hostname`/`u.port` here: the
+            // legacy fully-base64-encoded ss:// form (no literal "@") has
+            // no real authority for the URL parser to find, so this would
+            // otherwise overwrite a correct address with garbage.
+            if (protocol !== 'shadowsocks' && protocol !== 'ss') {
+                d.address = unwrapIPv6(u.hostname);
+                d.port = u.port || "443";
+            }
             d.network = p.get('type') || 'tcp';
             d.security = p.get('security') || 'none';
             d.flow = p.get('flow') || '';

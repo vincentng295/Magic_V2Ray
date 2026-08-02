@@ -471,40 +471,67 @@ function convert_uri_to_xray_json(uri, optional_settings) {
             }
         }
         else if (uri.startsWith('ss://') || uri.startsWith('shadowsocks://')) {
+            const schemeEnd = uri.indexOf('://') + 3;
             // Extract user info portion (before the @). Use the *last* @: a
             // plain-text (non-base64) userinfo whose password contains a
             // literal, un-percent-encoded '@' would otherwise get split at
             // the wrong position, corrupting both password and host.
-            const atIdx = uri.lastIndexOf('@');
-            if (atIdx === -1) throw new Error("Invalid Shadowsocks URI: missing @");
-            const schemeEnd = uri.indexOf('://') + 3;
-            const rawUserPart = uri.substring(schemeEnd, atIdx);
-            // Try base64-decode first; fall back to plain text
-            let method, password;
-            try {
-                const decoded = decodeBase64(rawUserPart);
-                if (decoded && decoded.includes(':')) {
-                    const ci = decoded.indexOf(':');
-                    method = decoded.substring(0, ci);
-                    password = decoded.substring(ci + 1);
-                } else {
-                    throw new Error("not base64 method:pass");
+            let atIdx = uri.lastIndexOf('@');
+            // Legacy pre-SIP002 form: the ENTIRE "method:password@host:port"
+            // is base64-encoded, so there's no literal '@' in the URI at
+            // all (it's hidden inside the encoded blob). Decode the whole
+            // payload first and locate the '@' inside that instead of
+            // rejecting the URI outright.
+            let decodedWhole = null;
+            if (atIdx === -1) {
+                const wholePayload = uri.substring(schemeEnd).replace(/#.*$/, '').replace(/\?.*$/, '');
+                try { decodedWhole = decodeBase64(wholePayload); } catch {}
+                if (!decodedWhole || decodedWhole.lastIndexOf('@') === -1) {
+                    throw new Error("Invalid Shadowsocks URI: missing @");
                 }
-            } catch {
-                // Plain-text method:password (URL-encoded)
-                const plain = decodeURIComponent(rawUserPart);
-                const ci = plain.indexOf(':');
-                method = ci !== -1 ? plain.substring(0, ci) : plain;
-                password = ci !== -1 ? plain.substring(ci + 1) : "";
             }
-            // Parse host:port from after-@ portion (strip fragment, keep query for plugin parsing)
-            let afterAt = uri.substring(atIdx + 1).replace(/#.*$/, '');
-            const qIdx = afterAt.indexOf('?');
-            const hostPort = qIdx !== -1 ? afterAt.substring(0, qIdx) : afterAt;
-            const ssQueryStr = qIdx !== -1 ? afterAt.substring(qIdx + 1) : '';
-            const lastColon = hostPort.lastIndexOf(':');
-            const ssHost = unwrapIPv6(hostPort.substring(0, lastColon));
-            const ssPort = parseInt(hostPort.substring(lastColon + 1)) || 443;
+
+            let method, password, ssHost, ssPort, ssQueryStr;
+            if (decodedWhole !== null) {
+                // decodedWhole = "method:password@host:port"
+                const dAt = decodedWhole.lastIndexOf('@');
+                const userPart = decodedWhole.substring(0, dAt);
+                const hostPort = decodedWhole.substring(dAt + 1);
+                const ci = userPart.indexOf(':');
+                method = ci !== -1 ? userPart.substring(0, ci) : userPart;
+                password = ci !== -1 ? userPart.substring(ci + 1) : "";
+                const lastColon = hostPort.lastIndexOf(':');
+                ssHost = unwrapIPv6(hostPort.substring(0, lastColon));
+                ssPort = parseInt(hostPort.substring(lastColon + 1)) || 443;
+                ssQueryStr = '';
+            } else {
+                const rawUserPart = uri.substring(schemeEnd, atIdx);
+                // Try base64-decode first; fall back to plain text
+                try {
+                    const decoded = decodeBase64(rawUserPart);
+                    if (decoded && decoded.includes(':')) {
+                        const ci = decoded.indexOf(':');
+                        method = decoded.substring(0, ci);
+                        password = decoded.substring(ci + 1);
+                    } else {
+                        throw new Error("not base64 method:pass");
+                    }
+                } catch {
+                    // Plain-text method:password (URL-encoded)
+                    const plain = decodeURIComponent(rawUserPart);
+                    const ci = plain.indexOf(':');
+                    method = ci !== -1 ? plain.substring(0, ci) : plain;
+                    password = ci !== -1 ? plain.substring(ci + 1) : "";
+                }
+                // Parse host:port from after-@ portion (strip fragment, keep query for plugin parsing)
+                let afterAt = uri.substring(atIdx + 1).replace(/#.*$/, '');
+                const qIdx = afterAt.indexOf('?');
+                const hostPort = qIdx !== -1 ? afterAt.substring(0, qIdx) : afterAt;
+                ssQueryStr = qIdx !== -1 ? afterAt.substring(qIdx + 1) : '';
+                const lastColon = hostPort.lastIndexOf(':');
+                ssHost = unwrapIPv6(hostPort.substring(0, lastColon));
+                ssPort = parseInt(hostPort.substring(lastColon + 1)) || 443;
+            }
 
             outbound = {
                 tag: "proxy",
