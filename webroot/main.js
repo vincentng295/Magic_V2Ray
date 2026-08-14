@@ -369,7 +369,10 @@ async function fetchSubscription(category, url, isReload = false) {
 
     showLoading(`${t("toast_fetch_sub")}${category}...`);
 
+    const userAgent = (profiles[category]?.useragent || "").trim() || DEFAULT_SUB_USERAGENT;
+
     const cmd = `${MODDIR}/bin/curl ${viaProxy} ${tlsArgs} -sSL -f --max-redirs 3 ` +
+                `-A ${shQuote(userAgent)} ` +
                 `--proto '=http,https' --proto-redir '=http,https' ` +
                 `--max-time 15 ${shQuote(url)}`;
 
@@ -1920,6 +1923,7 @@ function openEditSubModal(category) {
     document.getElementById('edit-sub-url').value = catData.url || '';
     document.getElementById('edit-sub-dedup').checked = catData.dedup !== false; // default true
     document.getElementById('edit-sub-insecure').checked = catData.insecure === true; // default false
+    document.getElementById('edit-sub-useragent').value = catData.useragent || DEFAULT_SUB_USERAGENT;
     document.getElementById('edit-sub-modal').dataset.originalCat = category;
     document.getElementById('edit-sub-modal').style.display = 'block';
 }
@@ -1935,6 +1939,7 @@ function saveEditedSubscription() {
     const newUrl = document.getElementById('edit-sub-url').value.trim();
     const newDedup = document.getElementById('edit-sub-dedup').checked;
     const newInsecure = document.getElementById('edit-sub-insecure').checked;
+    const newUserAgent = document.getElementById('edit-sub-useragent').value.trim() || DEFAULT_SUB_USERAGENT;
 
     if (!newName) return;
     if (!profiles[originalCat]) return;
@@ -1954,6 +1959,7 @@ function saveEditedSubscription() {
     profiles[newName].url = newUrl || null;
     profiles[newName].dedup = newDedup;
     profiles[newName].insecure = newInsecure;
+    profiles[newName].useragent = newUserAgent;
 
     saveProfiles();
     closeEditSubModal();

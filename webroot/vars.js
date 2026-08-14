@@ -5,6 +5,10 @@ const SETTINGS_FILE = `${DATADIR}/settings.base64`;
 const ACTIVE_FILE = `${DATADIR}/active_config.txt`;
 const CONFIG_JSON = `${DATADIR}/config.json`;
 const IP_HUNT_FILE = `${DATADIR}/ip_hunt.list`;
+// Default User-Agent sent when fetching subscription links, so hosts that
+// gate content on the client (e.g. v2rayNG-only subs) still respond.
+// Per-subscription override lives in profiles[category].useragent.
+const DEFAULT_SUB_USERAGENT = "v2rayNG/2.2.3";
 const STUB_DIR = "/dev/sysctl_stubs";
 const TIME_RES_FILE = `${STUB_DIR}/run/time_res`;
 const ADDR_INFO_FILE = `${STUB_DIR}/run/addr_info`;
