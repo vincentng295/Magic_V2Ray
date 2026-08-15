@@ -1,8 +1,6 @@
-# Release Notes — Version 1.11
+# Release Notes — Version 1.11.1
 
-- Update Update Xray-core to v26.7.28
-- Support parsing Ipv6 URI into xray config
-- Fix parsing WireGuard, Shadowsocks and Hy2 on Android x86
+Introduce a default subscription User-Agent and per-subscription override so subscription fetches can present a client-specific UA (e.g. v2rayNG-only subs).
 
 ---
 
