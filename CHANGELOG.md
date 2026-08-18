@@ -1,6 +1,6 @@
-# Release Notes — Version 1.11.1
+# Release Notes — Version 1.11.2
 
-Introduce a default subscription User-Agent and per-subscription override so subscription fetches can present a client-specific UA (e.g. v2rayNG-only subs).
+Includes all system UIDs so that all traffic on the device is routed through the proxy.
 
 ---
 
