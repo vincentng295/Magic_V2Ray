@@ -60,11 +60,11 @@ IFACE_MON_CHILD="$RUN_DIR/iface_monitor_child.pid"
 
 # List of UIDs we want them to be routed into Xray-core
 XRAY_UID_LIST="
-1000
-1051
-1052
-1053
-9999-2147483647
+0-2147483647
+"
+
+XRAY_UID_EXCLUDE_LIST="
+1001
 "
 
 rm -f "$XRAY_LOG" "$DATADIR/tun2socks.log"
@@ -605,6 +605,11 @@ apply_routing_rules() {
     $iptables -t mangle -A XRAY_MARK -d 224.0.0.0/4 -j RETURN         # Multicast
     $iptables -t mangle -A XRAY_MARK -d 240.0.0.0/4 -j RETURN         # Class E (Reserved)
 
+    # Exclude UIDs from the proxy entirely, regardless of networkMode below.
+    for uid in $XRAY_UID_EXCLUDE_LIST; do
+        $iptables -t mangle -A XRAY_MARK -m owner --uid-owner "$uid" -j RETURN
+    done
+
     # networkMode bypass (see query_settings .networkMode):
     #   0 = default, everything goes through XRAY_MARK
     #   1 = WiFi/Ethernet Only -> bypass mobile data interfaces
@@ -717,6 +722,11 @@ apply_routing_rules() {
         $ip6tables -t mangle -A XRAY_MARK -d fe80::/10 -j RETURN
         $ip6tables -t mangle -A XRAY_MARK -d fc00::/7 -j RETURN
         $ip6tables -t mangle -A XRAY_MARK -d ff00::/8 -j RETURN
+
+        # Exclude UIDs from the proxy entirely, regardless of networkMode below.
+        for uid in $XRAY_UID_EXCLUDE_LIST; do
+            $ip6tables -t mangle -A XRAY_MARK -m owner --uid-owner "$uid" -j RETURN
+        done
 
         # networkMode bypass (mirrors IPv4 XRAY_MARK, see above)
         if [ "$network_mode" = "1" ]; then
