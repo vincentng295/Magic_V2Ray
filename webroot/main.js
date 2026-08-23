@@ -187,7 +187,12 @@ function applyActiveConfig(options = {}) {
         }
         execShell(`sh ${MODDIR}/proxy_control.sh status`, (status) => {
             if (status === 'running') {
-                toggleService('restart');
+                // Node/config changed but nothing that apply_routing_rules
+                // reads did — swap the xray process only, leave the
+                // iptables/policy routing rules exactly as they are.
+                execShell(`sh ${MODDIR}/proxy_control.sh reload`, () => {
+                    _markStatusPending();
+                });
             }
             if (onDone) onDone(true);
         });
@@ -266,7 +271,7 @@ function _markStatusPending() {
 // from inline handlers, so it is validated against a fixed list rather than
 // interpolated straight into the command.
 const PROXY_CONTROL_ACTIONS = [
-    'start', 'stop', 'restart', 'status', 'reapply',
+    'start', 'stop', 'restart', 'reload', 'status', 'reapply',
     'start_monitor_latency', 'stop_monitor_latency', 'reset_mobile_network',
     'gateway_start', 'gateway_stop', 'gateway_status'
 ];
@@ -2412,7 +2417,12 @@ function saveAdvancedSettingsForm(isLangOnly = false) {
     writeFileB64(SETTINGS_FILE, utoa(JSON.stringify(advSettings)), () => {
         if (isLangOnly) return;
         showToast(t('toast_settings_saved'), "success");
-        applyActiveConfig();
+        // This form can change networkMode/allowTether/enableIPv6, which
+        // apply_routing_rules reads directly — unlike a node switch or an
+        // Xray-level routing-rule edit, those DO require the iptables rules
+        // to be torn down and rebuilt, so this path keeps the full restart
+        // rather than the soft reload applyActiveConfig() defaults to.
+        applyActiveConfig({ force: true });
     });
 }
 

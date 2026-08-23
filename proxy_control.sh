@@ -109,10 +109,23 @@ stop_proxy() {
     echo "stopped"
 }
 
+# Swaps the xray process for one reading the freshly-written config.json
+# without clearing/reapplying iptables rules. For node switches / node edits
+# / Xray-level routing-rule edits while running, where nothing that
+# apply_routing_rules reads has changed — full `restart` would tear the
+# marking/forwarding rules down and rebuild them for no reason (and leave a
+# short window with no rules at all). Requires xray to already be running;
+# callers are expected to check `status` first.
+reload_proxy() {
+    send_cmd_sync "reload_config" || return 1
+    echo "reloaded"
+}
+
 case "$1" in
     start)   start_proxy ;;
     stop)    stop_proxy ;;
     restart) send_cmd_sync "stop" && sleep 1 && send_cmd_sync "start" && echo "restarted" ;;
+    reload)  reload_proxy ;;
     status)  get_status ;;
     reapply) send_cmd_sync "apply_cur_iface" ;;
     start_monitor)          send_cmd_sync "start_monitor" ;;
@@ -122,7 +135,7 @@ case "$1" in
     latency_heartbeat)      send_cmd "latency_heartbeat" ;;
     reset_mobile_network)   send_cmd_sync "reset_mobile_network" ;;
     *)
-        echo "usage: $0 {start|stop|restart|status|reapply|start_monitor|stop_monitor|start_monitor_latency|stop_monitor_latency|latency_heartbeat|reset_mobile_network}" >&2
+        echo "usage: $0 {start|stop|restart|reload|status|reapply|start_monitor|stop_monitor|start_monitor_latency|stop_monitor_latency|latency_heartbeat|reset_mobile_network}" >&2
         exit 2
         ;;
 esac

@@ -938,6 +938,45 @@ stop_xray() {
     return 0
 }
 
+# Swaps the running xray process for a fresh one reading the newly written
+# config.json, WITHOUT touching iptables/policy routing. Used for "config
+# changed while running" (new node selected, node edited, Xray-level routing
+# rules edited) — none of those touch anything apply_routing_rules reads
+# (advSettings.networkMode / .allowTether / .enableIPv6 and the uid lists),
+# so tearing the rules down and rebuilding them on every node switch was
+# pure overhead and a brief window with no marking/forwarding rules at all.
+# Advanced-settings saves that actually change those fields still go through
+# the full stop+start path so the rules get rebuilt.
+restart_xray() {
+    if [ ! -s "$DATADIR/config.json" ]; then
+        log "refusing to reload: config.json missing or empty"
+        return 1
+    fi
+
+    if [ "$XRAY_PID" -gt 0 ] 2>/dev/null; then
+        kill -9 "$XRAY_PID" 2>/dev/null
+    fi
+    if [ -f "$PIDFILE" ]; then
+        local stale
+        stale=$(cat "$PIDFILE" 2>/dev/null)
+        if [ -n "$stale" ] && [ "$stale" != "$XRAY_PID" ]; then
+            log "killing untracked xray pid $stale from pidfile"
+            kill -9 "$stale" 2>/dev/null
+        fi
+    fi
+    umount_proc_with_name "xray"
+    XRAY_PID=0
+
+    "$BINDIR/xray" run -c "$DATADIR/config.json" </dev/null >"$XRAY_LOG" 2>&1 &
+    XRAY_PID=$!
+    echo "$XRAY_PID" > "$PIDFILE"
+    log "xray reloaded with pid $XRAY_PID (routing rules left untouched)"
+
+    mount_proc_with_name "$XRAY_PID" "xray"
+    touch "$ENABLED_FLAG"
+    return 0
+}
+
 do_job() {
     local content="$1"
     case "$content" in
@@ -960,6 +999,10 @@ do_job() {
             ;;
         stop)
             stop_xray
+            return 0
+            ;;
+        reload_config)
+            restart_xray
             return 0
             ;;
         start_monitor)
