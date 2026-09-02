@@ -565,12 +565,11 @@ apply_routing_rules() {
     ipv6_enabled="$(setting_is_true enableIPv6 && echo true || echo false)"
     echo "IPv6 enabled: $ipv6_enabled"
 
-    network_mode="$(query_settings .networkMode)"
+    network_mode="$(query_settings networkMode)"
     [ -z "$network_mode" ] && network_mode=0
     echo "Network mode: $network_mode"
 
-    allow_tether="$(query_settings .allowTether)"
-    [ "$allow_tether" = "false" ] && allow_tether=false || allow_tether=true
+    allow_tether="$(setting_is_true allowTether && echo true || echo false)"
     echo "Allow tether from proxy: $allow_tether"
 
     # Enable IP forward feature
@@ -610,7 +609,7 @@ apply_routing_rules() {
         $iptables -t mangle -A XRAY_MARK -m owner --uid-owner "$uid" -j RETURN
     done
 
-    # networkMode bypass (see query_settings .networkMode):
+    # networkMode bypass (see query_settings networkMode):
     #   0 = default, everything goes through XRAY_MARK
     #   1 = WiFi/Ethernet Only -> bypass mobile data interfaces
     #   2 = Mobile data Only   -> bypass everything except mobile data interfaces
@@ -651,7 +650,7 @@ apply_routing_rules() {
     $iptables -t mangle -A HOTSPOT_PREROUTING -d 192.168.0.0/16 -j RETURN
     $iptables -t mangle -A HOTSPOT_PREROUTING -d 127.0.0.0/8 -j RETURN
 
-    # allowTether (see query_settings .allowTether, default true):
+    # allowTether (see query_settings allowTether, default true):
     #   true  = tethered/hotspot clients are marked and routed through the proxy
     #   false = tethered/hotspot clients bypass the proxy entirely and use the
     #           device's normal/direct route (chain still exists but only RETURNs)
@@ -761,7 +760,7 @@ apply_routing_rules() {
         $ip6tables -t mangle -A HOTSPOT_PREROUTING ! -i $TUN_NAME -d ::1/128 -j RETURN
         $ip6tables -t mangle -A HOTSPOT_PREROUTING ! -i $TUN_NAME -d fe80::/10 -j RETURN
         $ip6tables -t mangle -A HOTSPOT_PREROUTING ! -i $TUN_NAME -d fc00::/7 -j RETURN
-        # allowTether (see query_settings .allowTether, default true): only mark
+        # allowTether (see query_settings allowTether, default true): only mark
         # tethered/hotspot IPv6 traffic for the proxy when tethering is allowed
         # to use it; otherwise let it RETURN and use the normal direct route.
         if [ "$allow_tether" = true ]; then
