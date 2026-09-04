@@ -176,12 +176,12 @@
                     </div>
                     <div class="setting-item-row toggle-row">
                         <label for="set-bypassiface"><span data-i18n="lbl_bypassiface">Bypass Network Interface</span><small data-i18n="desc_bypassiface">Traffic headed to these interfaces skips Xray entirely.</small></label>
-                        <input type="checkbox" id="set-bypassiface" onchange="toggleBypassIface()">
+                        <input type="checkbox" id="set-bypassiface" onchange="toggleSubSettingField('set-bypassiface', 'bypassiface-sub-fields')">
                     </div>
                     <div id="bypassiface-sub-fields" class="sub-setting-panel">
                         <div class="setting-item-row">
                             <label data-i18n="lbl_bypassiface_list">Interfaces (comma-separated)</label>
-                            <input type="text" id="set-bypassiface-list" placeholder="tailscale0,wt0" oninput="onBypassIfaceInputChange()">
+                            <input type="text" id="set-bypassiface-list" placeholder="tailscale0,wt0">
                         </div>
                     </div>
                 </div>

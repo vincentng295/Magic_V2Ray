@@ -164,6 +164,3 @@ let _latencySamples = [];
 
 // Mobile IP Hunter
 let _ipHunterSaveTimer = null;
-
-// Bypass network interface
-let _bypassIfaceSaveTimer = null;

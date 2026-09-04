@@ -2417,13 +2417,16 @@ function saveAdvancedSettingsForm(isLangOnly = false) {    advSettings.loglevel 
 
     writeFileB64(SETTINGS_FILE, utoa(JSON.stringify(advSettings)), () => {
         if (isLangOnly) return;
-        showToast(t('toast_settings_saved'), "success");
-        // This form can change networkMode/allowTether/enableIPv6, which
-        // apply_routing_rules reads directly — unlike a node switch or an
-        // Xray-level routing-rule edit, those DO require the iptables rules
-        // to be torn down and rebuilt, so this path keeps the full restart
-        // rather than the soft reload applyActiveConfig() defaults to.
-        applyActiveConfig({ force: true });
+        applyBypassIfaceForm(() => {
+            showToast(t('toast_settings_saved'), "success");
+            // This form can change networkMode/allowTether/enableIPv6/bypass
+            // interfaces, which apply_routing_rules reads directly — unlike a
+            // node switch or an Xray-level routing-rule edit, those DO
+            // require the iptables rules to be torn down and rebuilt, so
+            // this path keeps the full restart rather than the soft reload
+            // applyActiveConfig() defaults to.
+            applyActiveConfig({ force: true });
+        });
     });
 }
 
@@ -2432,6 +2435,12 @@ function saveAdvancedSettingsForm(isLangOnly = false) {    advSettings.loglevel 
 // settings.base64 — same pattern as the Mobile IP Hunter panel: file
 // existence means the feature is enabled, and its content is the
 // comma-separated interface list, re-read live by service.sh on apply.
+//
+// Unlike the IP Hunter panel, this one does NOT write on every toggle/input
+// change. The checkbox only shows/hides the sub-fields (toggleSubSettingField),
+// and the list field is plain text — nothing is persisted to disk until the
+// user presses "Save & Apply Configurations", which calls
+// applyBypassIfaceForm() below as part of saveAdvancedSettingsForm().
 
 function syncBypassIfaceState() {
     execShell(
@@ -2458,39 +2467,25 @@ function sanitizeBypassIfaceList(raw) {
         .join(',');
 }
 
-function toggleBypassIface() {
+// Persists the current state of the bypass-interface form to disk. Called
+// only from saveAdvancedSettingsForm() (i.e. the "Save & Apply
+// Configurations" button), not on every checkbox/input change.
+function applyBypassIfaceForm(callback) {
     const toggle = document.getElementById('set-bypassiface');
-    const enabled = !!toggle?.checked;
-    toggleSubSettingField('set-bypassiface', 'bypassiface-sub-fields');
-
-    if (enabled) {
-        saveBypassIfaceList();
-    } else {
-        execShell(`rm -f ${shQuote(BYPASS_IFACE_FILE)}`, () => {
-            showToast(t('toast_bypassiface_disabled'), 'info');
-            applyActiveConfig({ force: true });
-        });
-    }
-}
-
-function onBypassIfaceInputChange() {
-    const toggle = document.getElementById('set-bypassiface');
-    if (!toggle?.checked) return;
-
-    if (_bypassIfaceSaveTimer) clearTimeout(_bypassIfaceSaveTimer);
-    _bypassIfaceSaveTimer = setTimeout(saveBypassIfaceList, 600);
-}
-
-function saveBypassIfaceList() {
     const input = document.getElementById('set-bypassiface-list');
+    const enabled = !!toggle?.checked;
+    const done = callback || (() => {});
+
+    if (!enabled) {
+        execShell(`rm -f ${shQuote(BYPASS_IFACE_FILE)}`, done);
+        return;
+    }
+
     const sanitized = sanitizeBypassIfaceList(input?.value || '') || "tailscale0,wt0";
     if (input) input.value = sanitized;
 
     execShell(`mkdir -p ${shQuote(DATADIR)} && chmod 700 ${shQuote(DATADIR)}`, () => {
-        writeFileB64(BYPASS_IFACE_FILE, sanitized, () => {
-            showToast(t('toast_bypassiface_saved'), 'success');
-            applyActiveConfig({ force: true });
-        });
+        writeFileB64(BYPASS_IFACE_FILE, sanitized, done);
     });
 }
 
