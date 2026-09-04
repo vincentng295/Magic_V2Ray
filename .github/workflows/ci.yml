@@ -197,3 +197,58 @@ jobs:
             name: ${{ steps.ver.outputs.release_name }}
             body_path: CHANGELOG.md
             files: dist/*.zip
+
+  release_alpha:
+      name: Publish Alpha Pre-release
+      runs-on: ubuntu-latest
+      needs: [build]
+      if: github.ref == 'refs/heads/alpha'
+      permissions:
+        contents: write
+      steps:
+        - uses: actions/checkout@v4
+          with:
+            # Full history (all branches) needed for `git log main...alpha`
+            # below — a shallow clone wouldn't contain main's commits.
+            fetch-depth: 0
+
+        - name: Download all module zips
+          uses: actions/download-artifact@v4
+          with:
+            path: dist
+            pattern: magic_v2ray-*
+            merge-multiple: true
+
+        # tag_name is fixed, so every push to alpha lands on the same
+        # "alpha-pre-release" tag/release instead of piling up new ones.
+        - name: Build release notes from main...alpha
+          id: log
+          run: |
+            set -e
+            git fetch origin main --quiet
+            {
+              echo "notes<<GH_EOF"
+              echo "Changes on \`alpha\` since it diverged from \`main\`:"
+              echo
+              git log --pretty=format:'- %s (%h)' origin/main...origin/alpha
+              echo
+              echo "GH_EOF"
+            } >> "$GITHUB_OUTPUT"
+
+        # The tag must be deleted (not just the release) or it keeps
+        # pointing at the old commit and the "release" ends up detached
+        # from what was actually just built.
+        - name: Delete previous alpha-pre-release
+          env:
+            GH_TOKEN: ${{ github.token }}
+          run: gh release delete alpha-pre-release --yes --cleanup-tag || true
+
+        - name: Create/overwrite alpha pre-release
+          uses: softprops/action-gh-release@v2
+          with:
+            tag_name: alpha-pre-release
+            name: Alpha pre-release
+            target_commitish: ${{ github.sha }}
+            body: ${{ steps.log.outputs.notes }}
+            prerelease: true
+            files: dist/*.zip
