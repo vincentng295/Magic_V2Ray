@@ -67,6 +67,50 @@ XRAY_UID_EXCLUDE_LIST="
 1001
 "
 
+# Full RFC-reserved / non-globally-routable IPv4 & IPv6 ranges. This is the
+# single source of truth for "LAN bypass" — every mangle chain and every
+# policy-routing rule that needs to exclude private/special-use destinations
+# loops over these two lists instead of hard-coding a handful of subnets.
+#
+# IPv4: dropped the extra /4 and /24 aliases for the Class-E range
+# (255.0.0.0/4, 255.255.255.0/24) that the source list had alongside
+# 240.0.0.0/4 — they're fully contained in it and would just be dead
+# duplicate rules. 255.255.255.255/32 (limited broadcast) is kept since it
+# is *not* covered by 240.0.0.0/4.
+LAN_BYPASS_V4="
+10.0.0.0/8
+100.64.0.0/10
+127.0.0.0/8
+169.254.0.0/16
+172.16.0.0/12
+192.0.0.0/24
+192.0.2.0/24
+192.88.99.0/24
+192.168.0.0/16
+198.51.100.0/24
+203.0.113.0/24
+224.0.0.0/4
+240.0.0.0/4
+255.255.255.255/32
+"
+
+# IPv6. ::ffff:0:0/96 (IPv4-mapped) is included for completeness but rarely
+# appears on the wire — it mostly matters for local dual-stack sockets.
+LAN_BYPASS_V6="
+::1/128
+::ffff:0:0/96
+64:ff9b::/96
+100::/64
+2001::/32
+2001:10::/28
+2001:20::/28
+2001:db8::/32
+2002::/16
+fc00::/7
+fe80::/10
+ff00::/8
+"
+
 rm -f "$XRAY_LOG" "$DATADIR/tun2socks.log"
 
 grep_prop() {
@@ -727,13 +771,9 @@ apply_routing_rules() {
     # so xray never re-swallows their already-tunneled traffic and loops.
     $iptables -t mangle -A XRAY_MARK -j BYPASS_VPN_UID
     $iptables -t mangle -A XRAY_MARK -m mark --mark $FWMARK -j RETURN
-    $iptables -t mangle -A XRAY_MARK -d 127.0.0.0/8 -j RETURN
-    $iptables -t mangle -A XRAY_MARK -d 10.0.0.0/8 -j RETURN
-    $iptables -t mangle -A XRAY_MARK -d 172.16.0.0/12 -j RETURN
-    $iptables -t mangle -A XRAY_MARK -d 192.168.0.0/16 -j RETURN
-    $iptables -t mangle -A XRAY_MARK -d 169.254.0.0/16 -j RETURN       # Link-local
-    $iptables -t mangle -A XRAY_MARK -d 224.0.0.0/4 -j RETURN         # Multicast
-    $iptables -t mangle -A XRAY_MARK -d 240.0.0.0/4 -j RETURN         # Class E (Reserved)
+    for cidr in $LAN_BYPASS_V4; do
+        $iptables -t mangle -A XRAY_MARK -d "$cidr" -j RETURN
+    done
 
     # Exclude UIDs from the proxy entirely, regardless of networkMode below.
     for uid in $XRAY_UID_EXCLUDE_LIST; do
@@ -776,10 +816,9 @@ apply_routing_rules() {
 
     # PREROUTING Mangle rules for incoming hotspot traffic
     $iptables -t mangle -N HOTSPOT_PREROUTING
-    $iptables -t mangle -A HOTSPOT_PREROUTING -d 10.0.0.0/8 -j RETURN
-    $iptables -t mangle -A HOTSPOT_PREROUTING -d 172.16.0.0/12 -j RETURN
-    $iptables -t mangle -A HOTSPOT_PREROUTING -d 192.168.0.0/16 -j RETURN
-    $iptables -t mangle -A HOTSPOT_PREROUTING -d 127.0.0.0/8 -j RETURN
+    for cidr in $LAN_BYPASS_V4; do
+        $iptables -t mangle -A HOTSPOT_PREROUTING -d "$cidr" -j RETURN
+    done
 
     # allowTether (see query_settings allowTether, default true):
     #   true  = tethered/hotspot clients are marked and routed through the proxy
@@ -787,9 +826,9 @@ apply_routing_rules() {
     #           device's normal/direct route (chain still exists but only RETURNs)
     if [ "$allow_tether" = true ]; then
         # Force DNS redirection for tethered clients to Cloudflare DNS
-        $iptables -t nat -I PREROUTING ! -i $TUN_NAME -d 10.0.0.0/8 -p udp --dport 53 -j DNAT --to 1.1.1.1
-        $iptables -t nat -I PREROUTING ! -i $TUN_NAME -d 172.16.0.0/12 -p udp --dport 53 -j DNAT --to 1.1.1.1
-        $iptables -t nat -I PREROUTING ! -i $TUN_NAME -d 192.168.0.0/16 -p udp --dport 53 -j DNAT --to 1.1.1.1
+        for cidr in $LAN_BYPASS_V4; do
+            $iptables -t nat -I PREROUTING ! -i $TUN_NAME -d "$cidr" -p udp --dport 53 -j DNAT --to 1.1.1.1
+        done
 
         $iptables -t mangle -A HOTSPOT_PREROUTING ! -i $TUN_NAME -p tcp -j MARK --set-xmark 1
         $iptables -t mangle -A HOTSPOT_PREROUTING ! -i $TUN_NAME -p udp -j MARK --set-xmark 1
@@ -800,15 +839,17 @@ apply_routing_rules() {
     $ip rule add iif lo goto 6000 pref 5000
     $ip rule add iif $TUN_NAME lookup main suppress_prefixlength 0 pref 5010
     $ip rule add iif $TUN_NAME goto 6000 pref 5020
-    # Bypass LAN
-    $ip rule add to 10.0.0.0/8 lookup main pref 5025
-    $ip rule add to 172.16.0.0/12 lookup main pref 5026
-    $ip rule add to 192.168.0.0/16 lookup main pref 5027
+    # Bypass LAN (IPv4). All rules share one pref each so clear_routing_rules
+    # can wipe the whole set with a loop-delete, the same idiom remove_mark_rule
+    # already uses for the fwmark rule.
+    for cidr in $LAN_BYPASS_V4; do
+        $ip rule add to "$cidr" lookup main pref 5025
+    done
     if [ "$allow_tether" = true ]; then
         # Redirect Hotspot to table 100 (proxy)
-        $ip rule add from 10.0.0.0/8 lookup 100 pref 5030
-        $ip rule add from 172.16.0.0/12 lookup 100 pref 5040
-        $ip rule add from 192.168.0.0/16 lookup 100 pref 5050
+        for cidr in $LAN_BYPASS_V4; do
+            $ip rule add from "$cidr" lookup 100 pref 5030
+        done
     fi
     $ip rule add nop pref 6000
 
@@ -822,10 +863,9 @@ apply_routing_rules() {
     # redirect outgoing pings to the loopback instead of leaking them
     # through the real interface / letting them time out on the TUN device)
     $iptables -t nat -N XRAY_FAKE_ICMP
-    $iptables -t nat -A XRAY_FAKE_ICMP -d 127.0.0.0/8 -j RETURN
-    $iptables -t nat -A XRAY_FAKE_ICMP -d 10.0.0.0/8 -j RETURN
-    $iptables -t nat -A XRAY_FAKE_ICMP -d 172.16.0.0/12 -j RETURN
-    $iptables -t nat -A XRAY_FAKE_ICMP -d 192.168.0.0/16 -j RETURN
+    for cidr in $LAN_BYPASS_V4; do
+        $iptables -t nat -A XRAY_FAKE_ICMP -d "$cidr" -j RETURN
+    done
     $iptables -t nat -A XRAY_FAKE_ICMP -p icmp -j DNAT --to-destination 127.0.0.1
     $iptables -t nat -I OUTPUT -p icmp -j XRAY_FAKE_ICMP
     $iptables -t nat -I PREROUTING ! -i $TUN_NAME -p icmp -j XRAY_FAKE_ICMP
@@ -850,10 +890,9 @@ apply_routing_rules() {
         $ip6tables -t mangle -A XRAY_MARK -m mark --mark $FWMARK -j RETURN
         $ip6tables -t mangle -A XRAY_MARK -p udp --dport 53 -j DROP
         $ip6tables -t mangle -A XRAY_MARK -p tcp --dport 53 -j DROP
-        $ip6tables -t mangle -A XRAY_MARK -d ::1/128 -j RETURN
-        $ip6tables -t mangle -A XRAY_MARK -d fe80::/10 -j RETURN
-        $ip6tables -t mangle -A XRAY_MARK -d fc00::/7 -j RETURN
-        $ip6tables -t mangle -A XRAY_MARK -d ff00::/8 -j RETURN
+        for cidr in $LAN_BYPASS_V6; do
+            $ip6tables -t mangle -A XRAY_MARK -d "$cidr" -j RETURN
+        done
 
         # Exclude UIDs from the proxy entirely, regardless of networkMode below.
         for uid in $XRAY_UID_EXCLUDE_LIST; do
@@ -890,9 +929,9 @@ apply_routing_rules() {
         $ip6tables -t mangle -N HOTSPOT_PREROUTING
         $ip6tables -t mangle -A HOTSPOT_PREROUTING -p udp --dport 53 -j DROP
         $ip6tables -t mangle -A HOTSPOT_PREROUTING -p tcp --dport 53 -j DROP
-        $ip6tables -t mangle -A HOTSPOT_PREROUTING ! -i $TUN_NAME -d ::1/128 -j RETURN
-        $ip6tables -t mangle -A HOTSPOT_PREROUTING ! -i $TUN_NAME -d fe80::/10 -j RETURN
-        $ip6tables -t mangle -A HOTSPOT_PREROUTING ! -i $TUN_NAME -d fc00::/7 -j RETURN
+        for cidr in $LAN_BYPASS_V6; do
+            $ip6tables -t mangle -A HOTSPOT_PREROUTING ! -i $TUN_NAME -d "$cidr" -j RETURN
+        done
         # allowTether (see query_settings allowTether, default true): only mark
         # tethered/hotspot IPv6 traffic for the proxy when tethering is allowed
         # to use it; otherwise let it RETURN and use the normal direct route.
@@ -900,6 +939,19 @@ apply_routing_rules() {
             $ip6tables -t mangle -A HOTSPOT_PREROUTING ! -i $TUN_NAME -j MARK --set-xmark 1
         fi
         $ip6tables -t mangle -I PREROUTING 1 -j HOTSPOT_PREROUTING
+
+        # Bypass LAN (IPv6) via policy routing — mirrors the IPv4 rules above.
+        # The previous version had no equivalent here at all, so IPv6 LAN
+        # traffic depended entirely on the mangle RETURNs, with no fwmark-level
+        # policy-routing bypass; this closes that gap.
+        for cidr in $LAN_BYPASS_V6; do
+            $ip -6 rule add to "$cidr" lookup main pref 5025
+        done
+        if [ "$allow_tether" = true ]; then
+            for cidr in $LAN_BYPASS_V6; do
+                $ip -6 rule add from "$cidr" lookup 100 pref 5030
+            done
+        fi
 
         # Step 5: Hotspot Forwarding (Clamp IPv6 TCP MSS)
         $ip6tables -t mangle -N HOTSPOT_FORWARD
@@ -972,20 +1024,19 @@ clear_routing_rules() {
     $ip rule del pref 5000
     $ip rule del pref 5010
     $ip rule del pref 5020
-    $ip rule del pref 5025
-    $ip rule del pref 5026
-    $ip rule del pref 5027
-    $ip rule del pref 5030
-    $ip rule del pref 5040
-    $ip rule del pref 5050
+    # pref 5025/5030 now hold one rule per LAN_BYPASS_V4 entry (see
+    # apply_routing_rules), so a single "del" only removes one of them —
+    # loop-delete the same way remove_mark_rule() does for the fwmark rule.
+    while $ip rule del pref 5025 2>/dev/null; do :; done
+    while $ip rule del pref 5030 2>/dev/null; do :; done
     $ip rule del pref 6000
 
     # Remove FORWARD ACCEPT rules for both address families (see forward() above)
     forward -D
 
-    $iptables -D PREROUTING -t nat ! -i $TUN_NAME -d 10.0.0.0/8 -p udp --dport 53 -j DNAT --to 1.1.1.1
-    $iptables -D PREROUTING -t nat ! -i $TUN_NAME -d 172.16.0.0/12 -p udp --dport 53 -j DNAT --to 1.1.1.1
-    $iptables -D PREROUTING -t nat ! -i $TUN_NAME -d 192.168.0.0/16 -p udp --dport 53 -j DNAT --to 1.1.1.1
+    for cidr in $LAN_BYPASS_V4; do
+        $iptables -D PREROUTING -t nat ! -i $TUN_NAME -d "$cidr" -p udp --dport 53 -j DNAT --to 1.1.1.1
+    done
 
     $iptables -t mangle -D PREROUTING -j HOTSPOT_PREROUTING
     $iptables -t mangle -F HOTSPOT_PREROUTING
@@ -1003,6 +1054,11 @@ clear_routing_rules() {
     $ip6tables -t mangle -F XRAY_MARK
     $ip6tables -t mangle -X XRAY_MARK
     $ip -6 rule del priority 1010
+    # LAN bypass rules added in apply_routing_rules (only present when IPv6
+    # was enabled that run, but harmless no-ops otherwise since these fail
+    # silently when there's nothing to delete).
+    while $ip -6 rule del pref 5025 2>/dev/null; do :; done
+    while $ip -6 rule del pref 5030 2>/dev/null; do :; done
 
     # Delete hotspot rules
 
