@@ -5,6 +5,11 @@ const SETTINGS_FILE = `${DATADIR}/settings.base64`;
 const ACTIVE_FILE = `${DATADIR}/active_config.txt`;
 const CONFIG_JSON = `${DATADIR}/config.json`;
 const IP_HUNT_FILE = `${DATADIR}/ip_hunt.list`;
+// Comma-separated interface names whose outbound traffic skips Xray
+// entirely — stored as a plain file rather than inside settings.base64,
+// same pattern as IP_HUNT_FILE: existence of the file means the feature is
+// enabled, and its content (re-read live by service.sh) is the list.
+const BYPASS_IFACE_FILE = `${DATADIR}/bypassIface.txt`;
 // Default User-Agent sent when fetching subscription links, so hosts that
 // gate content on the client (e.g. v2rayNG-only subs) still respond.
 // Per-subscription override lives in profiles[category].useragent.
@@ -159,3 +164,6 @@ let _latencySamples = [];
 
 // Mobile IP Hunter
 let _ipHunterSaveTimer = null;
+
+// Bypass network interface
+let _bypassIfaceSaveTimer = null;

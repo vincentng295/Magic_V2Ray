@@ -2382,10 +2382,11 @@ function bindSettingsToFormView() {
 
     if (!Array.isArray(advSettings.routingRules)) advSettings.routingRules = [];
     renderRoutingRules();
+
+    syncBypassIfaceState();
 }
 
-function saveAdvancedSettingsForm(isLangOnly = false) {
-    advSettings.loglevel = document.getElementById('set-loglevel').value;
+function saveAdvancedSettingsForm(isLangOnly = false) {    advSettings.loglevel = document.getElementById('set-loglevel').value;
     advSettings.sniffing = document.getElementById('set-sniffing').checked;
     advSettings.routeOnly = document.getElementById('set-routeonly').checked;
     advSettings.enableIPv6 = document.getElementById('set-enableipv6').checked;
@@ -2423,6 +2424,73 @@ function saveAdvancedSettingsForm(isLangOnly = false) {
         // to be torn down and rebuilt, so this path keeps the full restart
         // rather than the soft reload applyActiveConfig() defaults to.
         applyActiveConfig({ force: true });
+    });
+}
+
+// ===== Bypass network interface =====
+// Stored as a standalone file (BYPASS_IFACE_FILE) rather than inside
+// settings.base64 — same pattern as the Mobile IP Hunter panel: file
+// existence means the feature is enabled, and its content is the
+// comma-separated interface list, re-read live by service.sh on apply.
+
+function syncBypassIfaceState() {
+    execShell(
+        `if [ -f ${shQuote(BYPASS_IFACE_FILE)} ]; then echo 1; cat ${shQuote(BYPASS_IFACE_FILE)}; else echo 0; fi`,
+        (output) => {
+            const toggle = document.getElementById('set-bypassiface');
+            const input = document.getElementById('set-bypassiface-list');
+            const lines = (output || '').split('\n');
+            const enabled = lines[0].trim() === '1';
+            const content = lines.slice(1).join('\n').trim();
+
+            if (toggle) toggle.checked = enabled;
+            if (input) input.value = content || "tailscale0,wt0";
+            toggleSubSettingField('set-bypassiface', 'bypassiface-sub-fields');
+        }
+    );
+}
+
+function sanitizeBypassIfaceList(raw) {
+    return (raw || '')
+        .split(/[,\s]+/)
+        .map(p => p.trim())
+        .filter(Boolean)
+        .join(',');
+}
+
+function toggleBypassIface() {
+    const toggle = document.getElementById('set-bypassiface');
+    const enabled = !!toggle?.checked;
+    toggleSubSettingField('set-bypassiface', 'bypassiface-sub-fields');
+
+    if (enabled) {
+        saveBypassIfaceList();
+    } else {
+        execShell(`rm -f ${shQuote(BYPASS_IFACE_FILE)}`, () => {
+            showToast(t('toast_bypassiface_disabled'), 'info');
+            applyActiveConfig({ force: true });
+        });
+    }
+}
+
+function onBypassIfaceInputChange() {
+    const toggle = document.getElementById('set-bypassiface');
+    if (!toggle?.checked) return;
+
+    if (_bypassIfaceSaveTimer) clearTimeout(_bypassIfaceSaveTimer);
+    _bypassIfaceSaveTimer = setTimeout(saveBypassIfaceList, 600);
+}
+
+function saveBypassIfaceList() {
+    const input = document.getElementById('set-bypassiface-list');
+    const sanitized = sanitizeBypassIfaceList(input?.value || '') || "tailscale0,wt0";
+    if (input) input.value = sanitized;
+
+    execShell(`mkdir -p ${shQuote(DATADIR)} && chmod 700 ${shQuote(DATADIR)}`, () => {
+        writeFileB64(BYPASS_IFACE_FILE, sanitized, () => {
+            showToast(t('toast_bypassiface_saved'), 'success');
+            applyActiveConfig({ force: true });
+        });
     });
 }
 

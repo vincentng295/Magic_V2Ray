@@ -47,6 +47,10 @@ XRAY_LOG="$DATADIR/xray.log"
 SERVICE_LOG="$DATADIR/service.log"
 TUN2SOCKS_LOG=/dev/null
 IP_HUNT_FILE="$DATADIR/ip_hunt.list"
+# Comma-separated interface names whose outbound traffic skips Xray
+# entirely. Plain file rather than a settings.base64 key — same pattern as
+# IP_HUNT_FILE: existence means enabled, content is the interface list.
+BYPASS_IFACE_FILE="$DATADIR/bypassIface.txt"
 ENABLED_FLAG="$DATADIR/enabled"
 
 # Runtime state files (tmpfs; cleared on every boot)
@@ -738,6 +742,19 @@ apply_routing_rules() {
     allow_tether="$(setting_is_true allowTether && echo true || echo false)"
     echo "Allow tether from proxy: $allow_tether"
 
+    # bypassIface: comma-separated list of interface names whose outbound
+    # traffic skips XRAY_MARK entirely (e.g. tailscale0, wt0) — useful for
+    # VPN/mesh interfaces that must never be re-tunneled through the proxy.
+    # Stored in BYPASS_IFACE_FILE rather than settings.base64 (see var
+    # comment); existence of the file means the feature is enabled.
+    bypass_iface_list=""
+    if [ -f "$BYPASS_IFACE_FILE" ]; then
+        raw_bypass_iface="$(tr -d '\r' < "$BYPASS_IFACE_FILE")"
+        [ -z "$raw_bypass_iface" ] && raw_bypass_iface="tailscale0,wt0"
+        bypass_iface_list="$(echo "$raw_bypass_iface" | tr ',' ' ')"
+    fi
+    echo "Bypass interfaces: ${bypass_iface_list:-<none>}"
+
     # Enable IP forward feature
     enable_forward "$ipv6_enabled"
 
@@ -771,6 +788,11 @@ apply_routing_rules() {
     # so xray never re-swallows their already-tunneled traffic and loops.
     $iptables -t mangle -A XRAY_MARK -j BYPASS_VPN_UID
     $iptables -t mangle -A XRAY_MARK -m mark --mark $FWMARK -j RETURN
+    # bypassIface: let traffic bound for these interfaces skip the proxy
+    # entirely, ahead of the networkMode logic below.
+    for bypass_if in $bypass_iface_list; do
+        $iptables -t mangle -A XRAY_MARK -o "$bypass_if" -j RETURN
+    done
     for cidr in $LAN_BYPASS_V4; do
         $iptables -t mangle -A XRAY_MARK -d "$cidr" -j RETURN
     done
@@ -888,6 +910,10 @@ apply_routing_rules() {
         # See the IPv4 XRAY_MARK chain above for why this jump exists.
         $ip6tables -t mangle -A XRAY_MARK -j BYPASS_VPN_UID
         $ip6tables -t mangle -A XRAY_MARK -m mark --mark $FWMARK -j RETURN
+        # bypassIface: mirrors the IPv4 XRAY_MARK rule above.
+        for bypass_if in $bypass_iface_list; do
+            $ip6tables -t mangle -A XRAY_MARK -o "$bypass_if" -j RETURN
+        done
         $ip6tables -t mangle -A XRAY_MARK -p udp --dport 53 -j DROP
         $ip6tables -t mangle -A XRAY_MARK -p tcp --dport 53 -j DROP
         for cidr in $LAN_BYPASS_V6; do
