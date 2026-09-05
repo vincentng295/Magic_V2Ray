@@ -1,3 +1,5 @@
 /dist
 /bin/*/xray
 /bin/*/xray.version
+/bin/*/openxtun
+/bin/*/openxtun.version

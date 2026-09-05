@@ -968,6 +968,24 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                     "routeOnly": settings.routeOnly
                 }
             },
+            {
+                // Real device-wide traffic path (replaces hev-socks5-tunnel).
+                // openxtun opens xraytun0 and hands the fd to xray via
+                // XRAY_TUN_FD; addr/mtu/up/default-route on that interface
+                // are managed by service.sh (configure_tun_iface), so no
+                // gateway/autoSystemRoutingTable/autoOutboundsInterface here.
+                "tag": "tun-in",
+                "protocol": "tun",
+                "settings": {
+                    "name": "xraytun0",
+                    "mtu": 8500
+                },
+                "sniffing": {
+                    "enabled": settings.sniffing,
+                    "destOverride": ["http", "tls", "quic"],
+                    "routeOnly": settings.routeOnly
+                }
+            },
         ],
         outbounds: [
             outbound, 
@@ -991,11 +1009,15 @@ function convert_uri_to_xray_json(uri, optional_settings) {
         routing: {
             "domainStrategy": useFakeIp ? "AsIs" : "IPIfNonMatch",
             "rules": [
-                // Narrow rule first (2 conditions): user DNS from socks-test-in inbound.
+                // Narrow rule first (2 conditions): user DNS from socks-test-in
+                // (manual test path) and tun-in (real device DNS, now that
+                // traffic reaches xray via tun-in instead of hev bridging
+                // into socks-test-in).
                 {
                     "type": "field",
                     "inboundTag": [
                         "socks-test-in",
+                        "tun-in",
                     ],
                     "port": 53,
                     "outboundTag": dnsOutboundTag
@@ -1033,6 +1055,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                     "type": "field",
                     "inboundTag": [
                         "socks-test-in",
+                        "tun-in",
                     ],
                     "network": "tcp,udp",
                     "outboundTag": "proxy"

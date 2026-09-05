@@ -3,7 +3,7 @@ const DATADIR = "/data/adb/magic_v2ray";
 const PROFILES_FILE = `${DATADIR}/profiles.base64`;
 const SETTINGS_FILE = `${DATADIR}/settings.base64`;
 const ACTIVE_FILE = `${DATADIR}/active_config.txt`;
-const CONFIG_JSON = `${DATADIR}/config.json`;
+const CONFIG_JSON = `${DATADIR}/config.v2.json`;
 const IP_HUNT_FILE = `${DATADIR}/ip_hunt.list`;
 // Comma-separated interface names whose outbound traffic skips Xray
 // entirely — stored as a plain file rather than inside settings.base64,

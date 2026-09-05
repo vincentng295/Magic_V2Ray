@@ -22,6 +22,7 @@ MODDIR=${0%/*}
 BINDIR="$MODDIR/bin"
 DATADIR="/data/adb/magic_v2ray"
 STUB_DIR=/dev/sysctl_stubs
+CONFIG_NAME=config.v2.json
 
 # ===========================================================================
 # 1. Paths, constants, logging
@@ -45,7 +46,6 @@ chmod 700 "$RUN_DIR"
 
 XRAY_LOG="$DATADIR/xray.log"
 SERVICE_LOG="$DATADIR/service.log"
-TUN2SOCKS_LOG=/dev/null
 IP_HUNT_FILE="$DATADIR/ip_hunt.list"
 # Comma-separated interface names whose outbound traffic skips Xray
 # entirely. Plain file rather than a settings.base64 key — same pattern as
@@ -115,7 +115,6 @@ fe80::/10
 ff00::/8
 "
 
-rm -f "$XRAY_LOG" "$DATADIR/tun2socks.log"
 
 grep_prop() {
     local regex="s/^$1=//p"
@@ -129,7 +128,6 @@ grep_prop() {
 DEBUG=0
 if [ "$(grep_prop debug)" = "1" ]; then
     DEBUG=1
-    TUN2SOCKS_LOG="$DATADIR/tun2socks.log"
 fi
 
 # Cap the service log so a long-lived boot cannot fill /data. Rotation happens
@@ -156,7 +154,6 @@ chmod 600 "$PIPE_FILE" 2>/dev/null
 # meant starting the latency monitor overwrote — and permanently orphaned —
 # the network-interface monitor, silently disabling reconnect handling.
 XRAY_PID=0
-TUN2SOCKS_PID=0
 IFACE_MONITOR_PID=0
 LATENCY_MONITOR_PID=0
 
@@ -722,7 +719,17 @@ loosen_rp_filter() {
     done
 }
 
-apply_routing_rules() {
+# ---------------------------------------------------------------------------
+# configure_tun_iface(): (re)assigns address/mtu/up/default-route on
+# $TUN_NAME. Split out of apply_routing_rules() so it can also be called from
+# restart_xray() — with openxtun, xraytun0 is a brand-new netdevice instance
+# every time xray (re)starts (non-persistent TUN: dies with the process that
+# holds its fd), so its address/UP-state/table-100 default route are gone
+# too and must be redone even on a plain reload, not just a full start/stop.
+# Deliberately touches only the interface itself, never iptables/ip-rule, so
+# restart_xray's "leave routing rules untouched" contract still holds.
+# ---------------------------------------------------------------------------
+configure_tun_iface() {
     local retry=0
     local max_retry=10
     while [ $retry -lt $max_retry ]; do
@@ -732,6 +739,30 @@ apply_routing_rules() {
         sleep 0.5
         retry=$((retry + 1))
     done
+    if [ $retry -eq $max_retry ]; then
+        log "warning: $TUN_NAME did not appear after ${max_retry} retries"
+    fi
+
+    # Recomputed here (not just inherited from apply_routing_rules' global)
+    # because restart_xray() calls this directly without going through
+    # apply_routing_rules first.
+    ipv6_enabled="$(setting_is_true enableIPv6 && echo true || echo false)"
+
+    lock_xraytun0
+    # openxtun only does TUNSETIFF; it never sets an MTU, so this has to
+    # happen here (previously hev-socks5-tunnel's tunnel.yml set mtu: 8500).
+    $ip link set dev $TUN_NAME mtu 8500
+    $ip addr add 198.18.0.1/15 dev $TUN_NAME 2>/dev/null
+    $ip link set dev $TUN_NAME up
+    $ip route replace default dev $TUN_NAME table 100
+
+    if [ "$ipv6_enabled" = true ]; then
+        $ip -6 addr add fdfe:dcba:9876::1/64 dev $TUN_NAME 2>/dev/null
+        $ip -6 route replace default dev $TUN_NAME table 100
+    fi
+}
+
+apply_routing_rules() {
     ipv6_enabled="$(setting_is_true enableIPv6 && echo true || echo false)"
     echo "IPv6 enabled: $ipv6_enabled"
 
@@ -758,8 +789,11 @@ apply_routing_rules() {
     # Enable IP forward feature
     enable_forward "$ipv6_enabled"
 
-    # Lock down xraytun0 interface
-    lock_xraytun0
+    # Assign address/mtu/up/default-route on $TUN_NAME (both IPv4 and, if
+    # enabled, IPv6 — see configure_tun_iface() above). Also re-run from
+    # restart_xray() since openxtun recreates this interface from scratch
+    # on every (re)start.
+    configure_tun_iface
 
     # BYPASS_VPN_UID must exist before XRAY_MARK can jump to it. This is
     # normally already created at boot (and kept alive across xray
@@ -773,11 +807,6 @@ apply_routing_rules() {
     # =========================================================================
     # IPv4 CONFIGURATION
     # =========================================================================
-
-    # Step 1: Assign IP address and set TUN device UP
-    $ip addr add 198.18.0.1/15 dev $TUN_NAME
-    $ip link set dev $TUN_NAME up
-    $ip route replace default dev $TUN_NAME table 100
 
     # Step 2: Routing Rule for marked packets
     $ip rule add fwmark 1 table 100 priority 1010
@@ -898,9 +927,8 @@ apply_routing_rules() {
     # =========================================================================
 
     if [ "$ipv6_enabled" = true ]; then
-        # Step 1: Assign IPv6 address and default route
-        $ip -6 addr add fdfe:dcba:9876::1/64 dev $TUN_NAME
-        $ip -6 route replace default dev $TUN_NAME table 100
+        # IPv6 address + default route on $TUN_NAME already done by
+        # configure_tun_iface() above.
 
         # Step 2: Routing Rule for marked IPv6 packets
         $ip -6 rule add fwmark 1 table 100 priority 1010
@@ -1113,15 +1141,20 @@ start_xray() {
         log "xray already running (pid $XRAY_PID)"
         return 0
     fi
-    if [ ! -s "$DATADIR/config.json" ]; then
-        log "refusing to start: config.json missing or empty"
+    if [ ! -s "$DATADIR/$CONFIG_NAME" ]; then
+        log "refusing to start: $CONFIG_NAME missing or empty"
         return 1
     fi
 
-    "$BINDIR/xray" run -c "$DATADIR/config.json" </dev/null >"$XRAY_LOG" 2>&1 &
+    # openxtun opens /dev/net/tun, ioctl(TUNSETIFF) into $TUN_NAME, sets
+    # XRAY_TUN_FD, then execvp's into xray (same pid — exec doesn't change
+    # it). xray's tun-in inbound reads that fd directly; the interface is
+    # non-persistent so it lives and dies with this process.
+    "$BINDIR/openxtun" "$TUN_NAME" "$BINDIR/xray" run -c "$DATADIR/$CONFIG_NAME" \
+        </dev/null >"$XRAY_LOG" 2>&1 &
     XRAY_PID=$!
     echo "$XRAY_PID" > "$PIDFILE"
-    log "xray started with pid $XRAY_PID"
+    log "xray (via openxtun, tun=$TUN_NAME) started with pid $XRAY_PID"
 
     mount_proc_with_name "$XRAY_PID" "xray"
     apply_routing_rules
@@ -1155,7 +1188,7 @@ stop_xray() {
 }
 
 # Swaps the running xray process for a fresh one reading the newly written
-# config.json, WITHOUT touching iptables/policy routing. Used for "config
+# $CONFIG_NAME, WITHOUT touching iptables/policy routing. Used for "config
 # changed while running" (new node selected, node edited, Xray-level routing
 # rules edited) — none of those touch anything apply_routing_rules reads
 # (advSettings.networkMode / .allowTether / .enableIPv6 and the uid lists),
@@ -1164,8 +1197,8 @@ stop_xray() {
 # Advanced-settings saves that actually change those fields still go through
 # the full stop+start path so the rules get rebuilt.
 restart_xray() {
-    if [ ! -s "$DATADIR/config.json" ]; then
-        log "refusing to reload: config.json missing or empty"
+    if [ ! -s "$DATADIR/$CONFIG_NAME" ]; then
+        log "refusing to reload: $CONFIG_NAME missing or empty"
         return 1
     fi
 
@@ -1183,12 +1216,21 @@ restart_xray() {
     umount_proc_with_name "xray"
     XRAY_PID=0
 
-    "$BINDIR/xray" run -c "$DATADIR/config.json" </dev/null >"$XRAY_LOG" 2>&1 &
+    # Must go through openxtun here too: a bare xray relaunch has no
+    # XRAY_TUN_FD, so tun-in would come up with no fd at all. And because
+    # $TUN_NAME is non-persistent, openxtun creates a brand-new netdevice
+    # instance every time — the old one's address/UP-state/table-100 default
+    # route died with the previous process, so configure_tun_iface() below
+    # is required even though iptables/ip-rule state is intentionally left
+    # untouched.
+    "$BINDIR/openxtun" "$TUN_NAME" "$BINDIR/xray" run -c "$DATADIR/$CONFIG_NAME" \
+        </dev/null >"$XRAY_LOG" 2>&1 &
     XRAY_PID=$!
     echo "$XRAY_PID" > "$PIDFILE"
-    log "xray reloaded with pid $XRAY_PID (routing rules left untouched)"
+    log "xray reloaded with pid $XRAY_PID (tun=$TUN_NAME re-created, iptables/ip-rule left untouched)"
 
     mount_proc_with_name "$XRAY_PID" "xray"
+    configure_tun_iface
     touch "$ENABLED_FLAG"
     return 0
 }
@@ -1321,35 +1363,14 @@ if [ ! -e /dev/net/tun ]; then
     chmod 600 /dev/net/tun
 fi
 
-# Start hev-socks5-tunnel
-cat <<EOF  >"$RUN_DIR/tunnel.yml"
-tunnel:
-  name: $TUN_NAME
-  mtu: 8500
-  ipv4: 198.18.0.1
-  ipv6: fdfe:dcba:9876::1
-
-socks5:
-  address: $TUN_ADDR
-  port: $TUN_PORT
-  udp: 'udp'
-  mark: $FWMARK
-
-misc:
-  log-file: stderr
-  log-level: warn
-EOF
-
-"$BINDIR/hev-socks5-tunnel" "$RUN_DIR/tunnel.yml" </dev/null >"$TUN2SOCKS_LOG" 2>&1 &
-TUN2SOCKS_PID=$!
-echo "$TUN2SOCKS_PID" > "$RUN_DIR/tun2socks.pid"
-mount_proc_with_name "$TUN2SOCKS_PID" "hev_socks5_tunnel"
-log "hev-socks5-tunnel started with pid $TUN2SOCKS_PID"
+# $TUN_NAME is no longer a standalone boot-time service (that was
+# hev-socks5-tunnel). It's now created by openxtun as part of start_xray /
+# restart_xray, tied to xray's own process lifetime — see configure_tun_iface().
 
 # Resume the previous session only if the user actually left the engine
-# running. This used to key off the mere existence of config.json, so a
+# running. This used to key off the mere existence of $CONFIG_NAME, so a
 # config that had been explicitly stopped still came back at boot.
-if [ -s "$DATADIR/config.json" ] && [ -f "$ENABLED_FLAG" ]; then
+if [ -s "$DATADIR/$CONFIG_NAME" ] && [ -f "$ENABLED_FLAG" ]; then
     log "restoring previous session"
     echo "start" > "$PIPE_FILE"
     echo "wait"  > "$PIPE_FILE"
