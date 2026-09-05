@@ -20,7 +20,7 @@ Nếu bạn đã quen thuộc với các ứng dụng V2Ray tiêu chuẩn (như 
 
 * **Bao phủ toàn hệ thống, không bao giờ bị văng:** Các ứng dụng thông thường chạy ở không gian người dùng (user-space) thông qua API `VpnService` mặc định của Android. Khi bộ nhớ RAM bị đầy, hệ thống quản lý RAM gắt gao của Android (Low Memory Killer) sẽ dễ dàng tước quyền/tắt ứng dụng, làm gián đoạn kết nối hoặc rò rỉ IP thật của bạn. Magic V2Ray hoạt động với quyền Root, chạy như một tiến trình hệ thống (system daemon) giúp giữ kết nối luôn bền vững và không bao giờ bị hệ điều hành tắt khi thiếu RAM.
 * **Định tuyến cả các lưu lượng mà `VpnService` "bó tay":** Ứng dụng xài `VpnService` chỉ can thiệp được lưu lượng từ các ứng dụng (UID) mà Android cho phép. Magic V2Ray gắn nhãn (mark) gói tin ngay tại tầng Netfilter, nhờ đó định tuyến được cả các tiến trình hệ thống. Đặc biệt, nó không chiếm dụng ô VPN mặc định của máy — giúp bạn thoải mái chạy song song với một ứng dụng VPN khác mà không bị xung đột, đồng thời loại bỏ hoàn toàn biểu tượng chìa khóa VPN phiền phức trên thanh trạng thái.
-* **Hỗ trợ chia sẻ Hotspot / Tethering trực tiếp:** `VpnService` không thể định tuyến cho các thiết bị bắt Wi-Fi hotspot, vì Android chuyển tiếp dữ liệu của các thiết bị này bên ngoài không gian mạng của VPN. Magic V2Ray đánh chặn lưu lượng ngay tại chuỗi `PREROUTING` và định tuyến theo chính sách (policy-route) vào chung đường hầm tunnel. Nhờ vậy, mọi thiết bị kết nối vào hotspot của bạn đều tự động dùng proxy. *(Xem thêm mục Chia sẻ Gateway LAN bên dưới)*.
+* **Hỗ trợ chia sẻ Hotspot / Tethering trực tiếp:** `VpnService` không thể định tuyến cho các thiết bị bắt Wi-Fi hotspot, vì Android chuyển tiếp dữ liệu của các thiết bị này bên ngoài không gian mạng của VPN. Magic V2Ray đánh chặn lưu lượng ngay tại chuỗi `PREROUTING` và định tuyến theo chính sách (policy-route) vào chung đường hầm tunnel. Nhờ vậy, mọi thiết bị kết nối vào hotspot của bạn đều tự động dùng proxy.
 * **Tự động kết nối lại siêu mượt:** Tự động phát hiện quá trình chuyển đổi giữa Wi-Fi ↔ 4G/5G trực tiếp từ các sự kiện định tuyến của Kernel (`ip monitor`) thay vì hỏi dồn (polling) liên tục, giúp áp dụng lại các quy tắc định tuyến ngay lập tức mà không cần chờ thời gian timeout.
 * **Hỗ trợ Root toàn diện:** Tương thích hoàn hảo trên mọi nền tảng Root phổ biến: Magisk, KernelSU và APatch.
 
@@ -50,7 +50,7 @@ Nếu thiết bị của bạn chưa được root, hoặc bạn đang tìm ki�
 
 Dự án này được xây dựng dựa trên thành quả của những người đi trước. **Magic V2Ray** có sử dụng các file thực thi (binary) được biên dịch sẵn từ các dự án mã nguồn mở sau:
 * **[Xray-core](https://github.com/XTLS/Xray-core):** Lõi hệ thống tối cao cho các mạng proxy thế hệ mới, xử lý các giao thức như VLESS, VMess, Trojan kết hợp với cơ chế giải mã gói tin (sniffing) linh hoạt.
-* **[hev-socks5-tunnel](https://github.com/heiher/hev-socks5-tunnel):** Công cụ hiệu năng cao được sử dụng để bọc các kênh inbound SOCKS5/HTTP vào một giao diện mạng ảo TUN native của Linux.
+* **[openxtun](https://github.com/vincentng295/openxtun):** Một trình bao bọc nhỏ gọn giúp mở thiết bị TUN trên Linux và chuyển bộ mô tả tệp (file descriptor) của nó cho Xray.
 * **[curl-android](https://github.com/vvb2060/curl-android):** curl tool and libcurl static library prefab for android
 
 ## Giấy phép (License)
