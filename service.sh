@@ -1150,7 +1150,7 @@ start_xray() {
     # XRAY_TUN_FD, then execvp's into xray (same pid — exec doesn't change
     # it). xray's tun-in inbound reads that fd directly; the interface is
     # non-persistent so it lives and dies with this process.
-    "$BINDIR/openxtun" "$TUN_NAME" "$BINDIR/xray" run -c "$DATADIR/$CONFIG_NAME" \
+    "$BINDIR/xhuskydg_helper" openxtun "$TUN_NAME" "$BINDIR/xray" run -c "$DATADIR/$CONFIG_NAME" \
         </dev/null >"$XRAY_LOG" 2>&1 &
     XRAY_PID=$!
     echo "$XRAY_PID" > "$PIDFILE"
@@ -1223,7 +1223,7 @@ restart_xray() {
     # route died with the previous process, so configure_tun_iface() below
     # is required even though iptables/ip-rule state is intentionally left
     # untouched.
-    "$BINDIR/openxtun" "$TUN_NAME" "$BINDIR/xray" run -c "$DATADIR/$CONFIG_NAME" \
+    "$BINDIR/xhuskydg_helper" openxtun "$TUN_NAME" "$BINDIR/xray" run -c "$DATADIR/$CONFIG_NAME" \
         </dev/null >"$XRAY_LOG" 2>&1 &
     XRAY_PID=$!
     echo "$XRAY_PID" > "$PIDFILE"

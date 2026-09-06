@@ -11,7 +11,7 @@
 #   ./build.sh arm64              -> just arm64-v8a
 #   ./build.sh universal          -> just the combined zip (for update.json fallback)
 #   ./build.sh --update-xray      -> force re-download of xray even if cached
-#   ./build.sh --update-openxtun  -> force re-download of openxtun even if cached
+#   ./build.sh --update-helper     -> force re-download of xhuskydg_helper even if cached
 #   ./build.sh arm64 --update-xray -> combine with a target
 #
 # The downloaded xray binary's version is cached in bin/<arch>/xray.version.
@@ -19,9 +19,9 @@
 # (doesn't match the Xray-core version parsed from module.prop), or
 # --update-xray was passed.
 #
-# openxtun is fetched the same way: one release zip holds both arches
-# (<abi>/openxtun inside), cached per-arch in bin/<arch>/openxtun.version,
-# and re-fetched with --update-openxtun.
+# xhuskydg_helper is fetched the same way: one release zip holds both arches
+# (<abi>/xhuskydg_helper inside), cached per-arch in bin/<arch>/xhuskydg_helper.version,
+# and re-fetched with --update-helper.
 #
 set -euo pipefail
 
@@ -40,10 +40,10 @@ XRAY_VERSION=$(sed -n 's/^version=//p' module.prop | head -n 1 | tr -d '\r' | se
 
 XRAY_BASE_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}"
 
-# openxtun ships one release zip covering both arches, laid out as
-# <abi>/openxtun (e.g. arm64-v8a/openxtun, x86_64/openxtun).
-OPENXTUN_VERSION="v1.0"
-OPENXTUN_URL="https://github.com/vincentng295/openxtun/releases/download/${OPENXTUN_VERSION}/build-release.zip"
+# xhuskydg_helper ships one release zip covering both arches, laid out as
+# <abi>/xhuskydg_helper (e.g. arm64-v8a/xhuskydg_helper, x86_64/xhuskydg_helper).
+HELPER_VERSION="v1.0"
+HELPER_URL="https://github.com/vincentng295/xhuskydg_helper/releases/download/${HELPER_VERSION}/build-release.zip"
 
 # Maps our arch dir names to the asset name Xray-core publishes under.
 xray_asset_for() {
@@ -78,31 +78,31 @@ fetch_xray() {
     echo "    installed ${dest}/xray (${XRAY_VERSION})"
 }
 
-# Downloads and unpacks the openxtun binary for one arch into
-# bin/<arch>/openxtun, skipping the fetch if already present at the
-# current OPENXTUN_VERSION. The upstream zip bundles both arches under
-# <abi>/openxtun, so we download it once per invocation (cached in
-# OPENXTUN_TMP) and just copy the relevant subfolder out for each arch.
-OPENXTUN_TMP=""
-fetch_openxtun() {
+# Downloads and unpacks the xhuskydg_helper binary for one arch into
+# bin/<arch>/xhuskydg_helper, skipping the fetch if already present at the
+# current HELPER_VERSION. The upstream zip bundles both arches under
+# <abi>/xhuskydg_helper, so we download it once per invocation (cached in
+# HELPER_TMP) and just copy the relevant subfolder out for each arch.
+HELPER_TMP=""
+fetch_helper() {
     local arch="$1"
     local dest="bin/${arch}"
-    local vfile="${dest}/openxtun.version"
-    if [[ "$FORCE_UPDATE_OPENXTUN" != "1" && -x "${dest}/openxtun" && -f "$vfile" && "$(cat "$vfile")" == "$OPENXTUN_VERSION" ]]; then
-        echo "==> bin/${arch}/openxtun already at ${OPENXTUN_VERSION}, skipping download"
+    local vfile="${dest}/xhuskydg_helper.version"
+    if [[ "$FORCE_UPDATE_HELPER" != "1" && -x "${dest}/xhuskydg_helper" && -f "$vfile" && "$(cat "$vfile")" == "$HELPER_VERSION" ]]; then
+        echo "==> bin/${arch}/xhuskydg_helper already at ${HELPER_VERSION}, skipping download"
         return
     fi
-    if [[ -z "$OPENXTUN_TMP" ]]; then
-        OPENXTUN_TMP=$(mktemp -d)
-        echo "==> fetching ${OPENXTUN_URL}"
-        curl -fsSL -o "${OPENXTUN_TMP}/build-release.zip" "$OPENXTUN_URL"
-        unzip -q -o "${OPENXTUN_TMP}/build-release.zip" -d "$OPENXTUN_TMP"
+    if [[ -z "$HELPER_TMP" ]]; then
+        HELPER_TMP=$(mktemp -d)
+        echo "==> fetching ${HELPER_URL}"
+        curl -fsSL -o "${HELPER_TMP}/build-release.zip" "$HELPER_URL"
+        unzip -q -o "${HELPER_TMP}/build-release.zip" -d "$HELPER_TMP"
     fi
-    need "${OPENXTUN_TMP}/${arch}/openxtun"
+    need "${HELPER_TMP}/${arch}/xhuskydg_helper"
     mkdir -p "$dest"
-    install -m 0755 "${OPENXTUN_TMP}/${arch}/openxtun" "${dest}/openxtun"
-    echo -n "${OPENXTUN_VERSION}" > "$vfile"
-    echo "    installed ${dest}/openxtun (${OPENXTUN_VERSION})"
+    install -m 0755 "${HELPER_TMP}/${arch}/xhuskydg_helper" "${dest}/xhuskydg_helper"
+    echo -n "${HELPER_VERSION}" > "$vfile"
+    echo "    installed ${dest}/xhuskydg_helper (${HELPER_VERSION})"
 }
 
 # Files every build contains, regardless of architecture.
@@ -138,12 +138,12 @@ pack() {
 }
 
 FORCE_UPDATE_XRAY=0
-FORCE_UPDATE_OPENXTUN=0
+FORCE_UPDATE_HELPER=0
 args=()
 for a in "$@"; do
     case "$a" in
         --update-xray)     FORCE_UPDATE_XRAY=1 ;;
-        --update-openxtun) FORCE_UPDATE_OPENXTUN=1 ;;
+        --update-helper)   FORCE_UPDATE_HELPER=1 ;;
         *) args+=("$a") ;;
     esac
 done
@@ -151,14 +151,14 @@ done
 target="${args[0]:-all}"
 
 case "$target" in
-    arm64|all)     fetch_xray arm64-v8a; fetch_openxtun arm64-v8a; pack arm64-v8a bin/arm64-v8a ;;&
-    x64|x86_64|all) fetch_xray x86_64;    fetch_openxtun x86_64;    pack x86_64    bin/x86_64 ;;&
-    universal|all) fetch_xray arm64-v8a; fetch_xray x86_64; fetch_openxtun arm64-v8a; fetch_openxtun x86_64; pack universal bin/arm64-v8a bin/x86_64 ;;&
+    arm64|all)     fetch_xray arm64-v8a; fetch_helper arm64-v8a; pack arm64-v8a bin/arm64-v8a ;;&
+    x64|x86_64|all) fetch_xray x86_64;    fetch_helper x86_64;    pack x86_64    bin/x86_64 ;;&
+    universal|all) fetch_xray arm64-v8a; fetch_xray x86_64; fetch_helper arm64-v8a; fetch_helper x86_64; pack universal bin/arm64-v8a bin/x86_64 ;;&
     arm64|x64|x86_64|universal|all) ;;
     *) echo "usage: $0 [arm64|x64|universal|all]" >&2; exit 2 ;;
 esac
 
-[[ -n "$OPENXTUN_TMP" ]] && rm -rf "$OPENXTUN_TMP"
+[[ -n "$HELPER_TMP" ]] && rm -rf "$HELPER_TMP"
 
 echo
 echo "Built into $OUT/:"
