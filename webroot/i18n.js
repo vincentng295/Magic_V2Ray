@@ -22,6 +22,8 @@ const i18n = {
         desc_preferipv6: "Prioritize IPv6 address routes",
         lbl_dnsviaproxy: "Resolve DNS via proxy",
         desc_dnsviaproxy: "Wrap and route all DNS resolver via server",
+        lbl_force_resolve_dns: "Force resolve DNS for domain outbound first",
+        desc_force_resolve_dns: "If the outbound address is a domain, resolve it natively first and pin the result into the config. Skipped silently if the lookup fails.",
         lbl_fakedns: "Enable Fake DNS",
         desc_fakedns: "Use pool 198.18.0.0/15 to map domains onto virtual IPs instantly",
         // Local DNS group
@@ -312,6 +314,8 @@ const i18n = {
         desc_preferipv6: "优先选择 IPv6 地址路由",
         lbl_dnsviaproxy: "通过代理解析 DNS",
         desc_dnsviaproxy: "将所有 DNS 解析请求封装并通过服务器转发",
+        lbl_force_resolve_dns: "优先强制解析域名出站的 DNS",
+        desc_force_resolve_dns: "若出站地址为域名，先在本机原生解析并将结果固定写入配置。解析失败时静默跳过。",
         lbl_fakedns: "启用 Fake DNS",
         desc_fakedns: "使用 198.18.0.0/15 地址池即时将域名映射为虚拟 IP",
         // Local DNS group
@@ -602,6 +606,8 @@ const i18n = {
         desc_preferipv6: "優先選擇 IPv6 位址路由",
         lbl_dnsviaproxy: "透過代理解析 DNS",
         desc_dnsviaproxy: "將所有 DNS 解析請求封裝並透過伺服器轉發",
+        lbl_force_resolve_dns: "優先強制解析網域出站的 DNS",
+        desc_force_resolve_dns: "若出站位址為網域，先在本機原生解析並將結果固定寫入設定。解析失敗時靜默跳過。",
         lbl_fakedns: "啟用 Fake DNS",
         desc_fakedns: "使用 198.18.0.0/15 位址池即時將網域對應為虛擬 IP",
         // Local DNS group
@@ -892,6 +898,8 @@ const i18n = {
         desc_preferipv6: "Ưu tiên định tuyến địa chỉ IPv6 trước",
         lbl_dnsviaproxy: "Phân giải DNS qua proxy",
         desc_dnsviaproxy: "Đóng gói và định tuyến tất cả truy vấn DNS qua server",
+        lbl_force_resolve_dns: "Ưu tiên resolve DNS cho outbound dạng domain",
+        desc_force_resolve_dns: "Nếu địa chỉ outbound là domain, resolve trực tiếp trước rồi ghim kết quả vào config. Tự động bỏ qua nếu resolve lỗi.",
         lbl_fakedns: "Bật cơ chế Fake DNS",
         desc_fakedns: "Sử dụng dải 198.18.0.0/15 để bẫy IP ảo cho tên miền ngay lập tức",
         // Local DNS group

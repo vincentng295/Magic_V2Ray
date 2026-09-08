@@ -10,6 +10,10 @@ const IP_HUNT_FILE = `${DATADIR}/ip_hunt.list`;
 // same pattern as IP_HUNT_FILE: existence of the file means the feature is
 // enabled, and its content (re-read live by service.sh) is the list.
 const BYPASS_IFACE_FILE = `${DATADIR}/bypassIface.txt`;
+// Native helper used for `dnsjson <host>` lookups when "Force resolve DNS
+// for domain outbound first" is enabled — see resolveDnsHostForUri() in
+// main.js and the extraDnsHosts merge in helper.js.
+const XHUSKYDG_HELPER_BIN = `${MODDIR}/bin/xhuskydg_helper`;
 // Default User-Agent sent when fetching subscription links, so hosts that
 // gate content on the client (e.g. v2rayNG-only subs) still respond.
 // Per-subscription override lives in profiles[category].useragent.
@@ -41,6 +45,12 @@ let advSettings = {
     mtu: 1350,
     pinnedPeerCertSha256: "",
     dnsViaProxy: true,
+    // When on, the outbound server's hostname (if it's a domain, not an IP)
+    // is resolved up front via `xhuskydg_helper dnsjson` and pinned into
+    // dns.hosts, so Xray does not have to resolve it through its own
+    // (possibly proxied/looping) DNS servers. Off by default; a failed
+    // lookup is silently skipped and generation proceeds as normal.
+    forceResolveDnsFirst: false,
     localDns: false,
     fakeDnsLocal: false,
     vpnDns: "1.1.1.1",

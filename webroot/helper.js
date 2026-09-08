@@ -22,6 +22,84 @@ const DEFAULT_DNS_HOSTS = {
     "common.dot.dns.yandex.net": ["77.88.8.8", "77.88.8.1", "2a02:6b8::feed:0ff", "2a02:6b8:0:1::feed:0ff"]
 };
 
+// True if `host` is already a literal IPv4 or IPv6 address (bracketed or
+// bare), i.e. there is nothing to resolve. Deliberately permissive — false
+// negatives here just mean an address is looked up that didn't need to be,
+// which is harmless (dnsjson is skipped/ignored on error).
+function isLiteralIpAddress(host) {
+    if (!host) return false;
+    let h = String(host).trim();
+    if (h.startsWith('[') && h.endsWith(']')) h = h.slice(1, -1);
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h)) return true;
+    if (h.includes(':') && /^[0-9a-fA-F:]+$/.test(h)) return true;
+    return false;
+}
+
+// Extracts the single remote hostname that a raw proxy URI actually opens a
+// TCP/UDP connection to, for the "force resolve DNS first" feature. Returns
+// null when the URI's outbound target can't be determined this way (e.g.
+// wireguard's endpoint) or is already a literal IP. For chain:// URIs, only
+// hop1 matters — that's the only hop the device dials directly.
+function getOutboundResolveHost(uri) {
+    if (!uri) return null;
+    uri = uri.trim();
+    try {
+        if (uri.startsWith('chain://')) {
+            const fakeRawUri = uri.replace(/^chain:\/\//i, 'https://');
+            const u = new URL(fakeRawUri);
+            const hop1Uri = u.searchParams.get('hop1') || '';
+            return getOutboundResolveHost(hop1Uri);
+        }
+        if (uri.startsWith('vmess://')) {
+            const vmessPayload = uri.substring(8).split('#')[0];
+            const vmessJson = tryDecodeBase64(vmessPayload);
+            if (!vmessJson) return null;
+            const c = JSON.parse(vmessJson);
+            const host = c && c.add;
+            return host && !isLiteralIpAddress(host) ? host : null;
+        }
+        if (uri.startsWith('vless://') || uri.startsWith('trojan://')) {
+            const proto = uri.startsWith('vless://') ? 'vless' : 'trojan';
+            const fakeHttpUri = uri.replace(/^(vless|trojan):\/\//i, 'https://');
+            const u = new URL(fakeHttpUri);
+            const host = unwrapIPv6(u.hostname);
+            return host && !isLiteralIpAddress(host) ? host : null;
+        }
+        if (uri.startsWith('ss://')) {
+            // ss://method:pass@host:port or ss://base64(method:pass@host:port)
+            const fakeHttpUri = uri.replace(/^ss:\/\//i, 'https://');
+            let hostPort;
+            try {
+                const u = new URL(fakeHttpUri);
+                hostPort = u.host ? u.host : null;
+                if (hostPort) {
+                    const lastColon = hostPort.lastIndexOf(':');
+                    const host = unwrapIPv6(lastColon === -1 ? hostPort : hostPort.substring(0, lastColon));
+                    return host && !isLiteralIpAddress(host) ? host : null;
+                }
+            } catch (e) { /* fall through to base64 form below */ }
+            const payload = uri.substring(5).split('#')[0].split('?')[0];
+            const atIndex = payload.lastIndexOf('@');
+            if (atIndex === -1) {
+                const decoded = tryDecodeBase64(payload);
+                if (!decoded) return null;
+                const m = decoded.match(/@([^@]+)$/);
+                if (!m) return null;
+                hostPort = m[1];
+            } else {
+                hostPort = payload.substring(atIndex + 1);
+            }
+            const lastColon = hostPort.lastIndexOf(':');
+            const host = unwrapIPv6(lastColon === -1 ? hostPort : hostPort.substring(0, lastColon));
+            return host && !isLiteralIpAddress(host) ? host : null;
+        }
+    } catch (e) {
+        return null;
+    }
+    // Other protocols (wireguard, hysteria2, tuic, ...): not handled, skip.
+    return null;
+}
+
 // Helper to decode Base64 safely for both Browser and Node.js environments.
 // Accepts both the standard and the URL-safe alphabet and tolerates missing
 // padding, because subscription providers emit all three variants.
@@ -285,6 +363,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
         mtu: 1350,
         pinnedPeerCertSha256: "",
         dnsViaProxy: true,
+        forceResolveDnsFirst: false,
         localDns: false,
         fakeDnsLocal: false,
         vpnDns: "1.1.1.1",
@@ -972,7 +1051,10 @@ function convert_uri_to_xray_json(uri, optional_settings) {
             loglevel: settings.loglevel || "none" 
         }, 
         dns: {
-            hosts: DEFAULT_DNS_HOSTS,
+            // extraDnsHosts is populated by resolveDnsHostForUri() in main.js
+            // when "Force resolve DNS for domain outbound first" is on — it
+            // never overrides a DEFAULT_DNS_HOSTS entry, only adds to it.
+            hosts: { ...DEFAULT_DNS_HOSTS, ...(settings.extraDnsHosts || {}) },
             servers: dnsServers,
             queryStrategy: settings.preferIpv6 ? "UseIPv6" : "UseIPv4",
             ...(useFakeIp ? { fakedns: [{ ipPool: "198.18.0.0/15", poolSize: 65535 }] } : {})

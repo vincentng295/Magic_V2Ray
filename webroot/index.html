@@ -114,6 +114,11 @@
                         <input type="checkbox" id="set-dnsviaproxy">
                     </div>
 
+                    <div class="setting-item-row toggle-row">
+                        <label for="set-force-resolve-dns"><span data-i18n="lbl_force_resolve_dns">Force resolve DNS for domain outbound first</span><small data-i18n="desc_force_resolve_dns">If the outbound address is a domain, resolve it natively first and pin the result into the config. Skipped silently if the lookup fails.</small></label>
+                        <input type="checkbox" id="set-force-resolve-dns">
+                    </div>
+
                     <div class="setting-item-row">
                         <label><span data-i18n="lbl_pinned_cert">Pinned Peer Cert SHA256</span><small data-i18n="desc_pinned_cert">Pin the SHA256 hash of the server certificate.</small></label>
                         <input type="text" id="set-pinned-cert" placeholder="">

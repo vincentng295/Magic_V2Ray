@@ -130,10 +130,10 @@ function saveActiveConfig() {
 // produce an engine that exits on launch while the routing rules stayed
 // applied — i.e. a silent total blackhole that also survived reboot.
 // Returns { ok: true, config } or { ok: false, error }.
-function resolveXrayConfigChecked(rawUri) {
+async function resolveXrayConfigChecked(rawUri) {
     let configStr;
     try {
-        configStr = _resolveXrayConfig(rawUri);
+        configStr = await _resolveXrayConfig(rawUri);
     } catch (e) {
         return { ok: false, error: e.message || String(e) };
     }
@@ -158,7 +158,7 @@ function resolveXrayConfigChecked(rawUri) {
 // Regenerates config.json for the currently active node and restarts the
 // engine only if it is already running. Used by every "settings changed"
 // path so the write/validate/restart sequence exists in exactly one place.
-function applyActiveConfig(options = {}) {
+async function applyActiveConfig(options = {}) {
     const { force = false, onDone } = options;
     if (!activeConfig) {
         if (onDone) onDone(false);
@@ -171,7 +171,7 @@ function applyActiveConfig(options = {}) {
         return;
     }
 
-    const res = resolveXrayConfigChecked(node.rawUri);
+    const res = await resolveXrayConfigChecked(node.rawUri);
     if (!res.ok) {
         showToast(t('toast_config_invalid', { reason: res.error }), 'error');
         if (onDone) onDone(false);
@@ -729,28 +729,56 @@ function parseProxyUri(uri) {
     }
 }
 
-function _resolveXrayConfig(rawUri) {
+// Resolves the outbound's remote hostname via the native helper's
+// `dnsjson` subcommand and returns a dns.hosts-shaped fragment for it, e.g.
+// { "example.com": ["1.2.3.4"] }. Returns {} whenever there is nothing to
+// do: the feature is off, the target is already a literal IP, the URI's
+// protocol isn't one getOutboundResolveHost() understands, or the lookup
+// itself fails (dnsjson's own `error: true`, a non-JSON reply, or a shell
+// error) — any of those cases just fall back to normal resolution.
+async function resolveDnsHostForUri(rawUri) {
+    if (!advSettings.forceResolveDnsFirst) return {};
+    const host = getOutboundResolveHost(rawUri);
+    if (!host) return {};
+    let out;
+    try {
+        out = await execShellAsync(`${XHUSKYDG_HELPER_BIN} dnsjson ${shQuote(host)} 2>/dev/null`);
+        out = JSON.parse(out);
+    } catch (e) {
+        return {};
+    }
+    if (!out || out.error) return {};
+    const ips = [...(out.ipv4 || []), ...(out.ipv6 || [])];
+    return ips.length ? { [host]: ips } : {};
+}
+
+async function _resolveXrayConfig(rawUri) {
+    const extraDnsHosts = await resolveDnsHostForUri(rawUri);
+    const settings = extraDnsHosts && Object.keys(extraDnsHosts).length
+        ? { ...advSettings, extraDnsHosts }
+        : advSettings;
+
     let config_json = {};
     if (rawUri && rawUri.startsWith('chain://')) {
         const fakeRawUri = rawUri.replace(/^chain:\/\//i, 'https://');
         const u = new URL(fakeRawUri);
         const hop1Uri = u.searchParams.get('hop1') || '';
         const hop2Uri = u.searchParams.get('hop2') || '';
-        config_json = convert_chain_uris_to_xray_json(hop1Uri, hop2Uri, advSettings);
+        config_json = convert_chain_uris_to_xray_json(hop1Uri, hop2Uri, settings);
     } else {
-        config_json = convert_uri_to_xray_json(rawUri, advSettings);
+        config_json = convert_uri_to_xray_json(rawUri, settings);
     }
     return config_json;
 }
 
-function selectNode(category, id) {
+async function selectNode(category, id) {
     const node = profiles[category]?.nodes?.find(n => n.id === id);
     if (!node) return;
  
     // Reject a node whose config cannot be generated *before* making it
     // active — otherwise the next start writes an unusable config.json,
     // xray exits, and the routing rules blackhole the device.
-    const res = resolveXrayConfigChecked(node.rawUri);
+    const res = await resolveXrayConfigChecked(node.rawUri);
     if (!res.ok) {
         showToast(t('toast_config_invalid', { reason: res.error }), 'error');
         return;
@@ -988,7 +1016,7 @@ function copyNodePayloadUrl(event, category, id) {
     });
 }
 
-function copyNodeFullConfig(event, category, id) {
+async function copyNodeFullConfig(event, category, id) {
     event.stopPropagation();
     closeAllMenus();
     const node = profiles[category]?.nodes?.find(n => n.id === id);
@@ -996,7 +1024,7 @@ function copyNodeFullConfig(event, category, id) {
 
     let configStr;
     try {
-        configStr = _resolveXrayConfig(node.rawUri);
+        configStr = await _resolveXrayConfig(node.rawUri);
     } catch (e) {
         showToast(t('toast_node_config_gen_fail'), 'error');
         return;
@@ -2356,6 +2384,7 @@ function bindSettingsToFormView() {
     // `x || true` is always true — the checkbox could never render unchecked
     // even though the value was being persisted correctly.
     document.getElementById('set-dnsviaproxy').checked = advSettings.dnsViaProxy !== false;
+    document.getElementById('set-force-resolve-dns').checked = advSettings.forceResolveDnsFirst || false;
     document.getElementById('set-pinned-cert').value = advSettings.pinnedPeerCertSha256 || "";
 
     // DNS group
@@ -2392,6 +2421,7 @@ function saveAdvancedSettingsForm(isLangOnly = false) {    advSettings.loglevel 
     advSettings.enableIPv6 = document.getElementById('set-enableipv6').checked;
     advSettings.preferIpv6 = document.getElementById('set-preferipv6').checked;
     advSettings.dnsViaProxy = document.getElementById('set-dnsviaproxy').checked;
+    advSettings.forceResolveDnsFirst = document.getElementById('set-force-resolve-dns').checked;
     advSettings.pinnedPeerCertSha256 = document.getElementById('set-pinned-cert').value.trim();
 
     // DNS group
@@ -2876,14 +2906,14 @@ function _releaseTestSlot(slot) {
     if (slot >= 0 && slot < NODE_TEST_SLOTS) _nodeTestSlotBusy[slot] = false;
 }
 
-function _buildXrayTestInbound(node, slot) {
+async function _buildXrayTestInbound(node, slot) {
     const testIp = `127.17.1.${10 + slot}`;
     const testPort = 21000 + slot;
     // Probe configs contain the node's full credentials. They used to be
     // written to /dev at the default umask (0644, world-traversable dir);
     // they now live in the module's private tmpfs, 0600.
     const tmpFile = `${STUB_DIR}/run/nodetest/${slot}.json`;
-    const rawConfigStr = _resolveXrayConfig(node.rawUri);
+    const rawConfigStr = await _resolveXrayConfig(node.rawUri);
     const xrayConfigObj = JSON.parse(rawConfigStr);
     if (xrayConfigObj.error) throw new Error(xrayConfigObj.error);
     xrayConfigObj.inbounds = [{
@@ -2939,7 +2969,7 @@ async function _execNodeProbe(node, pingSpan, mode) {
     try {
         let built;
         try {
-            built = _buildXrayTestInbound(node, slot);
+            built = await _buildXrayTestInbound(node, slot);
         } catch (e) {
             _setPingSpan(pingSpan, "?", "var(--red, #ff1744)");
             return;
