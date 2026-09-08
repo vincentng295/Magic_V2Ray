@@ -180,7 +180,9 @@ async function applyActiveConfig(options = {}) {
 
     writeFileB64(CONFIG_JSON, res.config, () => {
         if (force) {
+            showLoading(t("toast_reload_xray"));
             execShell(`sh ${MODDIR}/proxy_control.sh restart`, () => {
+                hideLoading();
                 if (onDone) onDone(true);
             });
             return;
@@ -190,7 +192,9 @@ async function applyActiveConfig(options = {}) {
                 // Node/config changed but nothing that apply_routing_rules
                 // reads did — swap the xray process only, leave the
                 // iptables/policy routing rules exactly as they are.
+                showLoading(t("toast_reload_xray"));
                 execShell(`sh ${MODDIR}/proxy_control.sh reload`, () => {
+                    hideLoading();
                     _markStatusPending();
                 });
             }
