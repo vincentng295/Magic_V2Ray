@@ -42,7 +42,7 @@ XRAY_BASE_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSIO
 
 # xhuskydg_helper ships one release zip covering both arches, laid out as
 # <abi>/xhuskydg_helper (e.g. arm64-v8a/xhuskydg_helper, x86_64/xhuskydg_helper).
-HELPER_VERSION="v1.1"
+HELPER_VERSION="v1.0"
 HELPER_URL="https://github.com/vincentng295/xhuskydg_helper/releases/download/${HELPER_VERSION}/build-release.zip"
 
 # Maps our arch dir names to the asset name Xray-core publishes under.
