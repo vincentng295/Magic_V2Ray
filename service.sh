@@ -743,6 +743,11 @@ configure_tun_iface() {
         log "warning: $TUN_NAME did not appear after ${max_retry} retries"
     fi
 
+    # test the water, this might force xray to resolve the dns domain outbound and establish the connection
+    local url="https://gstatic.com/generate_204"
+    "$BINDIR/curl" --socks5-hostname "${TUN_ADDR}:${TUN_PORT}" \
+            -s --max-time 1 -o /dev/null "$url" 2>/dev/null
+
     # Recomputed here (not just inherited from apply_routing_rules' global)
     # because restart_xray() calls this directly without going through
     # apply_routing_rules first.
