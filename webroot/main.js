@@ -177,10 +177,10 @@ function applyActiveConfig(options = {}) {
         if (onDone) onDone(false);
         return;
     }
+    showLoading(t("toast_reload_xray"));
 
     writeFileB64(CONFIG_JSON, res.config, () => {
         if (force) {
-            showLoading(t("toast_reload_xray"));
             execShell(`sh ${MODDIR}/proxy_control.sh restart`, () => {
                 hideLoading();
                 if (onDone) onDone(true);
@@ -192,11 +192,12 @@ function applyActiveConfig(options = {}) {
                 // Node/config changed but nothing that apply_routing_rules
                 // reads did — swap the xray process only, leave the
                 // iptables/policy routing rules exactly as they are.
-                showLoading(t("toast_reload_xray"));
                 execShell(`sh ${MODDIR}/proxy_control.sh reload`, () => {
                     hideLoading();
                     _markStatusPending();
                 });
+            } else {
+                hideLoading();
             }
             if (onDone) onDone(true);
         });
@@ -286,6 +287,7 @@ async function toggleService(action) {
             showToast(t('toast_no_active_config'), "error");
             return;
         }
+        showLoading(t("toast_reload_xray"));
         // Re-apply the mark rule for the live interface first, and only start
         // once that has actually completed — this used to be fire-and-forget,
         // racing the engine start against the routing rule it depends on.
@@ -295,6 +297,7 @@ async function toggleService(action) {
                 onDone: (ok) => { if (ok) _markStatusPending(); }
             });
         });
+        hideLoading();
         return;
     }
     if (!PROXY_CONTROL_ACTIONS.includes(action)) {
