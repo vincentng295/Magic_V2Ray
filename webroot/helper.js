@@ -168,6 +168,9 @@ function convert_chain_uris_to_xray_json(hop1Uri, hop2Uri, optional_settings) {
         {
             protocol: "freedom",
             tag: "direct",
+            settings: {
+                domainStrategy: "UseIP"
+            },
             streamSettings: {
                 sockopt: { mark: 255 }
             }
@@ -1017,6 +1020,9 @@ function convert_uri_to_xray_json(uri, optional_settings) {
             { 
                 "protocol": "freedom", 
                 "tag": "direct",
+                "settings": {
+                    "domainStrategy": "UseIP"
+                },
                 "streamSettings": {
                     "sockopt": { 
                         mark: 255
