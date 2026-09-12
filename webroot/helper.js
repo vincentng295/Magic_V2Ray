@@ -22,6 +22,17 @@ const DEFAULT_DNS_HOSTS = {
     "common.dot.dns.yandex.net": ["77.88.8.8", "77.88.8.1", "2a02:6b8::feed:0ff", "2a02:6b8:0:1::feed:0ff"]
 };
 
+const LEGACY_DNS = [
+    "1.1.1.1",       // Cloudflare DNS (Public)
+    "8.8.8.8",       // Google DNS (Public)
+    "203.113.131.1", // Viettel DNS Primary
+    "203.113.131.2", // Viettel DNS Secondary
+    "203.162.4.191", // VNPT/VinaPhone DNS Primary
+    "203.162.4.190", // VNPT/VinaPhone DNS Secondary
+    "203.162.57.105",// MobiFone DNS Primary
+    "203.162.57.107" // MobiFone DNS Secondary
+]
+
 // Helper to decode Base64 safely for both Browser and Node.js environments.
 // Accepts both the standard and the URL-safe alphabet and tolerates missing
 // padding, because subscription providers emit all three variants.
@@ -960,7 +971,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
         }
     } else {
         // Legacy / simple mode: two hardcoded servers, optional fakeip prepend.
-        dnsServers = ["1.1.1.1", "8.8.8.8"];
+        dnsServers = LEGACY_DNS;
         if (useFakeIp) {
             dnsServers.unshift({
                 address: "fakeip",
