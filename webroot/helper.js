@@ -170,84 +170,6 @@ function convert_chain_uris_to_xray_json(hop1Uri, hop2Uri, optional_settings) {
     hop2Out.streamSettings.sockopt.mark = 255;
     hop2Out.streamSettings.sockopt.dialerProxy = "proxy-hop1";
 
-    // Use the full config skeleton from hop2 (has correct dns/routing from settings)
-    // but replace outbounds with our chained pair
-    const fullConfig = hop2Config;
-    fullConfig.outbounds = [
-        hop2Out,
-        hop1Out,
-        {
-            protocol: "freedom",
-            tag: "direct",
-            settings: {
-                domainStrategy: "UseIP"
-            },
-            streamSettings: {
-                sockopt: { mark: 255 }
-            }
-        },
-        {
-            protocol: "blackhole",
-            tag: "block",
-            settings: {
-                response: { type: "http" }
-            }
-        }
-    ];
-
-    const hop1IsWg = hop1Out.protocol === 'wireguard';
-    const hop2IsWg = hop2Out.protocol === 'wireguard';
-
-    // Patch routing rules for WireGuard DNS resolution edge cases.
-    //
-    // Case A: WireGuard is hop1 (WG → any)
-    //   hop1 dials direct, but its endpoint may be a domain.
-    //   Xray resolves WG's peer endpoint via internal DNS (no inboundTag).
-    //   The skeleton was built for hop2 (non-WG), so the WG-specific
-    //   "port 53 → direct" rule is missing. Add it so WG can resolve
-    //   its endpoint without looping through hop2.
-    //
-    // Case B: WireGuard is hop2 (any → WG)
-    //   hop2 dials through hop1 (dialerProxy = "proxy-hop1"), BUT
-    //   Xray resolves the WG peer endpoint via internal DNS before
-    //   passing the connection through dialerProxy. On poisoned networks
-    //   that resolution would fail if sent direct. We must route the
-    //   WG-internal DNS (no inboundTag, port 53) through hop1 instead.
-    //   We do this by sending it to "proxy-hop1" — hop1 is already up
-    //   and can reach the real DNS server cleanly.
-    //   
-    //   NOTE: the existing "inboundTag: socks-test-in, port 53" rule is
-    //   kept for user-traffic DNS; only the tagless internal WG DNS rule
-    //   is added here.
-    if (hop1IsWg || hop2IsWg) {
-        // Remove any pre-existing tagless port-53 rule that convert_uri_to_xray_json
-        // may have injected for the individual WireGuard config (hop2Config skeleton).
-        // We always replace it with the correct chain-aware rule below.
-        fullConfig.routing.rules = fullConfig.routing.rules.filter(r =>
-            !(r.port === 53 && !r.inboundTag)
-        );
-
-        const wgDnsRule = {
-            "type": "field",
-            "port": 53,
-            // hop1=WG: send direct (WG dials direct, needs real DNS pre-tunnel)
-            // hop2=WG: send through hop1 (bypass poison; hop1 is already connected)
-            "outboundTag": hop1IsWg ? "direct" : "proxy-hop1"
-        };
-
-        // Insert AFTER the inboundTag-scoped port-53 rule so that rule stays alive.
-        // Tagless WG DNS rule must be narrower-first: the inboundTag rule (2 conditions)
-        // sits above this one (1 condition) so socks-test-in DNS still routes correctly.
-        const port53Idx = fullConfig.routing.rules.findIndex(r =>
-            r.port === 53 && Array.isArray(r.inboundTag)
-        );
-        if (port53Idx !== -1) {
-            fullConfig.routing.rules.splice(port53Idx + 1, 0, wgDnsRule);
-        } else {
-            fullConfig.routing.rules.unshift(wgDnsRule);
-        }
-    }
-
     return JSON.stringify(fullConfig, null, 2);
 }
 
@@ -1064,16 +986,30 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                     "port": 53,
                     "outboundTag": dnsOutboundTag
                 },
-                // Wider rule second (1 condition): tagless internal WireGuard DNS.
-                // Must sit BELOW the inboundTag rule or it shadows it.
-                // WireGuard needs to resolve its peer endpoint before the tunnel is up.
-                // Xray's internal DNS for this comes from xray.system.* (no inboundTag),
-                // so the inboundTag-scoped rule above won't catch it.
-                ...(outbound.protocol === 'wireguard' ? [{
+                // Wider rule second (1 condition): tagless internal DNS from Xray
+                // itself (app/dns, no inboundTag — tag is a synthetic
+                // "xray.system.*"). Must sit BELOW the inboundTag rule above so
+                // that one still wins for real client DNS.
+                //
+                // This traffic is generated whenever Xray needs to resolve a
+                // domain internally and no inboundTag is attached — e.g.
+                // WireGuard resolving its peer endpoint before the tunnel is
+                // up, or (for ANY outbound protocol) the routing engine
+                // resolving a destination domain to evaluate IP-based rules
+                // under domainStrategy "IPIfNonMatch"/"AsIs". Without this
+                // rule such queries fall through every other rule (none of
+                // which match a tagless packet) and land on Xray's *default*
+                // outbound — outbounds[0], i.e. "proxy" — which is wrong:
+                // it's Xray's own housekeeping DNS, not a domain the user
+                // wants proxied, and can pointlessly route it through the
+                // tunnel (or worse, contribute to a self-referential dial if
+                // the tunnel itself is mid-setup). Send it direct
+                // unconditionally, for every protocol, not just WireGuard.
+                {
                     "type": "field",
                     "port": 53,
                     "outboundTag": "direct"
-                }] : []),
+                },
                 ...(useFakeIp ? [{
                     "type": "field",
                     "ip": ["198.18.0.0/15"],
