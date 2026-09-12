@@ -953,12 +953,10 @@ function convert_uri_to_xray_json(uri, optional_settings) {
             { 
                 "protocol": "freedom", 
                 "tag": "direct",
-                "settings": {
-                    "domainStrategy": "UseIP"
-                },
                 "streamSettings": {
                     "sockopt": { 
-                        mark: 255
+                        mark: 255,
+                        "domainStrategy": "UseIP"
                     }
                 }
             },
