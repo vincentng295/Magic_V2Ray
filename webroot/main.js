@@ -763,6 +763,9 @@ function selectNode(category, id) {
         return;
     }
 
+    const confirmed = showConfirm(t('confirm_connect_node', { name: node.name || node.address || id }));
+    if (!confirmed) return;
+
     activeConfig = `${category}:${id}`;
     saveActiveConfig();
     renderProfiles();
