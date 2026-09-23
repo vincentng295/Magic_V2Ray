@@ -10,6 +10,7 @@
 
 MODDIR=${0%/*}
 DATADIR="/data/adb/magic_v2ray"
+CONFIG_FILE="$DATADIR/config.v2.json"
 
 STATUS="$(sh "$MODDIR/proxy_control.sh" status 2>/dev/null)"
 
@@ -22,7 +23,7 @@ case "$STATUS" in
         echo "Engine crashed. Clearing state and restarting."
         sh "$MODDIR/proxy_control.sh" stop
         sleep 1
-        if [ -s "$DATADIR/config.json" ]; then
+        if [ -s "$CONFIG_FILE" ]; then
             sh "$MODDIR/proxy_control.sh" start
         else
             echo "No configuration saved. Open the WebUI and pick a node first."
@@ -30,7 +31,7 @@ case "$STATUS" in
         fi
         ;;
     *)
-        if [ ! -s "$DATADIR/config.json" ]; then
+        if [ ! -s "$CONFIG_FILE" ]; then
             echo "No configuration saved."
             echo "Open the WebUI, import a node and select it first."
             exit 1
