@@ -1,3 +1,8 @@
+# Release Notes — v1.18.2
+
+- Add per-upstream routing for DNS module
+- Fix start in `action.sh`
+
 # Release Notes — v1.18.1
 
 Version 1.18.1 introduces critical networking and configuration adjustments designed to improve IPv6 routing stability and prevent local network detection issues. In this update, the FakeDNS IPv6 address pool has been migrated from the previous Local Unique Address space to the dedicated IETF benchmarking range at 2001:2::/48. This change prevents modern browsers, such as Chromium-based applications, from triggering unexpected local network permission prompts when establishing proxy connections.
