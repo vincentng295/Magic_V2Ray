@@ -553,6 +553,76 @@ function buildDnsEngineOptions(settings) {
     return o;
 }
 
+// Tag applied to Xray's own internal DNS client (dns.tag in the DnsObject).
+// Every network request the DNS module makes to an upstream server on its
+// own behalf (as opposed to a client's port-53 packet arriving at
+// socks-test-in/tun-in) is stamped with this inboundTag, which lets
+// _buildDnsUpstreamRoutingRules() route each configured upstream
+// individually instead of lumping them all into one proxy/direct choice.
+// Note: an upstream configured with a "+local" scheme (https+local://,
+// tcp+local://, quic+local://) bypasses Xray's dispatcher/routing entirely
+// and dials out via the OS directly — it can never be matched by a routing
+// rule, tagged or not, so it is intentionally skipped below.
+const DNS_MODULE_TAG = "dns_out";
+
+// Extracts a routable {ip} or {domain} target from one configured DNS
+// server entry (a bare IP, a bare hostname, or a "scheme://host[:port]/..."
+// URL such as a DoH endpoint). Returns null for anything that can't be
+// matched by a routing rule (empty value, or a "+local" scheme).
+function _dnsServerRouteTarget(addr) {
+    let host = String(addr || '').trim();
+    if (!host) return null;
+
+    const schemeMatch = host.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):\/\//);
+    if (schemeMatch) {
+        if (schemeMatch[1].toLowerCase().includes('+local')) return null;
+        try {
+            host = new URL(host).hostname;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    host = unwrapIPv6(host);
+    if (!host) return null;
+    return isIpAddr(host) ? { ip: host } : { domain: host };
+}
+
+// Builds one "field" routing rule per configured DNS upstream so that the
+// DNS module's own upstream queries are split the same way the resolution
+// itself already is: domesticDns always goes direct, foreignDns/vpnDns go
+// via settings.dnsViaProxy — instead of every upstream sharing one blanket
+// choice. Only meaningful in "Local DNS" (structured) mode, since legacy
+// mode has no domestic/foreign distinction to preserve.
+function _buildDnsUpstreamRoutingRules(settings, useFakeIp) {
+    if (!settings || !settings.localDns) return [];
+
+    const rules = [];
+    const pushRule = (addr, outboundTag) => {
+        const target = _dnsServerRouteTarget(addr);
+        if (!target) return;
+        rules.push({
+            "type": "field",
+            "inboundTag": [DNS_MODULE_TAG],
+            "outboundTag": outboundTag,
+            ...(target.ip ? { "ip": [target.ip] } : { "domain": [target.domain] })
+        });
+    };
+
+    if (settings.domesticDns && settings.domesticDns.trim()) {
+        pushRule(settings.domesticDns.trim(), "direct");
+    }
+
+    const foreignOutboundTag = settings.dnsViaProxy ? "proxy" : "direct";
+    splitDnsList(settings.foreignDns).forEach(addr => pushRule(addr, foreignOutboundTag));
+
+    if (!useFakeIp && settings.vpnDns && settings.vpnDns.trim()) {
+        pushRule(settings.vpnDns.trim(), foreignOutboundTag);
+    }
+
+    return rules;
+}
+
 function convert_uri_to_xray_json(uri, optional_settings) {
     const settings = optional_settings || {
         loglevel: "none",
@@ -1324,6 +1394,11 @@ function convert_uri_to_xray_json(uri, optional_settings) {
             servers: dnsServers,
             queryStrategy: resolveDnsQueryStrategy(settings),
             ...buildDnsEngineOptions(settings),
+            // Tags every upstream query the DNS module itself issues with
+            // DNS_MODULE_TAG, so _buildDnsUpstreamRoutingRules() can route
+            // each configured server individually below instead of every
+            // upstream sharing one proxy/direct choice.
+            tag: DNS_MODULE_TAG,
         },
         ...(useFakeIp ? { fakedns: buildFakeDnsPools(settings) } : {}),
         inbounds: [
@@ -1399,10 +1474,22 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                     // Hijack ON: hand the query to Xray's DNS module (dns-out).
                     "outboundTag": hijackDns ? "dns-out" : dnsOutboundTag
                 },
-                // Wider rule second (1 condition): tagless internal DNS from Xray
+                // Per-upstream rules (2b): route each configured domestic/
+                // foreign DNS server's OWN outbound queries individually
+                // (domestic -> direct, foreign -> dnsViaProxy) instead of
+                // lumping every upstream into the single blanket rule below.
+                // Only produced in "Local DNS" mode and only while hijack is
+                // on — legacy mode has no domestic/foreign split to honor,
+                // and with hijack off the DNS module never sees client
+                // traffic in the first place.
+                ...(hijackDns ? _buildDnsUpstreamRoutingRules(settings, useFakeIp) : []),
+                // Wider rule third (1 condition): tagless internal DNS from Xray
                 // itself (app/dns, no inboundTag — tag is a synthetic
-                // "xray.system.*"). Must sit BELOW the inboundTag rule above so
-                // that one still wins for real client DNS.
+                // "xray.system.*"), or any DNS_MODULE_TAG query not matched by a
+                // more specific rule above (e.g. a "+local" upstream, whose
+                // traffic never reaches the dispatcher/routing engine anyway,
+                // or a server address not covered by the per-upstream rules).
+                // Must sit BELOW both rules above so those still win first.
                 //
                 // This traffic is generated whenever Xray needs to resolve a
                 // domain internally and no inboundTag is attached — e.g.
