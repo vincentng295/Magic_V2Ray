@@ -570,7 +570,7 @@ async function showCurrentIp() {
         showToast(t('status_ip_not_running'), 'error');
         return;
     }
-    showLoading(t('status_ip_checking'));
+    await asyncShowLoading(t('status_ip_checking'));
 
     _statusIpBusy = true;
     el.hidden = false;
@@ -716,7 +716,7 @@ async function fetchSubscription(category, url, isReload = false) {
         showToast(t('toast_sub_insecure_warn'), 'info');
     }
 
-    showLoading(`${t("toast_fetch_sub")}${category}...`);
+    await asyncShowLoading(`${t("toast_fetch_sub")}${category}...`);
 
     const userAgent = (profiles[category]?.useragent || "").trim() || DEFAULT_SUB_USERAGENT;
 
@@ -2069,7 +2069,7 @@ function openNewNodeModal(protocol) {
 // Nothing is persisted until the user presses Save — running it again just
 // overwrites the form fields with a brand-new account ("Generate new account").
 async function generateWarpAccount() {
-    await asyncShowLoading(t('toast_warp_generating'));
+    await asyncShowLoading(t('btn_generate_warp_running'));
     try {
         const out = await execShellAsync(
             `rm -f ${shQuote(WGCF_FILE)} && ` +
@@ -3498,7 +3498,7 @@ async function fetchRoutingPresetFromUrl() {
                 `--proto '=http,https' --proto-redir '=http,https' ` +
                 `--max-time 15 ${shQuote(url)}`;
 
-    showLoading('toast_fetch_sub');
+    await asyncShowLoading('toast_fetch_sub');
     execShell(cmd, (res) => {
         hideLoading();
         if (!res || res.trim() === "") {
