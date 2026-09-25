@@ -17,6 +17,14 @@
                 <div class="status-ip" id="status-ip" hidden></div>
             </div>
             <div class="header-actions">
+            <div class="engine-controls">
+                <button type="button" class="engine-btn engine-btn-start" onclick="toggleService('start')" data-i18n-title="btn_start" title="Start Engine" aria-label="Start Engine">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+                </button>
+                <button type="button" class="engine-btn engine-btn-stop" onclick="toggleService('stop')" data-i18n-title="btn_stop" title="Stop Engine" aria-label="Stop Engine">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 6h12v12H6z"/></svg>
+                </button>
+            </div>
             <div class="lang-switcher">
                 <select id="lang-select" onchange="changeLanguage(this.value)" style="padding: 4px 8px; border-radius: 4px; background: var(--bg-panel, #222); color: var(--text-main, #fff); border: 1px solid #444;">
                     <option value="en">English</option>
@@ -46,11 +54,6 @@
         </header>
 
         <div id="tab-dashboard" class="tab-content active">
-            <section class="control-actions">
-                <button class="btn btn-start" onclick="toggleService('start')" data-i18n="btn_start">Start Engine</button>
-                <button class="btn btn-stop" onclick="toggleService('stop')" data-i18n="btn_stop">Stop Engine</button>
-            </section>
-
             <section class="pro-mode-bar">
                 <div class="setting-item-row toggle-row">
                     <label for="set-promode"><span data-i18n="lbl_promode">Professional Mode</span><small data-i18n="desc_promode">Write config.json by hand instead of picking a node</small></label>
