@@ -55,6 +55,13 @@ function showLoading(textKey) {
     }
 }
 
+async function asyncShowLoading(textKey) {
+    return new Promise((resolve) => {
+        showLoading(textKey);
+        setTimeout(resolve, 100); // Allow the UI to update
+    });
+}
+
 function hideLoading() {
     const overlay = document.getElementById('loading-overlay');
     if (overlay) {
@@ -2054,6 +2061,55 @@ function openNewNodeModal(protocol) {
     currentEditingNodeId = tempId;
     currentEditingProtocol = protocol;
     _populateEditModal(emptyNode, true);
+}
+
+// Registers a fresh, free Cloudflare WARP account via the bundled wgcf-cli
+// binary and fills the currently-open WireGuard editor fields with it
+// (endpoint, private key, server public key, reserved bytes, local address).
+// Nothing is persisted until the user presses Save — running it again just
+// overwrites the form fields with a brand-new account ("Generate new account").
+async function generateWarpAccount() {
+    await asyncShowLoading(t('toast_warp_generating'));
+    try {
+        const out = await execShellAsync(
+            `rm -f ${shQuote(WGCF_FILE)} && ` +
+            `${MODDIR}/bin/wgcf-cli register -c ${shQuote(WGCF_FILE)} >/dev/null 2>&1; ` +
+            `cat ${shQuote(WGCF_FILE)} 2>/dev/null`
+        );
+        let cfg = null;
+        try { cfg = JSON.parse(out); } catch (e) { cfg = null; }
+        const c = cfg && cfg.config;
+        const peer = c && c.peers && c.peers[0];
+        if (!c || !c.private_key || !peer || !peer.public_key) {
+            showToast(t('toast_warp_failed'), 'error');
+            return;
+        }
+
+        const endpointHost = (peer.endpoint && (peer.endpoint.host || peer.endpoint.v4)) || 'engage.cloudflareclient.com:2408';
+        const hostPart = endpointHost.split(':')[0];
+        const portPart = endpointHost.includes(':') ? endpointHost.split(':').pop() : '2408';
+        const reserved = Array.isArray(c.reserved_dec) ? c.reserved_dec.join(',') : '';
+        const addrs = [];
+        if (c.interface?.addresses?.v4) addrs.push(`${c.interface.addresses.v4}/32`);
+        if (c.interface?.addresses?.v6) addrs.push(`${c.interface.addresses.v6}/128`);
+
+        document.getElementById('edit-address').value = hostPart;
+        document.getElementById('edit-port').value = portPart || '2408';
+        document.getElementById('edit-wg-secret-key').value = c.private_key;
+        document.getElementById('edit-wg-public-key').value = peer.public_key;
+        document.getElementById('edit-wg-preshared-key').value = '';
+        document.getElementById('edit-wg-reserved').value = reserved;
+        document.getElementById('edit-wg-local-address').value = addrs.length ? addrs.join(',') : '172.16.0.2/32';
+        document.getElementById('edit-wg-mtu').value = 1280;
+        const nameEl = document.getElementById('edit-remarks');
+        if (nameEl && !nameEl.value.trim()) nameEl.value = 'WARP';
+
+        showToast(t('toast_warp_success'), 'success');
+    } catch (e) {
+        showToast(t('toast_warp_failed'), 'error');
+    } finally {
+        hideLoading();
+    }
 }
 
 function _populateEditModal(node, isNew = false) {
