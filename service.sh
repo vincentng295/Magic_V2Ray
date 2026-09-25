@@ -756,7 +756,7 @@ loosen_rp_filter() {
 # ---------------------------------------------------------------------------
 configure_tun_iface() {
     local retry=0
-    local max_retry=10
+    local max_retry=20
     while [ $retry -lt $max_retry ]; do
         if $ip link show "$TUN_NAME" >/dev/null 2>&1; then
             break
@@ -765,7 +765,8 @@ configure_tun_iface() {
         retry=$((retry + 1))
     done
     if [ $retry -eq $max_retry ]; then
-        log "warning: $TUN_NAME did not appear after ${max_retry} retries"
+        log "error: $TUN_NAME did not appear after ${max_retry} retries, abort"
+        return 1
     fi
 
     # Recomputed here (not just inherited from apply_routing_rules' global)
@@ -785,6 +786,7 @@ configure_tun_iface() {
         $ip -6 addr add fdfe:dcba:9876::1/64 dev $TUN_NAME 2>/dev/null
         $ip -6 route replace default dev $TUN_NAME table 100
     fi
+    return 0
 }
 
 apply_routing_rules() {
@@ -835,7 +837,9 @@ apply_routing_rules() {
     # enabled, IPv6 — see configure_tun_iface() above). Also re-run from
     # restart_xray() since openxtun recreates this interface from scratch
     # on every (re)start.
-    configure_tun_iface
+    if ! configure_tun_iface; then
+        return 1
+    fi
 
     # BYPASS_VPN_UID must exist before XRAY_MARK can jump to it. This is
     # normally already created at boot (and kept alive across xray
@@ -1261,7 +1265,9 @@ restart_xray() {
     log "xray reloaded with pid $XRAY_PID (tun=$TUN_NAME re-created, iptables/ip-rule left untouched)"
 
     mount_proc_with_name "$XRAY_PID" "xray"
-    configure_tun_iface
+    if ! configure_tun_iface; then
+        return 1
+    fi
     touch "$ENABLED_FLAG"
     return 0
 }
