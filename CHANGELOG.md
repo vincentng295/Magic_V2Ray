@@ -1,23 +1,16 @@
-# Release Notes — v1.18.2
+# Release Notes — v1.19
 
-- Add per-upstream routing for DNS module
-- Fix start in `action.sh`
+**Direct Cloudflare WARP Account Generation**
+This release introduces direct Cloudflare WARP account registration natively integrated into the interface. Users can now generate a fresh, free Cloudflare WARP account directly against Cloudflare's API with a single click in the WireGuard node settings, eliminating the need for external tools like wgcf-cli. Key generation is handled natively via Xray, with credentials, server keys, and reserved bytes derived automatically and populated into the configuration fields. The interface copy and localized translation strings across all supported languages have been updated to reflect these simplified management options.
 
-# Release Notes — v1.18.1
+**Header Redesign and Streamlined Service Controls**
+The web user interface receives structural enhancements to improve layout clarity and interaction efficiency. Core engine controls, including the engine toggle actions, have been relocated into the top header bar for consistent access across all management tabs. The header structure has been refined with flexible row wrapping and improved text truncation for device status labels, ensuring clean presentation on narrow screen dimensions.
 
-Version 1.18.1 introduces critical networking and configuration adjustments designed to improve IPv6 routing stability and prevent local network detection issues. In this update, the FakeDNS IPv6 address pool has been migrated from the previous Local Unique Address space to the dedicated IETF benchmarking range at 2001:2::/48. This change prevents modern browsers, such as Chromium-based applications, from triggering unexpected local network permission prompts when establishing proxy connections.
+**Improved TUN Interface Setup and Error Handling**
+Network initialization logic has been reinforced to prevent partial engine starts and hanging states when the TUN interface fails to initialize. The TUN device configuration routine now enforces strict status checks and fails fast with an explicit error log if the interface does not appear within the increased retry window. These checks are integrated into both the initial routing setup and service restart procedures to guarantee system stability.
 
-Additionally, IPv6 FakeDNS pools are now enabled unconditionally by default rather than depending on explicit IPv6 configuration flags. To maintain clean traffic handling across mobile access points, incoming IPv6 DNS packet dropping on port 53 for hotspot interfaces has been disabled. The service routing scripts have also been streamlined by cleaning up redundant subnet bypass rules that are no longer required under the updated address scheme.
-
-# Release Notes — v1.18
-
-Release v1.18 introduces flexible DNS controls, enhanced multi-server configurations, and improved settings management for a smoother proxy and routing experience.
-
-A major feature in this release is configurable DNS Hijacking. Users can now choose whether port 53 DNS traffic from local inbounds is handed over directly to Xray's internal DNS module or forwarded outward. Along with this change, DNS port 53 traffic is no longer unconditionally dropped over IPv6 firewall rules, preventing unnecessary packet loss and keeping IPv6 resolution smooth.
-
-The Foreign DNS module has been upgraded to support multiple fallback servers simultaneously. Users can now input a comma-separated list of resolvers, allowing Xray to distribute and failover foreign domain queries across several DNS endpoints. Additionally, local DoH DNS entries for major Vietnamese ISPs (Viettel, Mobifone, and VNPT) have been included in the default fallback list.
-
-To improve usability in the Web UI, advanced Xray DNS engine parameters can now be configured directly, such as caching controls, stale query behavior, and system hosts integration. A new "Reset to defaults" button has also been added to the Traffic Settings tab, allowing users to restore default traffic parameters easily without affecting custom network interfaces, routing rules, or hosts overrides.
+**Asynchronous UI Loading Updates**
+User interface responsiveness during background operations has been enhanced across several interactive flows. Operations such as active IP verification, subscription fetching, and routing preset updates now utilize asynchronous loading state handling. This prevents UI thread blocking and ensures loading overlays display smoothly during network requests.
 
 ---
 
