@@ -2063,24 +2063,76 @@ function openNewNodeModal(protocol) {
     _populateEditModal(emptyNode, true);
 }
 
-// Registers a fresh, free Cloudflare WARP account via the bundled wgcf-cli
-// binary and fills the currently-open WireGuard editor fields with it
-// (endpoint, private key, server public key, reserved bytes, local address).
-// Nothing is persisted until the user presses Save — running it again just
-// overwrites the form fields with a brand-new account ("Generate new account").
+// Parses the plain-text output of `xray wg genkey`:
+//   PrivateKey: <base64>
+//   Password (PublicKey): <base64>
+// Done in JS (not sed) so the shell side stays a single, literal, argument-
+// free command. Returns { privateKey, publicKey }, either empty on failure.
+function _parseXrayWgGenkey(out) {
+    let privateKey = '', publicKey = '';
+    for (const line of String(out).split('\n')) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('PrivateKey:')) {
+            privateKey = trimmed.slice('PrivateKey:'.length).trim();
+        } else if (trimmed.startsWith('Password (PublicKey):')) {
+            publicKey = trimmed.slice('Password (PublicKey):'.length).trim();
+        }
+    }
+    return { privateKey, publicKey };
+}
+
+// Decodes a WARP `client_id` (base64, always 3 bytes) into the comma-separated
+// decimal reserved bytes the WireGuard outbound needs — the same value
+// wgcf-cli used to expose as `reserved_dec`.
+function _warpReservedFromClientId(clientId) {
+    try {
+        const bin = atob(clientId);
+        return Array.from(bin, ch => ch.charCodeAt(0)).join(',');
+    } catch (e) {
+        return '';
+    }
+}
+
+// Registers a fresh, free Cloudflare WARP account straight against
+// Cloudflare's API (no wgcf-cli involved) and fills the currently-open
+// WireGuard editor fields with it (endpoint, private key, server public key,
+// reserved bytes, local address). Nothing is persisted until the user
+// presses Save — running it again just overwrites the form fields with a
+// brand-new account ("Generate new account").
+//
+// Two separate shell round-trips, both plain literal commands (no sed, no
+// shell-side JSON building): (1) run `xray wg genkey` and parse its text
+// output in JS, (2) curl the registration endpoint with the parsed public
+// key — shQuote()'d, since it now round-trips through this file's own
+// string handling before going back to the shell — and parse the JSON
+// response in JS.
 async function generateWarpAccount() {
     await asyncShowLoading(t('btn_generate_warp_running'));
     try {
-        const out = await execShellAsync(
-            `rm -f ${shQuote(WGCF_FILE)} && ` +
-            `${MODDIR}/bin/wgcf-cli register -c ${shQuote(WGCF_FILE)} >/dev/null 2>&1; ` +
-            `cat ${shQuote(WGCF_FILE)} 2>/dev/null`
+        const genkeyOut = await execShellAsync(`${MODDIR}/bin/xray wg genkey`);
+        const { privateKey, publicKey } = _parseXrayWgGenkey(genkeyOut);
+        if (!privateKey || !publicKey) {
+            showToast(t('toast_warp_failed'), 'error');
+            return;
+        }
+
+        const body = JSON.stringify({
+            key: publicKey,
+            type: 'Android',
+            model: 'Android',
+            locale: 'en_US'
+        });
+        const jsonText = await execShellAsync(
+            `${MODDIR}/bin/curl -fsSL --max-time 15 -X POST "https://api.cloudflareclient.com/v0a2158/reg" ` +
+            `-H "CF-Client-Version: a-7.21-0721" -H "User-Agent: okhttp/0.7.21" ` +
+            `-H "Content-Type: application/json; charset=UTF-8" -d ${shQuote(body)}`
         );
-        let cfg = null;
-        try { cfg = JSON.parse(out); } catch (e) { cfg = null; }
-        const c = cfg && cfg.config;
+
+        let reg = null;
+        try { reg = JSON.parse(jsonText); } catch (e) { reg = null; }
+        const c = reg && reg.config;
         const peer = c && c.peers && c.peers[0];
-        if (!c || !c.private_key || !peer || !peer.public_key) {
+        if (!c || !peer || !peer.public_key) {
             showToast(t('toast_warp_failed'), 'error');
             return;
         }
@@ -2088,14 +2140,14 @@ async function generateWarpAccount() {
         const endpointHost = (peer.endpoint && (peer.endpoint.host || peer.endpoint.v4)) || 'engage.cloudflareclient.com:2408';
         const hostPart = endpointHost.split(':')[0];
         const portPart = endpointHost.includes(':') ? endpointHost.split(':').pop() : '2408';
-        const reserved = Array.isArray(c.reserved_dec) ? c.reserved_dec.join(',') : '';
+        const reserved = c.client_id ? _warpReservedFromClientId(c.client_id) : '';
         const addrs = [];
         if (c.interface?.addresses?.v4) addrs.push(`${c.interface.addresses.v4}/32`);
         if (c.interface?.addresses?.v6) addrs.push(`${c.interface.addresses.v6}/128`);
 
         document.getElementById('edit-address').value = hostPart;
         document.getElementById('edit-port').value = portPart || '2408';
-        document.getElementById('edit-wg-secret-key').value = c.private_key;
+        document.getElementById('edit-wg-secret-key').value = privateKey;
         document.getElementById('edit-wg-public-key').value = peer.public_key;
         document.getElementById('edit-wg-preshared-key').value = '';
         document.getElementById('edit-wg-reserved').value = reserved;

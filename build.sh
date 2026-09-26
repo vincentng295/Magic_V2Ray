@@ -12,7 +12,6 @@
 #   ./build.sh universal          -> just the combined zip (for update.json fallback)
 #   ./build.sh --update-xray      -> force re-download of xray even if cached
 #   ./build.sh --update-helper     -> force re-download of xhuskydg_helper even if cached
-#   ./build.sh --update-wgcf       -> force re-download of wgcf-cli even if cached
 #   ./build.sh arm64 --update-xray -> combine with a target
 #
 # The downloaded xray binary's version is cached in bin/<arch>/xray.version.
@@ -46,24 +45,11 @@ XRAY_BASE_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSIO
 HELPER_VERSION="v1.0"
 HELPER_URL="https://github.com/vincentng295/xhuskydg_helper/releases/download/${HELPER_VERSION}/build-release.zip"
 
-# wgcf-cli ships one standalone binary per arch (not zipped).
-WGCF_VERSION="v0.3.6"
-WGCF_BASE_URL="https://github.com/vincentng295/wgcf-cli/releases/download/${WGCF_VERSION}"
-
 # Maps our arch dir names to the asset name Xray-core publishes under.
 xray_asset_for() {
     case "$1" in
         arm64-v8a) echo "Xray-android-arm64-v8a.zip" ;;
         x86_64)    echo "Xray-android-amd64.zip" ;;
-        *) echo "unknown arch: $1" >&2; exit 1 ;;
-    esac
-}
-
-# Maps our arch dir names to the wgcf-cli asset name published upstream.
-wgcf_asset_for() {
-    case "$1" in
-        arm64-v8a) echo "wgcf-cli-android-arm64-v8a" ;;
-        x86_64)    echo "wgcf-cli-android-amd64" ;;
         *) echo "unknown arch: $1" >&2; exit 1 ;;
     esac
 }
@@ -90,29 +76,6 @@ fetch_xray() {
     echo -n "${XRAY_VERSION}" > "$vfile"
     rm -rf "$tmp"
     echo "    installed ${dest}/xray (${XRAY_VERSION})"
-}
-
-# Downloads the wgcf-cli binary for one arch into bin/<arch>/wgcf-cli,
-# skipping the fetch if already present at the current WGCF_VERSION. Unlike
-# xray/helper, upstream publishes a bare binary (no zip) per arch.
-fetch_wgcf() {
-    local arch="$1"
-    local dest="bin/${arch}"
-    local vfile="${dest}/wgcf-cli.version"
-    if [[ "$FORCE_UPDATE_WGCF" != "1" && -x "${dest}/wgcf-cli" && -f "$vfile" && "$(cat "$vfile")" == "$WGCF_VERSION" ]]; then
-        echo "==> bin/${arch}/wgcf-cli already at ${WGCF_VERSION}, skipping download"
-        return
-    fi
-    local asset; asset=$(wgcf_asset_for "$arch")
-    local url="${WGCF_BASE_URL}/${asset}"
-    local tmp; tmp=$(mktemp -d)
-    echo "==> fetching ${url}"
-    curl -fsSL -o "${tmp}/wgcf-cli" "$url"
-    mkdir -p "$dest"
-    install -m 0755 "${tmp}/wgcf-cli" "${dest}/wgcf-cli"
-    echo -n "${WGCF_VERSION}" > "$vfile"
-    rm -rf "$tmp"
-    echo "    installed ${dest}/wgcf-cli (${WGCF_VERSION})"
 }
 
 # Downloads and unpacks the xhuskydg_helper binary for one arch into
@@ -176,13 +139,11 @@ pack() {
 
 FORCE_UPDATE_XRAY=0
 FORCE_UPDATE_HELPER=0
-FORCE_UPDATE_WGCF=0
 args=()
 for a in "$@"; do
     case "$a" in
         --update-xray)     FORCE_UPDATE_XRAY=1 ;;
         --update-helper)   FORCE_UPDATE_HELPER=1 ;;
-        --update-wgcf)     FORCE_UPDATE_WGCF=1 ;;
         *) args+=("$a") ;;
     esac
 done
@@ -190,9 +151,9 @@ done
 target="${args[0]:-all}"
 
 case "$target" in
-    arm64|all)     fetch_xray arm64-v8a; fetch_helper arm64-v8a; fetch_wgcf arm64-v8a; pack arm64-v8a bin/arm64-v8a ;;&
-    x64|x86_64|all) fetch_xray x86_64;    fetch_helper x86_64;    fetch_wgcf x86_64;    pack x86_64    bin/x86_64 ;;&
-    universal|all) fetch_xray arm64-v8a; fetch_xray x86_64; fetch_helper arm64-v8a; fetch_helper x86_64; fetch_wgcf arm64-v8a; fetch_wgcf x86_64; pack universal bin/arm64-v8a bin/x86_64 ;;&
+    arm64|all)     fetch_xray arm64-v8a; fetch_helper arm64-v8a; pack arm64-v8a bin/arm64-v8a ;;&
+    x64|x86_64|all) fetch_xray x86_64;    fetch_helper x86_64;    pack x86_64    bin/x86_64 ;;&
+    universal|all) fetch_xray arm64-v8a; fetch_xray x86_64; fetch_helper arm64-v8a; fetch_helper x86_64; pack universal bin/arm64-v8a bin/x86_64 ;;&
     arm64|x64|x86_64|universal|all) ;;
     *) echo "usage: $0 [arm64|x64|universal|all]" >&2; exit 2 ;;
 esac

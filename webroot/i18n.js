@@ -283,9 +283,9 @@ const i18n = {
         add_wireguard: "Add WireGuard",
         btn_generate_warp: "🌐 Generate built-in WARP account",
         btn_generate_warp_running: "Registering with Cloudflare…",
-        hint_generate_warp: "Registers a free Cloudflare WARP account via wgcf and fills the fields below. Run again anytime for a new account.",
+        hint_generate_warp: "Registers a free Cloudflare WARP account and fills the fields below. Run again anytime for a new account.",
         toast_warp_success: "WARP account generated. Review the fields and hit Save.",
-        toast_warp_failed: "Failed to generate a WARP account (wgcf-cli missing or registration failed).",
+        toast_warp_failed: "Failed to generate a WARP account (registration failed).",
         add_hysteria2: "Add Hysteria2",
 
         // Shadowsocks
@@ -708,9 +708,9 @@ const i18n = {
         add_wireguard: "添加 WireGuard",
         btn_generate_warp: "🌐 生成内置 WARP 账号",
         btn_generate_warp_running: "正在向 Cloudflare 注册…",
-        hint_generate_warp: "通过 wgcf 注册免费的 Cloudflare WARP 账号并自动填写下方字段。随时可再次运行以生成新账号。",
+        hint_generate_warp: "注册免费的 Cloudflare WARP 账号并自动填写下方字段。随时可再次运行以生成新账号。",
         toast_warp_success: "WARP 账号已生成。请检查相关字段并点击保存。",
-        toast_warp_failed: "生成 WARP 账号失败（缺少 wgcf-cli 或注册失败）。",
+        toast_warp_failed: "生成 WARP 账号失败（注册失败）。",
         add_hysteria2: "添加 Hysteria2",
 
         // Shadowsocks
@@ -1133,9 +1133,9 @@ const i18n = {
         add_wireguard: "新增 WireGuard",
         btn_generate_warp: "🌐 產生內建 WARP 帳號",
         btn_generate_warp_running: "正在向 Cloudflare 註冊…",
-        hint_generate_warp: "透過 wgcf 註冊免費的 Cloudflare WARP 帳號並自動填寫下方欄位。隨時可再次執行以取得新帳號。",
+        hint_generate_warp: "註冊免費的 Cloudflare WARP 帳號並自動填寫下方欄位。隨時可再次執行以取得新帳號。",
         toast_warp_success: "WARP 帳號已產生。請檢查相關欄位並點擊儲存。",
-        toast_warp_failed: "產生 WARP 帳號失敗（缺少 wgcf-cli 或註冊失敗）。",
+        toast_warp_failed: "產生 WARP 帳號失敗（註冊失敗）。",
         add_hysteria2: "新增 Hysteria2",
 
         // Shadowsocks
@@ -1558,9 +1558,9 @@ const i18n = {
         add_wireguard: "Thêm WireGuard",
         btn_generate_warp: "🌐 Tạo tài khoản WARP tích hợp",
         btn_generate_warp_running: "Đang đăng ký với Cloudflare…",
-        hint_generate_warp: "Đăng ký tài khoản Cloudflare WARP miễn phí qua wgcf và điền vào các trường bên dưới. Có thể chạy lại bất cứ lúc nào để lấy tài khoản mới.",
+        hint_generate_warp: "Đăng ký tài khoản Cloudflare WARP miễn phí và điền vào các trường bên dưới. Có thể chạy lại bất cứ lúc nào để lấy tài khoản mới.",
         toast_warp_success: "Đã tạo tài khoản WARP. Kiểm tra lại các trường rồi nhấn Lưu.",
-        toast_warp_failed: "Không thể tạo tài khoản WARP (thiếu wgcf-cli hoặc đăng ký thất bại).",
+        toast_warp_failed: "Không thể tạo tài khoản WARP (đăng ký thất bại).",
         add_hysteria2: "Thêm Hysteria2",
 
         // Shadowsocks
