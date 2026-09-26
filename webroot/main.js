@@ -2986,19 +2986,27 @@ function toggleSubSettingField(triggerId, subPanelId) {
 
 function updateDnsGroupVisibility() {
     const localDnsOn = document.getElementById('set-localdns').checked;
+    const hijackDnsOn = document.getElementById('set-hijackdns').checked;
     const fakeDnsLocalOn = document.getElementById('set-fakedns-local').checked;
 
     const subFields = document.getElementById('dns-sub-fields');
     subFields.style.display = localDnsOn ? '' : 'none';
 
-    // Fake DNS depends on Local DNS
+    // Fake DNS depends on Local DNS and needs Hijack DNS enabled to take effect
     const fakeDnsRow = document.getElementById('dns-row-fakedns-local');
-    if (localDnsOn) {
+    const fakeDnsHijackHint = document.getElementById('fakedns-hijack-hint');
+    if (localDnsOn && hijackDnsOn) {
         fakeDnsRow.classList.remove('setting-row-disabled');
         document.getElementById('set-fakedns-local').disabled = false;
+        if (fakeDnsHijackHint) fakeDnsHijackHint.style.display = 'none';
     } else {
         fakeDnsRow.classList.add('setting-row-disabled');
         document.getElementById('set-fakedns-local').disabled = true;
+        if (localDnsOn && !hijackDnsOn && fakeDnsHijackHint) {
+            fakeDnsHijackHint.style.display = '';
+        } else if (fakeDnsHijackHint) {
+            fakeDnsHijackHint.style.display = 'none';
+        }
     }
 
     // VPN DNS is disabled when Fake DNS is on
@@ -3057,7 +3065,7 @@ function bindSettingsToFormView() {
     // even though the value was being persisted correctly.
     document.getElementById('set-dnsviaproxy').checked = advSettings.dnsViaProxy !== false;
     // Default ON: settings saved by older versions have no value.
-    document.getElementById('set-hijackdns').checked = advSettings.hijackDns !== false;
+    document.getElementById('set-hijackdns').checked = advSettings.hijackDns === true;
     document.getElementById('set-pinned-cert').value = advSettings.pinnedPeerCertSha256 || "";
 
     // DNS engine options

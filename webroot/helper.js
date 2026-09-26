@@ -638,7 +638,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
         mtu: 1350,
         pinnedPeerCertSha256: "",
         dnsViaProxy: true,
-        hijackDns: true,
+        hijackDns: false,
         dnsDisableCache: false,
         dnsServeStale: false,
         dnsServeExpiredTTL: 0,
@@ -1302,7 +1302,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
     // Hijack DNS: client DNS (port 53 from tun-in / socks-test-in) goes to the
     // `dns` outbound so Xray's DNS module resolves it; the module's own
     // upstream queries (tagless, port 53) then leave via proxy/direct.
-    const hijackDns = settings.hijackDns !== false;
+    const hijackDns = settings.hijackDns === true;
 
     // Resolve effective fakeip flag — new field (fakeDnsLocal) takes priority when
     // Local DNS is enabled; fall back to legacy fakeDns for backward compatibility.

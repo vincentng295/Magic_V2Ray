@@ -153,16 +153,6 @@
                         </select>
                     </div>
 
-                    <div class="setting-item-row toggle-row">
-                        <label for="set-dnsviaproxy"><span data-i18n="lbl_dnsviaproxy">Resolve DNS via Proxy</span><small data-i18n="desc_dnsviaproxy">Wrap and route all DNS resolver via Server</small></label>
-                        <input type="checkbox" id="set-dnsviaproxy">
-                    </div>
-
-                    <div class="setting-item-row toggle-row">
-                        <label for="set-hijackdns"><span data-i18n="lbl_hijackdns">Hijack DNS</span><small data-i18n="desc_hijackdns">Route DNS query to Xray's DNS module</small></label>
-                        <input type="checkbox" id="set-hijackdns">
-                    </div>
-
                     <div class="setting-item-row">
                         <label><span data-i18n="lbl_pinned_cert">Pinned Peer Cert SHA256</span><small data-i18n="desc_pinned_cert">Pin the SHA256 hash of the server certificate.</small></label>
                         <input type="text" id="set-pinned-cert" placeholder="">
@@ -220,8 +210,18 @@
                     </div>
                     <div id="dns-sub-fields" class="sub-setting-panel" style="display:none;">
 
+                        <div class="setting-item-row toggle-row">
+                            <label for="set-dnsviaproxy"><span data-i18n="lbl_dnsviaproxy">Resolve DNS via Proxy</span><small data-i18n="desc_dnsviaproxy">Wrap and route all DNS resolver via Server</small></label>
+                            <input type="checkbox" id="set-dnsviaproxy">
+                        </div>
+
+                        <div class="setting-item-row toggle-row">
+                            <label for="set-hijackdns"><span data-i18n="lbl_hijackdns">Hijack DNS</span><small data-i18n="desc_hijackdns">Route DNS query to Xray's DNS module</small></label>
+                            <input type="checkbox" id="set-hijackdns" onchange="updateDnsGroupVisibility()">
+                        </div>
+
                         <div class="setting-item-row toggle-row" id="dns-row-fakedns-local">
-                            <label for="set-fakedns-local"><span data-i18n="lbl_fakedns_local">Enable Fake DNS</span><small data-i18n="desc_fakedns_local">Use 198.18.0.0/15 pool to map domains to virtual IPs instantly</small></label>
+                            <label for="set-fakedns-local"><span data-i18n="lbl_fakedns_local">Enable Fake DNS</span><small data-i18n="desc_fakedns_local">Use 198.18.0.0/15 pool to map domains to virtual IPs instantly</small><small class="routing-strategy-hint" id="fakedns-hijack-hint" data-i18n="hint_fakedns_needs_hijack" style="display:none;">Requires Hijack DNS to be enabled</small></label>
                             <input type="checkbox" id="set-fakedns-local" onchange="updateDnsGroupVisibility()">
                         </div>
 
