@@ -8,49 +8,47 @@
 </head>
 <body>
     <div class="container">
-        <header style="display: flex; justify-content: space-between; align-items: center;">
-            <div style="min-width: 0; flex: 1;">
-                <h1>Magic V2Ray</h1>
-                <div class="status-badge" id="service-status" role="button" tabindex="0"
-                     onclick="showCurrentIp()"
-                     onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();showCurrentIp();}">Status: Checking...</div>
-                <div class="status-ip" id="status-ip" hidden></div>
-            </div>
-            <div class="header-actions">
-            <div class="engine-controls">
-                <button type="button" class="engine-btn engine-btn-start" onclick="toggleService('start')" data-i18n-title="btn_start" title="Start Engine" aria-label="Start Engine">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
-                </button>
-                <button type="button" class="engine-btn engine-btn-stop" onclick="toggleService('stop')" data-i18n-title="btn_stop" title="Stop Engine" aria-label="Stop Engine">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 6h12v12H6z"/></svg>
-                </button>
-            </div>
-            <div class="lang-switcher">
-                <select id="lang-select" onchange="changeLanguage(this.value)" style="padding: 4px 8px; border-radius: 4px; background: var(--bg-panel, #222); color: var(--text-main, #fff); border: 1px solid #444;">
-                    <option value="en">English</option>
-                    <option value="vi">Tiếng Việt</option>
-                    <option value="zh">简体中文</option>
-                    <option value="zh-tw">繁體中文</option>
-                </select>
-            </div>
-            <div class="tab-menu">
-                <button type="button" id="tab-menu-btn" class="tab-menu-btn"
-                        aria-haspopup="menu" aria-expanded="false" aria-controls="tab-menu"
-                        data-i18n-aria="tab_menu" aria-label="Menu" onclick="toggleTabMenu(event)">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
-                </button>
-                <div id="tab-menu" class="tab-menu-dropdown" role="menu" aria-labelledby="tab-menu-btn">
-                    <button type="button" role="menuitem" class="tab-menu-item active" aria-current="page" data-tab="tab-dashboard" onclick="switchTab('tab-dashboard', event)" data-i18n="tab_dashboard">Dashboard</button>
-                    <button type="button" role="menuitem" class="tab-menu-item" data-tab="tab-settings" onclick="switchTab('tab-settings', event)" data-i18n="tab_settings">Traffic Settings</button>
-                    <button type="button" role="menuitem" class="tab-menu-item" data-tab="tab-network" onclick="switchTab('tab-network', event)" data-i18n="tab_network">Network Settings</button>
-                    <button type="button" role="menuitem" class="tab-menu-item" data-tab="tab-routing" onclick="switchTab('tab-routing', event)" data-i18n="tab_routing">Routing Settings</button>
-                    <button type="button" role="menuitem" class="tab-menu-item" data-tab="tab-hosts" onclick="switchTab('tab-hosts', event)" data-i18n="tab_hosts">Custom Hosts</button>
-                    <button type="button" role="menuitem" class="tab-menu-item" data-tab="tab-log" onclick="switchTab('tab-log', event)" data-i18n="tab_log">Xray Log</button>
-                    <button type="button" role="menuitem" class="tab-menu-item" data-tab="tab-latency" onclick="switchTab('tab-latency', event)" data-i18n="tab_latency">Network Latency</button>
-                    <button type="button" role="menuitem" class="tab-menu-item" data-tab="tab-about" onclick="switchTab('tab-about', event)" data-i18n="tab_about">About</button>
+        <header>
+            <div class="header-top-row">
+                <div style="min-width: 0; flex: 1;">
+                    <h1>Magic V2Ray</h1>
+                    <div class="status-badge" id="service-status" role="button" tabindex="0"
+                         onclick="showCurrentIp()"
+                         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();showCurrentIp();}">Status: Checking...</div>
+                    <div class="status-ip" id="status-ip" hidden></div>
+                </div>
+                <div class="header-actions">
+                <div class="lang-switcher">
+                    <select id="lang-select" onchange="changeLanguage(this.value)" style="padding: 4px 8px; border-radius: 4px; background: var(--bg-panel, #222); color: var(--text-main, #fff); border: 1px solid #444;">
+                        <option value="en">English</option>
+                        <option value="vi">Tiếng Việt</option>
+                        <option value="zh">简体中文</option>
+                        <option value="zh-tw">繁體中文</option>
+                    </select>
+                </div>
+                <div class="tab-menu">
+                    <button type="button" id="tab-menu-btn" class="tab-menu-btn"
+                            aria-haspopup="menu" aria-expanded="false" aria-controls="tab-menu"
+                            data-i18n-aria="tab_menu" aria-label="Menu" onclick="toggleTabMenu(event)">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+                    </button>
+                    <div id="tab-menu" class="tab-menu-dropdown" role="menu" aria-labelledby="tab-menu-btn">
+                        <button type="button" role="menuitem" class="tab-menu-item active" aria-current="page" data-tab="tab-dashboard" onclick="switchTab('tab-dashboard', event)" data-i18n="tab_dashboard">Dashboard</button>
+                        <button type="button" role="menuitem" class="tab-menu-item" data-tab="tab-settings" onclick="switchTab('tab-settings', event)" data-i18n="tab_settings">Traffic Settings</button>
+                        <button type="button" role="menuitem" class="tab-menu-item" data-tab="tab-network" onclick="switchTab('tab-network', event)" data-i18n="tab_network">Network Settings</button>
+                        <button type="button" role="menuitem" class="tab-menu-item" data-tab="tab-routing" onclick="switchTab('tab-routing', event)" data-i18n="tab_routing">Routing Settings</button>
+                        <button type="button" role="menuitem" class="tab-menu-item" data-tab="tab-hosts" onclick="switchTab('tab-hosts', event)" data-i18n="tab_hosts">Custom Hosts</button>
+                        <button type="button" role="menuitem" class="tab-menu-item" data-tab="tab-log" onclick="switchTab('tab-log', event)" data-i18n="tab_log">Xray Log</button>
+                        <button type="button" role="menuitem" class="tab-menu-item" data-tab="tab-latency" onclick="switchTab('tab-latency', event)" data-i18n="tab_latency">Network Latency</button>
+                        <button type="button" role="menuitem" class="tab-menu-item" data-tab="tab-about" onclick="switchTab('tab-about', event)" data-i18n="tab_about">About</button>
+                    </div>
+                </div>
                 </div>
             </div>
-            </div>
+            <section class="control-actions header-control-actions">
+                <button class="btn btn-start" onclick="toggleService('start')" data-i18n="btn_start">Start Engine</button>
+                <button class="btn btn-stop" onclick="toggleService('stop')" data-i18n="btn_stop">Stop Engine</button>
+            </section>
         </header>
 
         <div id="tab-dashboard" class="tab-content active">

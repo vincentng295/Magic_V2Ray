@@ -99,15 +99,19 @@ body {
 
 /* ===== Top App Bar ===== */
 header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 16px 0 8px;
-    margin-bottom: 8px;
+    padding: 16px 0 12px;
+    margin-bottom: 20px;
     position: sticky;
     top: 0;
     z-index: 100;
     background: var(--md-surface);
+}
+
+.header-top-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
 }
 
 header h1 {
@@ -132,6 +136,12 @@ header h1 {
     font-weight: 600;
     letter-spacing: .3px;
     transition: all .2s var(--md-motion-standard);
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    box-sizing: border-box;
 }
 
 .status-badge::before {
@@ -230,50 +240,6 @@ header h1 {
     gap: 8px;
     flex-shrink: 0;
     margin-left: 12px;
-}
-
-/* ===== Engine controls (Start/Stop) — in header, visible on every tab ===== */
-.engine-controls {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.engine-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 36px;
-    height: 36px;
-    padding: 0;
-    border: 1px solid var(--md-outline-variant);
-    border-radius: var(--md-shape-full);
-    cursor: pointer;
-    transition: all .2s var(--md-motion-standard);
-    -webkit-tap-highlight-color: transparent;
-    position: relative;
-    overflow: hidden;
-}
-.engine-btn::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: currentColor;
-    opacity: 0;
-    transition: opacity .2s;
-    border-radius: inherit;
-}
-.engine-btn:hover::after { opacity: .08; }
-.engine-btn:active::after { opacity: .12; }
-.engine-btn:active { transform: scale(0.94); }
-
-.engine-btn-start {
-    background: var(--md-success-container);
-    color: var(--md-on-success-container);
-}
-.engine-btn-stop {
-    background: var(--md-error-container);
-    color: var(--md-on-error-container);
 }
 
 .tab-menu { position: relative; }
@@ -525,6 +491,9 @@ header h1 {
     overflow-x: auto;
     margin-bottom: 20px;
     scrollbar-width: none;
+}
+.control-actions.header-control-actions {
+    margin-bottom: 0;
 }
 .control-actions::-webkit-scrollbar { display: none; }
 
