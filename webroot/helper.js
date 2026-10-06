@@ -443,6 +443,26 @@ function _pinPlainTransportHost(ss, host, port) {
     }
 }
 
+// True for a vless:// URI (or a chain:// with a vless hop) that has neither
+// TLS/REALITY nor VLESS Encryption — i.e. the data crosses the network in
+// plaintext. Same defaults as convert_uri_to_xray_json(): a missing
+// security / encryption param means "none". Used by the UI to warn before
+// connecting; independent of the transport, so kcp etc. count too.
+function isPlainVlessUri(uri) {
+    uri = String(uri || '').trim();
+    try {
+        if (/^chain:\/\//i.test(uri)) {
+            const q = new URL(uri.replace(/^chain:\/\//i, 'https://')).searchParams;
+            return isPlainVlessUri(q.get('hop1') || '') || isPlainVlessUri(q.get('hop2') || '');
+        }
+        if (!/^vless:\/\//i.test(uri)) return false;
+        const q = new URL(normalizeUriIPv6Host(uri).replace(/^vless:\/\//i, 'https://')).searchParams;
+        return (q.get('security') || 'none') === 'none' && (q.get('encryption') || 'none') === 'none';
+    } catch (e) {
+        return false;
+    }
+}
+
 // Rewrites every plaintext VLESS outbound in `cfg` (mutates and returns it).
 // Adds: one dokodemo-door inbound per distinct (destination, egress), a
 // dedicated freedom outbound when the original outbound dialed through

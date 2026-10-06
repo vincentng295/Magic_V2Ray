@@ -1133,7 +1133,12 @@ async function selectNode(category, id) {
         return;
     }
 
-    const confirmed = await showConfirm(t('confirm_connect_node', { name: node.name || node.address || id }));
+    // Plaintext VLESS (no TLS/REALITY, no VLESS Encryption): swap the usual
+    // confirmation for an explicit warning, so it is a deliberate choice.
+    const nodeName = node.name || node.address || id;
+    const confirmed = isPlainVlessUri(node.rawUri)
+        ? await showConfirm(t('warn_plain_vless', { name: nodeName }), { okText: t('warn_plain_vless_ok') })
+        : await showConfirm(t('confirm_connect_node', { name: nodeName }));
     if (!confirmed) return;
 
     activeConfig = `${category}:${id}`;
