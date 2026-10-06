@@ -409,13 +409,12 @@
                     <div class="setting-item-row">
                         <label for="set-domain-strategy"><span data-i18n="lbl_domain_strategy">Domain strategy</span><small data-i18n="desc_domain_strategy">How routing handles domain names when a rule matches on IP</small></label>
                         <select id="set-domain-strategy" onchange="onDomainStrategyChange(this)">
-                            <option value="auto" data-i18n="domain_strategy_auto">Automatic (default)</option>
-                            <option value="AsIs">AsIs</option>
+                            <option value="AsIs" data-i18n="domain_strategy_asis">AsIs (default)</option>
                             <option value="IPIfNonMatch">IPIfNonMatch</option>
                             <option value="IPOnDemand">IPOnDemand</option>
                         </select>
                     </div>
-                    <p class="routing-strategy-hint" id="domain-strategy-hint" data-i18n="hint_ds_auto"></p>
+                    <p class="routing-strategy-hint" id="domain-strategy-hint" data-i18n="hint_ds_asis"></p>
                 </div>
                 <div id="routing-rules-container"></div>
                 <div id="routing-empty-state" class="routing-empty-state" style="display:none;">

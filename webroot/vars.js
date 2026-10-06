@@ -79,10 +79,11 @@ let advSettings = {
     loglevel: "info",
     sniffing: true,
     routeOnly: false,
-    // Xray routing.domainStrategy. "auto" keeps the pre-existing behavior
-    // (AsIs while Fake DNS is on, IPIfNonMatch otherwise); the other values
-    // are the literal Xray strategies. Resolved in convert_uri_to_xray_json().
-    domainStrategy: "auto",
+    // Xray routing.domainStrategy: "AsIs" | "IPIfNonMatch" | "IPOnDemand".
+    // Any other value (missing, corrupted, or the removed "auto" saved by
+    // older versions) is treated as "AsIs". Resolved in
+    // convert_uri_to_xray_json().
+    domainStrategy: "AsIs",
     enableIPv6: false,
     // Network tab, sub-option of enableIPv6. true: service.sh adds a
     // fc00:7872:6179::xxxx:xxxx/128 address to the active interface so apps think IPv6

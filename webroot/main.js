@@ -3576,16 +3576,15 @@ async function deleteRoutingRule(index) {
 // Same save-on-change behavior as the rule list below: the setting goes to
 // disk and the active config is regenerated (soft reload, no iptables
 // rebuild — routing.domainStrategy is Xray-internal).
-const DOMAIN_STRATEGY_VALUES = ['auto', 'AsIs', 'IPIfNonMatch', 'IPOnDemand'];
+const DOMAIN_STRATEGY_VALUES = ['AsIs', 'IPIfNonMatch', 'IPOnDemand'];
 const DOMAIN_STRATEGY_HINT_KEYS = {
-    auto: 'hint_ds_auto',
     AsIs: 'hint_ds_asis',
     IPIfNonMatch: 'hint_ds_ifnonmatch',
     IPOnDemand: 'hint_ds_ondemand'
 };
 
 function _currentDomainStrategy() {
-    return DOMAIN_STRATEGY_VALUES.includes(advSettings.domainStrategy) ? advSettings.domainStrategy : 'auto';
+    return DOMAIN_STRATEGY_VALUES.includes(advSettings.domainStrategy) ? advSettings.domainStrategy : 'AsIs';
 }
 
 function syncDomainStrategyForm() {
@@ -3601,7 +3600,7 @@ function syncDomainStrategyForm() {
 }
 
 function onDomainStrategyChange(select) {
-    const value = DOMAIN_STRATEGY_VALUES.includes(select.value) ? select.value : 'auto';
+    const value = DOMAIN_STRATEGY_VALUES.includes(select.value) ? select.value : 'AsIs';
     advSettings.domainStrategy = value;
     syncDomainStrategyForm();
     persistRoutingRules();

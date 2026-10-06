@@ -924,7 +924,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
         dnsUseSystemHosts: false,
         localDns: false,
         fakeDnsLocal: false,
-        domainStrategy: "auto",
+        domainStrategy: "AsIs",
         vpnDns: "1.1.1.1",
         foreignDns: DEFAULT_FOREIGN_DNS,
         domesticDns: "223.5.5.5",
@@ -1658,12 +1658,12 @@ function convert_uri_to_xray_json(uri, optional_settings) {
     }
 
     // routing.domainStrategy: honor an explicit Xray strategy from the Routing
-    // tab; anything else ("auto", missing on settings saved by older
-    // versions, or a corrupted value) falls back to the original behavior.
+    // tab; any other value (missing, corrupted, or the removed "auto" saved by
+    // older versions) falls back to "AsIs".
     const ROUTING_DOMAIN_STRATEGIES = ["AsIs", "IPIfNonMatch", "IPOnDemand"];
     const routingDomainStrategy = ROUTING_DOMAIN_STRATEGIES.includes(settings.domainStrategy)
         ? settings.domainStrategy
-        : (useFakeIp ? "AsIs" : "IPIfNonMatch");
+        : "AsIs";
 
     // Extra outbounds for rules that target a saved node by remark.
     const ruleNodes = _buildRuleNodeOutbounds(settings);
