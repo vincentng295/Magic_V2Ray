@@ -370,6 +370,171 @@ function normalizeUriIPv6Host(uri) {
 }
 
 
+// ===========================================================================
+// Plaintext-VLESS loopback pool
+//
+// Recent Xray-core refuses a VLESS outbound that is plaintext (encryption
+// "none", security "none") towards a non-loopback address. Loopback is still
+// allowed, so each such outbound is repointed at a private loopback address
+// 127.18.<block>.<n>:80 and a dokodemo-door (aka "tunnel") inbound listening
+// there forwards the raw TCP stream to the real server through a freedom
+// outbound:
+//
+//   vless-out --> 127.18.0.n:80 [dokodemo-door] --> freedom --> real server:port
+//
+// The VLESS (+ws/httpupgrade/xhttp/grpc) bytes pass through untouched, so
+// nothing changes on the server. One distinct address per destination keeps
+// every listener on :80 (Linux binds any 127.0.0.0/8 address with no setup)
+// and lets service.sh hide the whole pool with a single iptables rule.
+//
+// Blocks: the device-wide config uses block 0 (127.18.0.x). Node probes
+// (main.js) run next to it as separate xray processes and are relocated to
+// block 1+slot by relocatePlainVlessPool(), so listeners never collide.
+// ===========================================================================
+const PLAIN_POOL_PREFIX = "127.18";
+const PLAIN_POOL_PORT = 80;
+const PLAIN_TUN_TAG_PREFIX = "plain-tun-";
+const PLAIN_EGRESS_TAG_PREFIX = "plain-egress-";
+// "tunnel" is the new name; Xray keeps "dokodemo-door" as an alias, so the
+// old name works on every core.
+const PLAIN_TUN_PROTOCOL = "dokodemo-door";
+// The tunnel carries TCP only — mKCP/QUIC/Hysteria (UDP) are left alone.
+const PLAIN_TCP_NETWORKS = ["tcp", "ws", "httpupgrade", "xhttp", "splithttp", "grpc", "h2", "http"];
+
+// Config generation nests: chain -> single node, and rule-node outbounds are
+// built by calling the converters again. Only the outermost call may run the
+// pool pass, otherwise two inner configs would each hand out 127.18.0.1.
+let _plainVlessDefer = 0;
+
+function _isPlainVlessOutbound(o) {
+    if (!o || o.protocol !== 'vless') return false;
+    const vn = o.settings && o.settings.vnext && o.settings.vnext[0];
+    const user = vn && vn.users && vn.users[0];
+    if (!user) return false;
+    if (user.encryption && user.encryption !== 'none') return false;
+    const ss = o.streamSettings || {};
+    if ((ss.security || 'none') !== 'none') return false;
+    return PLAIN_TCP_NETWORKS.includes(ss.network || 'tcp');
+}
+
+function _isLoopbackHost(h) {
+    h = String(h || '').toLowerCase();
+    return h === 'localhost' || h === '::1' || /^127\./.test(h);
+}
+
+// ws/httpupgrade/xhttp/grpc fall back to the *dial address* for the Host /
+// :authority when none is configured. After the rewrite that would be
+// "127.18.0.n", so pin the original server name first.
+function _pinPlainTransportHost(ss, host, port) {
+    const hostHdr = bracketIPv6(host) + (port !== 80 ? ':' + port : '');
+    const net = ss.network || 'tcp';
+    if (net === 'ws') {
+        const w = ss.wsSettings = ss.wsSettings || {};
+        if (!w.host && !(w.headers && w.headers.Host)) w.host = hostHdr;
+    } else if (net === 'httpupgrade') {
+        const h = ss.httpupgradeSettings = ss.httpupgradeSettings || {};
+        if (!h.host) h.host = hostHdr;
+    } else if (net === 'xhttp' || net === 'splithttp') {
+        const x = ss.xhttpSettings = ss.xhttpSettings || {};
+        if (!x.host) x.host = hostHdr;
+    } else if (net === 'grpc') {
+        const g = ss.grpcSettings = ss.grpcSettings || {};
+        if (!g.authority) g.authority = hostHdr;
+    }
+}
+
+// Rewrites every plaintext VLESS outbound in `cfg` (mutates and returns it).
+// Adds: one dokodemo-door inbound per distinct (destination, egress), a
+// dedicated freedom outbound when the original outbound dialed through
+// another proxy (dialerProxy chain hop), and the routing rules that send each
+// tunnel inbound to its egress.
+function applyPlainVlessLoopback(cfg, block) {
+    block = block | 0;
+    if (!cfg || !Array.isArray(cfg.outbounds)) return cfg;
+
+    const inbounds = [], extraOuts = [], rules = [];
+    const byKey = new Map(); // "host|port|dialer" -> listen address
+    let n = 0, egressN = 0;
+
+    for (const o of cfg.outbounds) {
+        if (!_isPlainVlessOutbound(o)) continue;
+        const vn = o.settings.vnext[0];
+        const host = unwrapIPv6(vn.address);
+        const port = +vn.port || 80;
+        if (_isLoopbackHost(host)) continue;
+
+        const ss = o.streamSettings = o.streamSettings || {};
+        const orig = ss.sockopt || {};
+        const dialer = orig.dialerProxy || 'direct';
+        const key = host + '|' + port + '|' + dialer;
+
+        let addr = byKey.get(key);
+        if (!addr) {
+            if (n >= 254) continue; // pool exhausted: leave this one as is
+            n++;
+            addr = `${PLAIN_POOL_PREFIX}.${block}.${n}`;
+            byKey.set(key, addr);
+
+            // Egress: the shared "direct" outbound when the original dialed
+            // directly. If it dialed through another proxy (chain hop 2),
+            // the tunnel must dial through that proxy too, so it gets its
+            // own freedom outbound carrying the same dialerProxy.
+            let egressTag = 'direct';
+            if (dialer !== 'direct') {
+                egressTag = PLAIN_EGRESS_TAG_PREFIX + (++egressN) + '-b' + block;
+                const sock = { dialerProxy: dialer, domainStrategy: 'UseIP' };
+                if (orig.mark !== undefined) sock.mark = orig.mark;
+                extraOuts.push({ protocol: 'freedom', tag: egressTag, streamSettings: { sockopt: sock } });
+            }
+
+            const tunTag = PLAIN_TUN_TAG_PREFIX + n + '-b' + block;
+            // No "sniffing" on purpose: sniffing forces Xray to read the
+            // payload and would rule out splice on this hop.
+            inbounds.push({
+                tag: tunTag,
+                listen: addr,
+                port: PLAIN_POOL_PORT,
+                protocol: PLAIN_TUN_PROTOCOL,
+                settings: { address: host, port: port, network: 'tcp' }
+            });
+            rules.push({ type: 'field', inboundTag: [tunTag], outboundTag: egressTag });
+        }
+
+        _pinPlainTransportHost(ss, host, port);
+        vn.address = addr;
+        vn.port = PLAIN_POOL_PORT;
+        // The outbound now only talks to loopback, so it always dials via
+        // "direct"; fragment targets the TLS hello and means nothing here.
+        const sock = Object.assign({}, orig, { dialerProxy: 'direct' });
+        delete sock.fragment;
+        ss.sockopt = sock;
+    }
+
+    if (!inbounds.length) return cfg;
+    cfg.inbounds = (cfg.inbounds || []).concat(inbounds);
+    cfg.outbounds = cfg.outbounds.concat(extraOuts);
+    cfg.routing = cfg.routing || {};
+    // First, so a user rule (e.g. "port 80 -> proxy") can never capture the
+    // tunnel's own traffic and loop it back into the VLESS outbound.
+    cfg.routing.rules = rules.concat(cfg.routing.rules || []);
+    return cfg;
+}
+
+// Moves an already-built pool from block 0 to `block` (127.18.<block>.x) so a
+// second xray process (node probe) can run beside the device-wide one.
+function relocatePlainVlessPool(cfg, block) {
+    const re = /^127\.18\.0\./;
+    const mv = a => (typeof a === 'string' ? a.replace(re, `${PLAIN_POOL_PREFIX}.${block | 0}.`) : a);
+    (cfg.inbounds || []).forEach(i => {
+        if (i && typeof i.tag === 'string' && i.tag.indexOf(PLAIN_TUN_TAG_PREFIX) === 0) i.listen = mv(i.listen);
+    });
+    (cfg.outbounds || []).forEach(o => {
+        const vn = o && o.protocol === 'vless' && o.settings && o.settings.vnext && o.settings.vnext[0];
+        if (vn) vn.address = mv(vn.address);
+    });
+    return cfg;
+}
+
 /**
  * Build an Xray config for a 2-hop proxy chain.
  *
@@ -389,8 +554,16 @@ function normalizeUriIPv6Host(uri) {
  */
 function convert_chain_uris_to_xray_json(hop1Uri, hop2Uri, optional_settings) {
     // Parse each hop individually — reuse existing single-URI logic
-    const hop1ConfigStr = convert_uri_to_xray_json(hop1Uri, optional_settings);
-    const hop2ConfigStr = convert_uri_to_xray_json(hop2Uri, optional_settings);
+    // Defer the plaintext-VLESS pool pass: it runs once below, on the merged
+    // config, after the hop sockopts (dialerProxy) are final.
+    let hop1ConfigStr, hop2ConfigStr;
+    _plainVlessDefer++;
+    try {
+        hop1ConfigStr = convert_uri_to_xray_json(hop1Uri, optional_settings);
+        hop2ConfigStr = convert_uri_to_xray_json(hop2Uri, optional_settings);
+    } finally {
+        _plainVlessDefer--;
+    }
 
     let hop1Config, hop2Config;
     try { hop1Config = JSON.parse(hop1ConfigStr); } catch(e) { return hop1ConfigStr; }
@@ -426,6 +599,10 @@ function convert_chain_uris_to_xray_json(hop1Uri, hop2Uri, optional_settings) {
     // outbound chain ahead of hop2's own direct/block outbounds.
     const finalConfig = hop2Config;
     finalConfig.outbounds = [hop2Out, hop1Out, ...hop2Config.outbounds.slice(1)];
+
+    if (_plainVlessDefer === 0 && !(optional_settings && optional_settings.plainVlessTunnel === false)) {
+        applyPlainVlessLoopback(finalConfig);
+    }
 
     return JSON.stringify(finalConfig, null, 2);
 }
@@ -508,6 +685,7 @@ function _buildRuleNodeOutbounds(settings) {
         const rawUri = String(uris[remark] || '').trim();
         if (!rawUri) return;
 
+        _plainVlessDefer++; // the pool pass runs once, on the final merged config
         try {
             let cfg, outs;
             if (/^chain:\/\//i.test(rawUri)) {
@@ -533,6 +711,8 @@ function _buildRuleNodeOutbounds(settings) {
             result.tagByRemark[remark] = tag;
         } catch (e) {
             // Unparseable node: leave it unresolved (its rules get dropped).
+        } finally {
+            _plainVlessDefer--;
         }
     });
 
@@ -1627,6 +1807,10 @@ function convert_uri_to_xray_json(uri, optional_settings) {
             ]
         }
     };
+
+    if (_plainVlessDefer === 0 && settings.plainVlessTunnel !== false) {
+        applyPlainVlessLoopback(fullConfig);
+    }
 
     return JSON.stringify(fullConfig, null, 2);
 }

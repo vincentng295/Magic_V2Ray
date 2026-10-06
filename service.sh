@@ -222,6 +222,12 @@ TUN_NAME="xraytun0"
 TUN_ADDR="127.17.1.3"
 TUN_PORT="808"
 
+# Loopback pool for plaintext-VLESS tunnels (helper.js: applyPlainVlessLoopback).
+# Xray listens on 127.18.<block>.<n>:80 with a dokodemo-door inbound per
+# plaintext VLESS server. Must match PLAIN_POOL_PREFIX / PLAIN_POOL_PORT there.
+PLAIN_POOL_NET="127.18.0.0/16"
+PLAIN_POOL_PORT="80"
+
 # Latency probe cadence and how long the backend keeps probing after the last
 # UI heartbeat. See monitor_network_latency().
 LATENCY_INTERVAL=2
@@ -1419,6 +1425,13 @@ apply_routing_rules() {
     # Hide proxy port from non-system apps
     $iptables -I OUTPUT -p tcp --dport $TUN_PORT -d $TUN_ADDR -m owner --uid-owner 9999-2147483647 -j REJECT --reject-with tcp-reset
 
+    # Same for the plaintext-VLESS tunnel pool: an app that connects to
+    # 127.18.x.x:80 would reach the raw VLESS server (fingerprint it, or
+    # detect that a proxy is running). Xray runs as root (uid 0), so its own
+    # vless-out -> tunnel hop is unaffected. Always installed: it is a no-op
+    # when no tunnel listens, and keeps the rule set independent of the node.
+    $iptables -I OUTPUT -p tcp --dport $PLAIN_POOL_PORT -d $PLAIN_POOL_NET -m owner --uid-owner 9999-2147483647 -j REJECT --reject-with tcp-reset
+
 
 
     # =========================================================================
@@ -1568,6 +1581,7 @@ clear_routing_rules() {
     $iptables -t mangle -X XRAY_MARK
     $ip rule del fwmark 1 table 100 priority 1010
     $iptables -D OUTPUT -p tcp --dport $TUN_PORT -d $TUN_ADDR -m owner --uid-owner 9999-2147483647 -j REJECT --reject-with tcp-reset
+    $iptables -D OUTPUT -p tcp --dport $PLAIN_POOL_PORT -d $PLAIN_POOL_NET -m owner --uid-owner 9999-2147483647 -j REJECT --reject-with tcp-reset
 
 
     # Delete hotspot rules & ip rules
