@@ -41,6 +41,7 @@ function changeLanguage(lang) {
     currentLang = lang;
     advSettings.lang = lang;
     applyI18n();
+    updateLanBypassSummary();
     updateStatusDisplay();
     renderProfiles();
     saveAdvancedSettingsForm(true); 
@@ -3158,8 +3159,8 @@ function bindSettingsToFormView() {
     document.getElementById('set-mtu').value = advSettings.mtu || 1350;
     document.getElementById('set-networkmode').value = advSettings.networkMode ?? 0;
     document.getElementById('set-allowtether').checked = advSettings.allowTether !== false;
-    // Opt-in: missing/undefined (older settings files) means off.
-    document.getElementById('set-includelan').checked = advSettings.includeLan === true;
+    migrateLanBypassSetting();
+    renderLanBypassList();
 
     if (!Array.isArray(advSettings.routingRules)) advSettings.routingRules = [];
     renderRoutingRules();
@@ -3245,7 +3246,8 @@ function saveNetworkSettingsForm() {
     advSettings.enableIPv6 = document.getElementById('set-enableipv6').checked;
     advSettings.enableIPv6ULA = document.getElementById('set-enableipv6ula').checked;
     advSettings.allowTether = document.getElementById('set-allowtether').checked;
-    advSettings.includeLan = document.getElementById('set-includelan').checked;
+    advSettings.lanProxyCidrs = collectLanProxyCidrs();
+    delete advSettings.includeLan;
 
     writeFileB64(SETTINGS_FILE, utoa(JSON.stringify(advSettings)), () => {
         applyBypassIfaceForm(() => {
@@ -3253,6 +3255,72 @@ function saveNetworkSettingsForm() {
             applyActiveConfig({ force: true });
         });
     });
+}
+
+// ===== Bypass LAN =====
+// One switch per range of LAN_BYPASS_CIDRS (vars.js). Ticked = the range skips
+// Xray (the default for all of them); unticked = it is sent into Xray.
+// Persisted in settings.base64 as `lanProxyCidrs`: the space-separated list of
+// UNticked CIDRs (no commas, which service.sh's query_settings cannot parse).
+// Storing the unticked ones keeps "everything bypassed" as the default, also
+// for ranges added in a later version. service.sh re-reads it on every apply.
+
+// Older versions had one boolean `includeLan` (true = send all LAN ranges
+// except loopback through Xray). Converts it once; the old key is dropped on
+// the next save.
+function migrateLanBypassSetting() {
+    if (typeof advSettings.lanProxyCidrs !== 'string') {
+        advSettings.lanProxyCidrs = advSettings.includeLan === true
+            ? LAN_BYPASS_CIDRS.map(e => e.cidr).join(' ')
+            : '';
+    }
+    delete advSettings.includeLan;
+}
+
+function renderLanBypassList() {
+    const box = document.getElementById('lan-bypass-list');
+    if (!box) return;
+    const unticked = new Set(String(advSettings.lanProxyCidrs || '').split(/\s+/).filter(Boolean));
+    let html = '';
+    [4, 6].forEach(v => {
+        html += `<div class="lan-family-title" data-i18n="lan_family_v${v}">IPv${v}</div>`;
+        LAN_BYPASS_CIDRS.filter(e => e.v === v).forEach(e => {
+            const id = 'lan-cidr-' + e.cidr.replace(/[^0-9a-z]/gi, '_');
+            const checked = !unticked.has(e.cidr);
+            html += `<div class="setting-item-row toggle-row">` +
+                `<label for="${id}"><span class="lan-cidr-code">${e.cidr}</span><small>${e.name}</small></label>` +
+                `<input type="checkbox" id="${id}" data-cidr="${e.cidr}"` +
+                `${checked ? ' checked' : ''} onchange="updateLanBypassSummary()">` +
+                `</div>`;
+        });
+    });
+    box.innerHTML = html;
+    applyI18n();
+    updateLanBypassSummary();
+}
+
+// Ticks/unticks every listed range (loopback is not listed, always bypassed).
+function setLanBypassAll(on) {
+    document.querySelectorAll('#lan-bypass-list input[data-cidr]').forEach(el => {
+        el.checked = on;
+    });
+    updateLanBypassSummary();
+}
+
+function updateLanBypassSummary() {
+    const el = document.getElementById('lan-bypass-summary');
+    if (!el) return;
+    const boxes = document.querySelectorAll('#lan-bypass-list input[data-cidr]');
+    const on = Array.from(boxes).filter(b => b.checked).length;
+    el.textContent = t('lan_bypass_summary', { on, total: boxes.length });
+}
+
+// The value to store in advSettings.lanProxyCidrs: every unticked range.
+function collectLanProxyCidrs() {
+    return Array.from(document.querySelectorAll('#lan-bypass-list input[data-cidr]'))
+        .filter(el => !el.checked)
+        .map(el => el.dataset.cidr)
+        .join(' ');
 }
 
 // ===== Bypass network interface =====

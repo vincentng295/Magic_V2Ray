@@ -1334,6 +1334,39 @@ textarea::placeholder { color: var(--md-outline); }
     margin-bottom: 24px;
 }
 
+/* Network tab: Bypass LAN list */
+.lan-bypass-desc {
+    margin: 0 0 12px;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--md-on-surface-variant);
+}
+.lan-bypass-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+.lan-bypass-details > summary {
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--md-on-surface);
+    padding: 8px 0;
+}
+.lan-family-title {
+    margin: 16px 0 12px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .6px;
+    color: var(--md-primary);
+}
+.lan-cidr-code {
+    font-family: var(--md-font-mono);
+    font-weight: 600;
+    word-break: break-all;
+}
+
 /* Disabled/grayed setting row */
 .setting-row-disabled {
     opacity: 0.38;

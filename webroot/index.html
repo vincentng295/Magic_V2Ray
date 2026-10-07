@@ -321,10 +321,6 @@
                         <input type="checkbox" id="set-allowtether" checked>
                     </div>
                     <div class="setting-item-row toggle-row">
-                        <label for="set-includelan"><span data-i18n="lbl_includelan">Include LAN traffic</span><small data-i18n="desc_includelan">Also send local-network traffic through Xray. Loopback (127.x.x.x and ::1) is always excluded.</small></label>
-                        <input type="checkbox" id="set-includelan">
-                    </div>
-                    <div class="setting-item-row toggle-row">
                         <label for="set-bypassiface"><span data-i18n="lbl_bypassiface">Bypass Network Interface</span><small data-i18n="desc_bypassiface">Traffic headed to these interfaces skips Xray entirely.</small></label>
                         <input type="checkbox" id="set-bypassiface" onchange="toggleSubSettingField('set-bypassiface', 'bypassiface-sub-fields')">
                     </div>
@@ -334,6 +330,21 @@
                             <input type="text" id="set-bypassiface-list" placeholder="tailscale0,wt0">
                         </div>
                     </div>
+                </div>
+
+                <!-- Bypass LAN: one switch per CIDR, rendered by renderLanBypassList()
+                     (main.js) from LAN_BYPASS_CIDRS (vars.js). Ticked = skips Xray. -->
+                <div class="settings-group-box">
+                    <h4 data-i18n="group_lan_bypass">Bypass LAN</h4>
+                    <p class="lan-bypass-desc" data-i18n="desc_lan_bypass">Tick the destination ranges that skip Xray and connect directly. Untick a range to send that traffic through Xray instead. Loopback is always bypassed.</p>
+                    <div class="lan-bypass-actions">
+                        <button type="button" class="btn btn-secondary" onclick="setLanBypassAll(true)" data-i18n="btn_lan_select_all">Bypass all</button>
+                        <button type="button" class="btn btn-secondary" onclick="setLanBypassAll(false)" data-i18n="btn_lan_select_none">Bypass none</button>
+                    </div>
+                    <details class="lan-bypass-details">
+                        <summary id="lan-bypass-summary"></summary>
+                        <div id="lan-bypass-list"></div>
+                    </details>
                 </div>
 
                 <button class="btn btn-primary btn-save-settings" onclick="saveNetworkSettingsForm()" data-i18n="btn_save_network">Save &amp; Restart Engine</button>

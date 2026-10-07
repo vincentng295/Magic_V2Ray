@@ -127,23 +127,27 @@ LAN_BYPASS_V4="
 255.255.255.255/32
 "
 
-# NOTE: "includeLan" (Network tab, default off) does not edit these lists. It
-# only swaps which list the *bypass* rules consume: apply_routing_rules()
-# builds LAN_SKIP_V4/LAN_SKIP_V6 from them (everything when off, loopback
-# only when on) and uses those for the mangle RETURNs and the pref-5025
-# "to <cidr> lookup main" rules. The tether DNS DNAT and the pref-5030
-# "from <cidr>" rules keep using the full lists on purpose.
+# NOTE: the Network tab's "Bypass LAN" list (setting "lanProxyCidrs") does not
+# edit these lists. It only decides which entries the *bypass* rules consume:
+# apply_routing_rules() builds LAN_SKIP_V4/LAN_SKIP_V6 from them (every entry
+# except the ones the user unticked; loopback can never be removed) and uses
+# those for the mangle RETURNs and the pref-5025 "to <cidr> lookup main"
+# rules. The tether DNS DNAT and the pref-5030 "from <cidr>" rules keep using
+# the full lists on purpose.
+# lanProxyCidrs stores the UNticked CIDRs (space-separated), not the ticked
+# ones, so an entry added to these lists later is bypassed by default instead
+# of silently being proxied. The same CIDRs are mirrored in LAN_BYPASS_CIDRS
+# (vars.js) for the UI - keep the two in sync.
 #
 # IPv6. ::ffff:0:0/96 (IPv4-mapped) is included for completeness but rarely
 # appears on the wire — it mostly matters for local dual-stack sockets.
 #
 # FakeDNS pools must never be bypassed: the addresses Xray hands out for
 # fake DNS answers have to enter the tun so Xray can map them back to a
-# domain. IPv4 198.18.0.0/15 is simply not in LAN_BYPASS_V4. The IPv6 pool
-# (fc00::/18, see FAKEDNS_POOL_V6 in helper.js) sits inside ULA fc00::/7, so
-# that entry is written as fc00::/7 MINUS fc00::/18 — the 11 CIDRs from
-# fc00:4000::/18 up to fd00::/8. If the pool in helper.js ever changes, this
-# split has to change with it.
+# domain. Neither pool (198.18.0.0/15 and 2001:2::/48, see FAKEDNS_POOL_V4/V6
+# in helper.js) overlaps any entry of these lists, so nothing has to be carved
+# out and all ULA space is the single entry fc00::/7. If a pool in helper.js
+# ever changes, check it against these lists again.
 LAN_BYPASS_V6="
 ::1/128
 ::ffff:0:0/96
@@ -154,20 +158,16 @@ LAN_BYPASS_V6="
 2001:20::/28
 2001:db8::/32
 2002::/16
-fc00:4000::/18
-fc00:8000::/17
-fc01::/16
-fc02::/15
-fc04::/14
-fc08::/13
-fc10::/12
-fc20::/11
-fc40::/10
-fc80::/9
-fd00::/8
+fc00::/7
 fe80::/10
 ff00::/8
 "
+
+# Loopback is never removable from the Bypass LAN list: xray's own inbounds
+# (socks-test-in on 127.17.1.3, local DNS, ...) live there and must never be
+# looped through the tun.
+LAN_ALWAYS_SKIP_V4="127.0.0.0/8"
+LAN_ALWAYS_SKIP_V6="::1/128"
 
 
 grep_prop() {
@@ -253,6 +253,33 @@ query_settings() {
 # Boolean settings default to false when absent or unreadable (fail closed).
 setting_is_true() {
     [ "$(query_settings "$1")" = "true" ]
+}
+
+# True when the key exists in the settings blob at all (query_settings cannot
+# tell "absent" from "empty string").
+setting_present() {
+    local settings_file="$DATADIR/settings.base64"
+    [ -f "$settings_file" ] || return 1
+    base64 -d "$settings_file" 2>/dev/null | grep -q "\"$1\"[[:space:]]*:"
+}
+
+# lan_skip_filter <all> <unticked> <always>
+# Prints every CIDR of <all> that is NOT listed in <unticked>, space-separated.
+# CIDRs listed in <always> are kept regardless. <unticked> comes from the
+# settings file and is only ever compared as a plain string, never executed.
+lan_skip_filter() {
+    local all="$1" unticked="$2" always="$3" out="" c p drop
+    for c in $all; do
+        drop=0
+        for p in $unticked; do
+            if [ "$p" = "$c" ]; then drop=1; break; fi
+        done
+        for p in $always; do
+            [ "$p" = "$c" ] && drop=0
+        done
+        [ "$drop" = 0 ] && out="$out $c"
+    done
+    echo $out
 }
 
 # ===========================================================================
@@ -1240,22 +1267,27 @@ apply_routing_rules() {
     allow_tether="$(setting_is_true allowTether && echo true || echo false)"
     echo "Allow tether from proxy: $allow_tether"
 
-    # includeLan (default false, fail closed): when true, LAN / private /
-    # special-use destinations are sent into Xray like any other traffic
-    # instead of being skipped. Only loopback stays excluded — 127.0.0.0/8
-    # and ::1/128 — because xray's own inbounds (socks-test-in on 127.17.1.3,
-    # local DNS, ...) live there and must never be looped through the tun.
-    # What Xray then does with LAN traffic is decided by its own routing
-    # rules (the stock config sends geoip:private / geosite:private direct).
-    include_lan="$(setting_is_true includeLan && echo true || echo false)"
-    echo "Include LAN traffic: $include_lan"
-    if [ "$include_lan" = true ]; then
-        LAN_SKIP_V4="127.0.0.0/8"
-        LAN_SKIP_V6="::1/128"
+    # Bypass LAN (Network tab). lanProxyCidrs is the space-separated list of
+    # CIDRs the user UNticked: those destinations are sent into Xray like any
+    # other traffic instead of being skipped. Absent/empty = every entry of
+    # LAN_BYPASS_V4/V6 is bypassed (the default). Loopback can never be removed
+    # (LAN_ALWAYS_SKIP_*). What Xray then does with LAN traffic is decided by
+    # its own routing rules (the stock config sends geoip:private /
+    # geosite:private direct).
+    #
+    # Legacy: older versions had one includeLan switch. While the new key is
+    # absent, includeLan=true keeps meaning "only loopback is skipped".
+    if setting_present lanProxyCidrs; then
+        lan_proxy_cidrs="$(query_settings lanProxyCidrs)"
+    elif setting_is_true includeLan; then
+        lan_proxy_cidrs="$LAN_BYPASS_V4 $LAN_BYPASS_V6"
     else
-        LAN_SKIP_V4="$LAN_BYPASS_V4"
-        LAN_SKIP_V6="$LAN_BYPASS_V6"
+        lan_proxy_cidrs=""
     fi
+    LAN_SKIP_V4="$(lan_skip_filter "$LAN_BYPASS_V4" "$lan_proxy_cidrs" "$LAN_ALWAYS_SKIP_V4")"
+    LAN_SKIP_V6="$(lan_skip_filter "$LAN_BYPASS_V6" "$lan_proxy_cidrs" "$LAN_ALWAYS_SKIP_V6")"
+    echo "Bypass LAN IPv4: ${LAN_SKIP_V4:-<none>}"
+    echo "Bypass LAN IPv6: ${LAN_SKIP_V6:-<none>}"
 
     # bypassIface: comma-separated list of interface names whose outbound
     # traffic skips XRAY_MARK entirely (e.g. tailscale0, wt0) — useful for

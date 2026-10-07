@@ -96,10 +96,13 @@ let advSettings = {
     queryStrategy: "UseIPv4",
     networkMode: 0,
     allowTether: true,
-    // Network tab. false (default): LAN/private/special-use destinations skip
-    // Xray. true: they are sent into Xray too, except loopback (127.0.0.0/8
-    // and ::1/128). Read by service.sh (setting_is_true includeLan).
-    includeLan: false,
+    // Network tab, "Bypass LAN". Space-separated CIDRs the user UNticked, i.e.
+    // the LAN/private/special-use ranges that are sent into Xray instead of
+    // skipping it. "" (default) = every range in LAN_BYPASS_CIDRS is bypassed.
+    // Loopback can never be listed. Read by service.sh (query_settings
+    // lanProxyCidrs). Replaces the old boolean `includeLan`; see
+    // migrateLanBypassSetting() in main.js.
+    lanProxyCidrs: "",
     // Exclude Apps tab. excludeApps: master switch (apps in EXCLUDE_LIST_FILE
     // bypass Xray; read by service.sh via setting_is_true excludeApps).
     // excludeAutoApply: UI-only - restart the engine automatically after each
@@ -235,6 +238,39 @@ let advSettings = {
         }
     ]
 };
+// Ranges listed in the Network tab's "Bypass LAN" section. Must mirror
+// LAN_BYPASS_V4 / LAN_BYPASS_V6 in service.sh (that file is what actually
+// builds the rules; a CIDR missing here simply cannot be unticked in the UI).
+// Loopback (127.0.0.0/8, ::1/128) is deliberately NOT listed: it is always
+// bypassed (LAN_ALWAYS_SKIP_* in service.sh) and cannot be switched off.
+// All ULA space is the single range fc00::/7.
+const LAN_BYPASS_CIDRS = [
+    { cidr: "10.0.0.0/8",          v: 4, name: "Private (RFC 1918)" },
+    { cidr: "100.64.0.0/10",       v: 4, name: "Carrier-grade NAT (RFC 6598)" },
+    { cidr: "169.254.0.0/16",      v: 4, name: "Link-local" },
+    { cidr: "172.16.0.0/12",       v: 4, name: "Private (RFC 1918)" },
+    { cidr: "192.0.0.0/24",        v: 4, name: "IETF protocol assignments" },
+    { cidr: "192.0.2.0/24",        v: 4, name: "Documentation (TEST-NET-1)" },
+    { cidr: "192.88.99.0/24",      v: 4, name: "6to4 relay anycast (deprecated)" },
+    { cidr: "192.168.0.0/16",      v: 4, name: "Private (RFC 1918)" },
+    { cidr: "198.51.100.0/24",     v: 4, name: "Documentation (TEST-NET-2)" },
+    { cidr: "203.0.113.0/24",      v: 4, name: "Documentation (TEST-NET-3)" },
+    { cidr: "224.0.0.0/4",         v: 4, name: "Multicast" },
+    { cidr: "240.0.0.0/4",         v: 4, name: "Reserved (Class E)" },
+    { cidr: "255.255.255.255/32",  v: 4, name: "Limited broadcast" },
+    { cidr: "::ffff:0:0/96",       v: 6, name: "IPv4-mapped" },
+    { cidr: "64:ff9b::/96",        v: 6, name: "NAT64 well-known prefix" },
+    { cidr: "100::/64",            v: 6, name: "Discard-only" },
+    { cidr: "2001::/32",           v: 6, name: "Teredo" },
+    { cidr: "2001:10::/28",        v: 6, name: "ORCHID (deprecated)" },
+    { cidr: "2001:20::/28",        v: 6, name: "ORCHIDv2" },
+    { cidr: "2001:db8::/32",       v: 6, name: "Documentation" },
+    { cidr: "2002::/16",           v: 6, name: "6to4" },
+    { cidr: "fc00::/7",            v: 6, name: "Unique local (ULA)" },
+    { cidr: "fe80::/10",           v: 6, name: "Link-local" },
+    { cidr: "ff00::/8",            v: 6, name: "Multicast" }
+];
+
 // Settings owned by the Traffic Settings tab — what its "Reset to defaults"
 // button restores. Network-tab switches (apply-on mode, IPv6, tether, LAN,
 // bypass interfaces), Exclude Apps, routing rules / domainStrategy, custom hosts,
