@@ -4127,6 +4127,7 @@ function _logRenderLines() {
         // clear existing line nodes
         output.querySelectorAll('.log-line').forEach(el => el.remove());
         document.getElementById('log-line-count').textContent = '— lines';
+        _logLineBase = 0;
         return;
     }
 
@@ -4137,7 +4138,7 @@ function _logRenderLines() {
     const newLines = _logAllLines.slice(existingCount);
 
     newLines.forEach((text, i) => {
-        const lineNum = existingCount + i + 1;
+        const lineNum = _logLineBase + existingCount + i + 1;
         const level = _logClassifyLine(text);
         const div = document.createElement('div');
         div.className = `log-line log-line--${level}${level === 'access' ? ' log-line--access' : ''}`;
@@ -4172,6 +4173,25 @@ function _logRenderLines() {
     }
 }
 
+// `logservice read -n N` always returns the LAST N lines, so once the log is
+// longer than N the window slides: old lines fall off the front while new ones
+// appear at the back. Returns how many lines to drop from the front of `oldL`
+// so that what remains is a prefix of `newL`, or -1 if they don't line up
+// (log flushed / xray restarted / window grew past what we have).
+function _logSlideOffset(oldL, newL) {
+    const n = oldL.length;
+    for (let k = 0; k < n; k++) {
+        const m = n - k;
+        if (m > newL.length || oldL[k] !== newL[0]) continue;
+        let ok = true;
+        for (let j = 1; j < m; j++) {
+            if (oldL[k + j] !== newL[j]) { ok = false; break; }
+        }
+        if (ok) return k;
+    }
+    return -1;
+}
+
 function refreshLog() {
     const tailLines = document.getElementById('log-tail-lines')?.value || 200;
     const btn = document.getElementById('btn-log-refresh');
@@ -4193,12 +4213,22 @@ function refreshLog() {
 
             const newLines = output.split('\n').filter(l => l.length > 0);
 
-            // If line count changed, do a full replace (e.g. log rotated or tail shrunk)
-            if (newLines.length < _logAllLines.length) {
-                // Log was cleared/rotated — full re-render
-                document.getElementById('log-output')?.querySelectorAll('.log-line')
-                    .forEach(el => el.remove());
+            // Reconcile with what's already on screen. The old code only
+            // appended lines past the current count, so with a full N-line
+            // window nothing new was ever rendered.
+            const logOut = document.getElementById('log-output');
+            const drop = _logSlideOffset(_logAllLines, newLines);
+            if (drop < 0) {
+                // No overlap: log flushed, xray restarted, or the window grew.
+                logOut?.querySelectorAll('.log-line').forEach(el => el.remove());
                 _logAllLines = [];
+                _logLineBase = 0;
+            } else if (drop > 0) {
+                // Window slid: drop the oldest `drop` lines from the top.
+                const nodes = logOut ? logOut.querySelectorAll('.log-line') : [];
+                for (let i = 0; i < drop && i < nodes.length; i++) nodes[i].remove();
+                _logAllLines = _logAllLines.slice(drop);
+                _logLineBase += drop;
             }
 
             _logAllLines = newLines;
@@ -4302,6 +4332,7 @@ function setLogFilter(level) {
 function clearLogView() {
     execShell(`${MODDIR}/bin/xhuskydg_helper logservice flush -c '${LOG_CTRL}'`, () => {
         _logAllLines = [];
+        _logLineBase = 0;
         document.getElementById('log-output')?.querySelectorAll('.log-line')
             .forEach(el => el.remove());
         const emptyState = document.getElementById('log-empty-state');

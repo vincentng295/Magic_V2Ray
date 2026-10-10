@@ -402,6 +402,7 @@ let _logFontSize = 12;
 let _logCurrentFilter = 'all';
 let _logLastLineCount = 0;
 let _logAllLines = [];
+let _logLineBase = 0; // lines already scrolled off the top of the window (keeps line numbers absolute)
 
 // Network latency monitor.
 // Poll cadence matches the backend probe interval (service.sh
