@@ -251,8 +251,7 @@ function serializeHostsFile(entries) {
 }
 
 const LEGACY_DNS = [
-    "1.1.1.1",       // Cloudflare DNS (Public)
-    "8.8.8.8",       // Google DNS (Public)
+    "https://1.1.1.1/dns-query", // DoH DNS for Cloudflare
     "https+local://l0tl6ub9be.cloudflare-gateway.com/dns-query", // DoH DNS for VNPT
     "https+local://exkckr7pkk.cloudflare-gateway.com/dns-query", // DoH DNS for Viettel, Mobifone, VNPT
 ]
@@ -278,6 +277,10 @@ function buildFakeDnsPools(settings) {
 
 // Foreign DNS field default: every LEGACY_DNS entry, comma-separated.
 const DEFAULT_FOREIGN_DNS = LEGACY_DNS.join(", ");
+
+// Domains answered by the Direct DNS servers (comma-separated, editable in the
+// DNS servers modal). Same pair the domestic server was hardcoded to before.
+const DEFAULT_DIRECT_DNS_DOMAINS = "geosite:cn, geosite:private";
 
 // Splits a comma-separated DNS list (as typed in a text field) into a clean
 // array: trims each entry and drops empty ones.
@@ -868,8 +871,8 @@ function _dnsServerRouteTarget(addr) {
 
 // Builds one "field" routing rule per configured DNS upstream so that the
 // DNS module's own upstream queries are split the same way the resolution
-// itself already is: domesticDns always goes direct, foreignDns goes
-// via settings.dnsViaProxy — instead of every upstream sharing one blanket
+// itself already is: directDns always goes direct, foreignDns (Proxy DNS)
+// goes via settings.dnsViaProxy — instead of every upstream sharing one blanket
 // choice. Only meaningful in "Local DNS" (structured) mode, since legacy
 // mode has no domestic/foreign distinction to preserve.
 function _buildDnsUpstreamRoutingRules(settings) {
@@ -887,9 +890,7 @@ function _buildDnsUpstreamRoutingRules(settings) {
         });
     };
 
-    if (settings.domesticDns && settings.domesticDns.trim()) {
-        pushRule(settings.domesticDns.trim(), "direct");
-    }
+    splitDnsList(settings.directDns).forEach(addr => pushRule(addr, "direct"));
 
     const foreignOutboundTag = settings.dnsViaProxy ? "proxy" : "direct";
     splitDnsList(settings.foreignDns).forEach(addr => pushRule(addr, foreignOutboundTag));
@@ -924,7 +925,8 @@ function convert_uri_to_xray_json(uri, optional_settings) {
         fakeDnsLocal: false,
         domainStrategy: "AsIs",
         foreignDns: DEFAULT_FOREIGN_DNS,
-        domesticDns: "223.5.5.5",
+        directDns: "223.5.5.5",
+        directDnsDomains: DEFAULT_DIRECT_DNS_DOMAINS,
         routingRules: []
     };
 
@@ -1615,22 +1617,35 @@ function convert_uri_to_xray_json(uri, optional_settings) {
             });
         }
 
-        // 2. Domestic DNS — for local/domestic domain resolution, routed direct.
-        if (settings.domesticDns && settings.domesticDns.trim()) {
-            dnsServers.push({
-                address: settings.domesticDns.trim(),
-                domains: ["geosite:cn", "geosite:private"],
-                expectIPs: ["geoip:cn", "geoip:private"],
+        // 2. Direct DNS — resolves the "domains using direct DNS" list and is
+        // routed direct. With an empty domain list there is nothing for it to
+        // answer, so it is left out. expectIPs (reject answers outside the
+        // matching geoip) only applies while the list is made of geosite:cn /
+        // geosite:private alone; custom domains may legitimately resolve anywhere.
+        const directDnsList = splitDnsList(settings.directDns);
+        const directDomains = splitDnsList(settings.directDnsDomains);
+        if (directDnsList.length && directDomains.length) {
+            const geoOnly = directDomains.every(d => d === "geosite:cn" || d === "geosite:private");
+            const expectIPs = geoOnly
+                ? directDomains.map(d => d === "geosite:cn" ? "geoip:cn" : "geoip:private")
+                : null;
+            directDnsList.forEach(addr => dnsServers.push({
+                address: addr,
+                domains: directDomains,
+                ...(expectIPs ? { expectIPs } : {}),
                 skipFallback: true
-            });
+            }));
         }
 
-        // 3. Foreign DNS — fallback for everything else. Accepts several
-        // servers separated by commas; each becomes its own dns.servers entry.
-        splitDnsList(settings.foreignDns).forEach(addr => dnsServers.push(addr));
+        // 3. Proxy DNS (settings.foreignDns) — fallback for everything else.
+        // Accepts several servers separated by commas; each becomes its own
+        // dns.servers entry.
+        const proxyDnsList = splitDnsList(settings.foreignDns);
+        proxyDnsList.forEach(addr => dnsServers.push(addr));
 
-        // Ensure there is always at least one server so Xray doesn't error out.
-        if (dnsServers.length === 0) {
+        // Always keep one catch-all server (no domain filter) so domains that
+        // match no list still resolve, and Xray never gets an empty list.
+        if (proxyDnsList.length === 0) {
             dnsServers.push("1.1.1.1");
         }
     } else {

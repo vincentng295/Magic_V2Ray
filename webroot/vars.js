@@ -140,7 +140,8 @@ let advSettings = {
     proMode: false,
     // Comma-separated list; defaults to every LEGACY_DNS entry (helper.js).
     foreignDns: DEFAULT_FOREIGN_DNS,
-    domesticDns: "223.5.5.5",
+    directDns: "223.5.5.5",
+    directDnsDomains: DEFAULT_DIRECT_DNS_DOMAINS,
     // Custom DNS hosts. Stored verbatim as the user typed it (JSON object or
     // /etc/hosts-style text) so the textarea round-trips exactly; parsing
     // and merging with DEFAULT_DNS_HOSTS happens at config-generation time
@@ -280,7 +281,7 @@ const TRAFFIC_SETTING_KEYS = [
     "mux", "mux_connections",
     "fragment", "fragment_packets", "fragment_length", "fragment_interval",
     "mtu",
-    "localDns", "fakeDnsLocal", "foreignDns", "domesticDns",
+    "localDns", "fakeDnsLocal", "foreignDns", "directDns", "directDnsDomains",
     "dnsDisableCache", "dnsServeStale", "dnsServeExpiredTTL",
     "dnsDisableFallback", "dnsDisableFallbackIfMatch",
     "dnsParallelQuery", "dnsUseSystemHosts"

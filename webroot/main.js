@@ -42,6 +42,7 @@ function changeLanguage(lang) {
     advSettings.lang = lang;
     applyI18n();
     updateLanBypassSummary();
+    updateDnsSummary();
     updateStatusDisplay();
     renderProfiles();
     saveAdvancedSettingsForm(true); 
@@ -3066,6 +3067,228 @@ function updateDnsGroupVisibility() {
     }
 }
 
+// ===== DNS servers modal =====
+// Three editable lists (Direct DNS, domains answered by Direct DNS, Proxy DNS)
+// kept on advSettings as comma-separated strings: directDns,
+// directDnsDomains, foreignDns. The modal works on a draft; the check button
+// commits it to advSettings, and "Save & apply" on the Traffic tab persists it.
+
+// Settings saved by older versions had one `domesticDns` string and no
+// domain list. Converts once; the old key is dropped on the next save.
+function migrateDnsSettings() {
+    if (typeof advSettings.directDns !== 'string') {
+        advSettings.directDns = typeof advSettings.domesticDns === 'string'
+            ? advSettings.domesticDns : "223.5.5.5";
+    }
+    delete advSettings.domesticDns;
+    if (typeof advSettings.directDnsDomains !== 'string') {
+        advSettings.directDnsDomains = DEFAULT_DIRECT_DNS_DOMAINS;
+    }
+    if (typeof advSettings.foreignDns !== 'string') {
+        advSettings.foreignDns = DEFAULT_FOREIGN_DNS;
+    }
+}
+
+const DNS_LIST_DEFS = [
+    { key: 'direct',  field: 'directDns',        title: 'dns_card_direct',  desc: 'dns_card_direct_desc',  ph: '223.5.5.5' },
+    { key: 'domains', field: 'directDnsDomains', title: 'dns_card_domains', desc: 'dns_card_domains_desc', ph: 'geosite:cn' },
+    { key: 'proxy',   field: 'foreignDns',       title: 'dns_card_proxy',   desc: 'dns_card_proxy_desc',   ph: 'https://8.8.8.8/dns-query' },
+];
+
+const _DNS_SVG = (inner) => '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + inner + '</svg>';
+const DNS_ICON_EDIT = _DNS_SVG('<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>');
+const DNS_ICON_CHECK = _DNS_SVG('<polyline points="20 6 9 17 4 12"/>');
+const DNS_ICON_PLUS = _DNS_SVG('<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>');
+const DNS_ICON_DELETE = _DNS_SVG('<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>');
+
+let dnsDraft = null;   // { direct: [], domains: [], proxy: [] } while the modal is open
+let dnsCards = {};     // key -> { textarea, bulk, renderList }
+
+// Splits typed/pasted text into clean, de-duplicated entries. DNS addresses
+// and domain rules never contain spaces or commas, so both are separators.
+function parseDnsEntries(str) {
+    return [...new Set(String(str || '').split(/[\s,]+/).map(s => s.trim()).filter(Boolean))];
+}
+
+function updateDnsSummary() {
+    const el = document.getElementById('dns-servers-summary');
+    if (!el) return;
+    el.textContent = t('dns_summary', {
+        direct: parseDnsEntries(advSettings.directDns).length,
+        domains: parseDnsEntries(advSettings.directDnsDomains).length,
+        proxy: parseDnsEntries(advSettings.foreignDns).length
+    });
+}
+
+function _dnsEl(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+}
+
+function _dnsIconBtn(svg, title, onClick, extraCls) {
+    const b = _dnsEl('button', 'dns-icon-btn' + (extraCls ? ' ' + extraCls : ''));
+    b.type = 'button';
+    b.title = title;
+    b.innerHTML = svg;   // constant SVG markup only, never user data
+    b.onclick = onClick;
+    return b;
+}
+
+function openDnsModal() {
+    migrateDnsSettings();
+    dnsDraft = {};
+    DNS_LIST_DEFS.forEach(d => { dnsDraft[d.key] = parseDnsEntries(advSettings[d.field]); });
+    dnsCards = {};
+    const body = document.getElementById('dns-modal-body');
+    body.innerHTML = '';
+    DNS_LIST_DEFS.forEach(d => body.appendChild(_buildDnsCard(d)));
+    document.getElementById('dns-modal').style.display = 'block';
+}
+
+function closeDnsModal() {
+    document.getElementById('dns-modal').style.display = 'none';
+    dnsDraft = null;
+    dnsCards = {};
+}
+
+function saveDnsModal() {
+    if (!dnsDraft) return;
+    DNS_LIST_DEFS.forEach(d => {
+        const c = dnsCards[d.key];
+        if (c && c.bulk) dnsDraft[d.key] = parseDnsEntries(c.textarea.value);
+        advSettings[d.field] = dnsDraft[d.key].join(', ');
+    });
+    updateDnsSummary();
+    closeDnsModal();
+    showToast(t('toast_dns_staged'), 'success');
+}
+
+function _buildDnsCard(def) {
+    const card = _dnsEl('div', 'dns-card');
+    const state = { textarea: null, bulk: false, renderList: null };
+    dnsCards[def.key] = state;
+
+    // Header: title + "edit all as text" toggle
+    const head = _dnsEl('div', 'dns-card-head');
+    const titleWrap = _dnsEl('div', 'dns-card-titlewrap');
+    titleWrap.appendChild(_dnsEl('div', 'dns-card-title', t(def.title)));
+    titleWrap.appendChild(_dnsEl('div', 'dns-card-desc', t(def.desc)));
+    head.appendChild(titleWrap);
+    card.appendChild(head);
+
+    // Add row
+    const addRow = _dnsEl('div', 'dns-add-row');
+    const addInput = _dnsEl('input', 'dns-add-input');
+    addInput.type = 'text';
+    addInput.placeholder = def.ph;
+    addInput.autocapitalize = 'off';
+    addInput.autocomplete = 'off';
+    addInput.spellcheck = false;
+    const doAdd = () => {
+        const toAdd = parseDnsEntries(addInput.value);
+        if (!toAdd.length) return;
+        dnsDraft[def.key] = [...new Set([...dnsDraft[def.key], ...toAdd])];
+        addInput.value = '';
+        state.renderList();
+    };
+    addInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doAdd(); } });
+    addRow.appendChild(addInput);
+    addRow.appendChild(_dnsIconBtn(DNS_ICON_PLUS, t('dns_btn_add'), doAdd));
+    card.appendChild(addRow);
+
+    // List
+    const list = _dnsEl('div', 'dns-list');
+    card.appendChild(list);
+
+    // Bulk (text) editor, hidden until the header icon is pressed
+    const textarea = _dnsEl('textarea', 'dns-bulk');
+    textarea.placeholder = t('dns_bulk_ph');
+    textarea.spellcheck = false;
+    textarea.style.display = 'none';
+    state.textarea = textarea;
+    card.appendChild(textarea);
+
+    const bulkBtn = _dnsIconBtn(DNS_ICON_EDIT, t('dns_btn_edit_all'), () => {
+        if (!state.bulk) {
+            state.bulk = true;
+            textarea.value = dnsDraft[def.key].join('\n');
+            addRow.style.display = 'none';
+            list.style.display = 'none';
+            textarea.style.display = '';
+            bulkBtn.innerHTML = DNS_ICON_CHECK;
+            bulkBtn.title = t('dns_btn_done');
+            textarea.focus();
+        } else {
+            state.bulk = false;
+            dnsDraft[def.key] = parseDnsEntries(textarea.value);
+            textarea.style.display = 'none';
+            addRow.style.display = '';
+            list.style.display = '';
+            bulkBtn.innerHTML = DNS_ICON_EDIT;
+            bulkBtn.title = t('dns_btn_edit_all');
+            state.renderList();
+        }
+    });
+    head.appendChild(bulkBtn);
+
+    state.renderList = () => {
+        list.innerHTML = '';
+        const items = dnsDraft[def.key];
+        if (!items.length) {
+            list.appendChild(_dnsEl('div', 'dns-empty',
+                def.key === 'domains' ? t('hint_dns_domains_empty') : t('dns_list_empty')));
+            return;
+        }
+        items.forEach((value, idx) => list.appendChild(_buildDnsItem(def, value, idx, state)));
+    };
+    state.renderList();
+    return card;
+}
+
+function _buildDnsItem(def, value, idx, state) {
+    const row = _dnsEl('div', 'dns-item');
+    const text = _dnsEl('div', 'dns-item-text', value);
+    row.appendChild(text);
+
+    let editing = false;
+    let input = null;
+    const editBtn = _dnsIconBtn(DNS_ICON_EDIT, t('dns_btn_edit_item'), () => {
+        if (!editing) {
+            editing = true;
+            input = _dnsEl('input', 'dns-item-input');
+            input.type = 'text';
+            input.value = value;
+            input.autocapitalize = 'off';
+            input.spellcheck = false;
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') { e.preventDefault(); editBtn.click(); }
+                else if (e.key === 'Escape') { state.renderList(); }
+            });
+            row.replaceChild(input, text);
+            editBtn.innerHTML = DNS_ICON_CHECK;
+            input.focus();
+            input.select();
+        } else {
+            const parts = parseDnsEntries(input.value);
+            if (parts.length) {
+                const next = dnsDraft[def.key].slice();
+                next.splice(idx, 1, ...parts);
+                dnsDraft[def.key] = [...new Set(next)];
+            }
+            state.renderList();
+        }
+    });
+    const delBtn = _dnsIconBtn(DNS_ICON_DELETE, t('btn_delete'), () => {
+        dnsDraft[def.key] = dnsDraft[def.key].filter((_, i) => i !== idx);
+        state.renderList();
+    }, 'btn-delete-item');
+    row.appendChild(editBtn);
+    row.appendChild(delBtn);
+    return row;
+}
+
 // Grey out DNS engine options that have no effect given the others:
 // serveStale needs the cache, its TTL needs serveStale, and
 // disableFallbackIfMatch is moot once fallback is fully disabled.
@@ -3094,6 +3317,7 @@ function syncQueryStrategyHint() {
 }
 
 function bindSettingsToFormView() {
+    migrateDnsSettings();
     currentLang = advSettings.lang || "en";
     applyI18n();
 
@@ -3129,8 +3353,7 @@ function bindSettingsToFormView() {
     // DNS group
     document.getElementById('set-localdns').checked = advSettings.localDns || false;
     document.getElementById('set-fakedns-local').checked = advSettings.fakeDnsLocal || false;
-    document.getElementById('set-foreign-dns').value = advSettings.foreignDns || DEFAULT_FOREIGN_DNS;
-    document.getElementById('set-domestic-dns').value = advSettings.domesticDns || "223.5.5.5";
+    updateDnsSummary();
     updateDnsGroupVisibility();
     
     document.getElementById('set-mux').checked = advSettings.mux;
@@ -3182,9 +3405,8 @@ function saveAdvancedSettingsForm(isLangOnly = false) {    advSettings.loglevel 
     advSettings.localDns = document.getElementById('set-localdns').checked;
     advSettings.fakeDnsLocal = document.getElementById('set-fakedns-local').checked;
     delete advSettings.vpnDns; // removed setting: drop leftovers from older saved configs
-    // Normalize the comma-separated list (trim entries, drop empties).
-    advSettings.foreignDns = splitDnsList(document.getElementById('set-foreign-dns').value).join(", ");
-    advSettings.domesticDns = document.getElementById('set-domestic-dns').value.trim();
+    // The three DNS lists are edited in the DNS servers modal (saveDnsModal)
+    // and already live on advSettings.
 
     advSettings.mux = document.getElementById('set-mux').checked;
     advSettings.mux_connections = parseInt(document.getElementById('set-mux-connections').value) || 8;

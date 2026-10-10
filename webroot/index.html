@@ -226,14 +226,9 @@
                             <input type="checkbox" id="set-fakedns-local" onchange="updateDnsGroupVisibility()">
                         </div>
 
-                        <div class="setting-item-row" id="dns-row-foreign">
-                            <label for="set-foreign-dns"><span data-i18n="lbl_foreign_dns">Foreign DNS (Optional)</span><small data-i18n="desc_foreign_dns">Resolver for non-domestic domains</small></label>
-                            <input type="text" id="set-foreign-dns" placeholder="1.1.1.1, 8.8.8.8">
-                        </div>
-
-                        <div class="setting-item-row" id="dns-row-domestic">
-                            <label for="set-domestic-dns"><span data-i18n="lbl_domestic_dns">Domestic DNS (Optional)</span><small data-i18n="desc_domestic_dns">Resolver for domestic/local domains</small></label>
-                            <input type="text" id="set-domestic-dns" placeholder="223.5.5.5" value="223.5.5.5">
+                        <div class="setting-item-row" id="dns-row-servers">
+                            <label><span data-i18n="lbl_dns_servers">DNS servers</span><small id="dns-servers-summary"></small></label>
+                            <button type="button" class="btn-dns-configure" onclick="openDnsModal()" data-i18n="btn_configure">Configure</button>
                         </div>
 
                     </div>
@@ -1178,6 +1173,18 @@
                     <input type="text" id="host-ips-input" data-i18n-placeholder="ph_host_ips" placeholder="1.2.3.4, 1.2.3.5">
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- DNS Servers Modal -->
+    <div id="dns-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-window">
+            <header class="modal-header">
+                <button class="modal-icon-btn" onclick="closeDnsModal()">←</button>
+                <h2 data-i18n="modal_dns_title">DNS servers</h2>
+                <button class="modal-icon-btn check-btn" onclick="saveDnsModal()">✓</button>
+            </header>
+            <div class="modal-body dns-modal-body" id="dns-modal-body"></div>
         </div>
     </div>
 
