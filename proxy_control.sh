@@ -124,7 +124,7 @@ reload_proxy() {
 case "$1" in
     start)   start_proxy ;;
     stop)    stop_proxy ;;
-    restart) send_cmd_sync "stop" && sleep 1 && send_cmd_sync "start" && echo "restarted" ;;
+    restart) send_cmd_sync "hard_restart" && echo "restarted" ;;
     reload)  reload_proxy ;;
     status)  get_status ;;
     reapply) send_cmd_sync "apply_cur_iface" ;;

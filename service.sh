@@ -1350,6 +1350,7 @@ apply_routing_rules() {
     # =========================================================================
 
     # Step 2: Routing Rule for marked packets
+    install_tun_blackhole
     $ip rule add fwmark 1 table 100 priority 1010
 
     # Step 3: Create Mangle chain for local output traffic
@@ -1475,6 +1476,7 @@ apply_routing_rules() {
         # configure_tun_iface() above.
 
         # Step 2: Routing Rule for marked IPv6 packets
+        install_tun_blackhole
         $ip -6 rule add fwmark 1 table 100 priority 1010
 
         # Step 3: Create Mangle chain for local IPv6 output traffic
@@ -1602,6 +1604,46 @@ apply_routing_rules() {
     fi
 }
 
+# ---------------------------------------------------------------------------
+# Fail-closed helpers
+#
+# install_tun_blackhole: keeps table 100 non-empty. While $TUN_NAME is alive its
+# metric-0 default route wins; the instant the tun dies (reload, crash) the
+# blackhole takes over, so fwmark-1 packets are dropped instead of falling
+# through to `main` and leaking out directly.
+#
+# hold_traffic / release_traffic: temporary filter-table gate used by
+# hard_restart, where the routing rules themselves are torn down. Only loopback
+# and xray's own sockets (mark $FWMARK) pass while it is installed.
+# ---------------------------------------------------------------------------
+install_tun_blackhole() {
+    $ip route replace blackhole default metric 4000 table 100 2>/dev/null
+    $ip -6 route replace blackhole default metric 4000 table 100 2>/dev/null
+}
+
+hold_traffic() {
+    local t
+    for t in "$iptables" "$ip6tables"; do
+        $t -N XRAY_HOLD 2>/dev/null
+        $t -F XRAY_HOLD
+        $t -A XRAY_HOLD -o lo -j RETURN
+        $t -A XRAY_HOLD -m mark --mark $FWMARK -j RETURN
+        $t -A XRAY_HOLD -j REJECT
+        $t -C OUTPUT  -j XRAY_HOLD 2>/dev/null || $t -I OUTPUT  1 -j XRAY_HOLD
+        $t -C FORWARD -j XRAY_HOLD 2>/dev/null || $t -I FORWARD 1 -j XRAY_HOLD
+    done
+}
+
+release_traffic() {
+    local t
+    for t in "$iptables" "$ip6tables"; do
+        while $t -D OUTPUT  -j XRAY_HOLD 2>/dev/null; do :; done
+        while $t -D FORWARD -j XRAY_HOLD 2>/dev/null; do :; done
+        $t -F XRAY_HOLD 2>/dev/null
+        $t -X XRAY_HOLD 2>/dev/null
+    done
+}
+
 clear_routing_rules() {
     # =========================================================================
     # CLEAR IPv4 RULES
@@ -1672,6 +1714,10 @@ clear_routing_rules() {
 
     # Drop the IPv6 ULA decoy address along with the rest of the rules.
     ula_remove
+
+    # Drop the fail-closed fallback now that no rule references table 100.
+    $ip route flush table 100 2>/dev/null
+    $ip -6 route flush table 100 2>/dev/null
 
     # Down the TUN device
     $ip link set dev $TUN_NAME down
@@ -1753,6 +1799,9 @@ restart_xray() {
         return 1
     fi
 
+    # Fail closed while the tun is gone (see install_tun_blackhole).
+    install_tun_blackhole
+
     if [ "$XRAY_PID" -gt 0 ] 2>/dev/null; then
         kill -9 "$XRAY_PID" 2>/dev/null
     fi
@@ -1816,6 +1865,15 @@ do_job() {
             ;;
         reload_config)
             restart_xray
+            return 0
+            ;;
+        hard_restart)
+            # Full stop+start (rules rebuilt) with all non-xray traffic held
+            # for the whole window, so nothing leaks while rules are down.
+            hold_traffic
+            stop_xray
+            start_xray || log "hard_restart: start failed"
+            release_traffic
             return 0
             ;;
         start_monitor)
@@ -1910,6 +1968,8 @@ fi
 # is ever started this boot.
 ensure_bypass_vpn_chain
 ensure_exclude_app_chain
+# Clear a stale gate if the loop died mid hard_restart on a previous run.
+release_traffic
 
 echo "start_monitor" > "$PIPE_FILE"
 
