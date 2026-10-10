@@ -3044,7 +3044,6 @@ function toggleSubSettingField(triggerId, subPanelId) {
 function updateDnsGroupVisibility() {
     const localDnsOn = document.getElementById('set-localdns').checked;
     const hijackDnsOn = document.getElementById('set-hijackdns').checked;
-    const fakeDnsLocalOn = document.getElementById('set-fakedns-local').checked;
 
     const subFields = document.getElementById('dns-sub-fields');
     subFields.style.display = localDnsOn ? '' : 'none';
@@ -3064,17 +3063,6 @@ function updateDnsGroupVisibility() {
         } else if (fakeDnsHijackHint) {
             fakeDnsHijackHint.style.display = 'none';
         }
-    }
-
-    // VPN DNS is disabled when Fake DNS is on
-    const vpnDnsRow = document.getElementById('dns-row-vpndns');
-    const vpnDnsInput = document.getElementById('set-vpndns');
-    if (fakeDnsLocalOn && localDnsOn) {
-        vpnDnsRow.classList.add('setting-row-disabled');
-        vpnDnsInput.disabled = true;
-    } else {
-        vpnDnsRow.classList.remove('setting-row-disabled');
-        vpnDnsInput.disabled = false;
     }
 }
 
@@ -3141,7 +3129,6 @@ function bindSettingsToFormView() {
     // DNS group
     document.getElementById('set-localdns').checked = advSettings.localDns || false;
     document.getElementById('set-fakedns-local').checked = advSettings.fakeDnsLocal || false;
-    document.getElementById('set-vpndns').value = advSettings.vpnDns || "1.1.1.1";
     document.getElementById('set-foreign-dns').value = advSettings.foreignDns || DEFAULT_FOREIGN_DNS;
     document.getElementById('set-domestic-dns').value = advSettings.domesticDns || "223.5.5.5";
     updateDnsGroupVisibility();
@@ -3194,7 +3181,7 @@ function saveAdvancedSettingsForm(isLangOnly = false) {    advSettings.loglevel 
     // DNS group
     advSettings.localDns = document.getElementById('set-localdns').checked;
     advSettings.fakeDnsLocal = document.getElementById('set-fakedns-local').checked;
-    advSettings.vpnDns = document.getElementById('set-vpndns').value.trim() || "1.1.1.1";
+    delete advSettings.vpnDns; // removed setting: drop leftovers from older saved configs
     // Normalize the comma-separated list (trim entries, drop empties).
     advSettings.foreignDns = splitDnsList(document.getElementById('set-foreign-dns').value).join(", ");
     advSettings.domesticDns = document.getElementById('set-domestic-dns').value.trim();

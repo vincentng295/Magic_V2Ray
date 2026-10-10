@@ -868,11 +868,11 @@ function _dnsServerRouteTarget(addr) {
 
 // Builds one "field" routing rule per configured DNS upstream so that the
 // DNS module's own upstream queries are split the same way the resolution
-// itself already is: domesticDns always goes direct, foreignDns/vpnDns go
+// itself already is: domesticDns always goes direct, foreignDns goes
 // via settings.dnsViaProxy — instead of every upstream sharing one blanket
 // choice. Only meaningful in "Local DNS" (structured) mode, since legacy
 // mode has no domestic/foreign distinction to preserve.
-function _buildDnsUpstreamRoutingRules(settings, useFakeIp) {
+function _buildDnsUpstreamRoutingRules(settings) {
     if (!settings || !settings.localDns) return [];
 
     const rules = [];
@@ -893,10 +893,6 @@ function _buildDnsUpstreamRoutingRules(settings, useFakeIp) {
 
     const foreignOutboundTag = settings.dnsViaProxy ? "proxy" : "direct";
     splitDnsList(settings.foreignDns).forEach(addr => pushRule(addr, foreignOutboundTag));
-
-    if (!useFakeIp && settings.vpnDns && settings.vpnDns.trim()) {
-        pushRule(settings.vpnDns.trim(), foreignOutboundTag);
-    }
 
     return rules;
 }
@@ -927,7 +923,6 @@ function convert_uri_to_xray_json(uri, optional_settings) {
         localDns: false,
         fakeDnsLocal: false,
         domainStrategy: "AsIs",
-        vpnDns: "1.1.1.1",
         foreignDns: DEFAULT_FOREIGN_DNS,
         domesticDns: "223.5.5.5",
         routingRules: []
@@ -1630,15 +1625,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
             });
         }
 
-        // 3. VPN DNS — only included when FakeIP is NOT active (grayed out in UI when FakeIP is on).
-        if (!useFakeIp && settings.vpnDns && settings.vpnDns.trim()) {
-            dnsServers.push({
-                address: settings.vpnDns.trim(),
-                domains: ["regexp:.+"]
-            });
-        }
-
-        // 4. Foreign DNS — fallback for everything else. Accepts several
+        // 3. Foreign DNS — fallback for everything else. Accepts several
         // servers separated by commas; each becomes its own dns.servers entry.
         splitDnsList(settings.foreignDns).forEach(addr => dnsServers.push(addr));
 
@@ -1768,7 +1755,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                 // on — legacy mode has no domestic/foreign split to honor,
                 // and with hijack off the DNS module never sees client
                 // traffic in the first place.
-                ...(hijackDns ? _buildDnsUpstreamRoutingRules(settings, useFakeIp) : []),
+                ...(hijackDns ? _buildDnsUpstreamRoutingRules(settings) : []),
                 // Wider rule third (1 condition): tagless internal DNS from Xray
                 // itself (app/dns, no inboundTag — tag is a synthetic
                 // "xray.system.*"), or any DNS_MODULE_TAG query not matched by a

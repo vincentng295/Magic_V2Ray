@@ -138,7 +138,6 @@ let advSettings = {
     // Professional mode: when true, config.json is taken verbatim from
     // CONFIG_JSON instead of being generated from the selected node.
     proMode: false,
-    vpnDns: "1.1.1.1",
     // Comma-separated list; defaults to every LEGACY_DNS entry (helper.js).
     foreignDns: DEFAULT_FOREIGN_DNS,
     domesticDns: "223.5.5.5",
@@ -281,7 +280,7 @@ const TRAFFIC_SETTING_KEYS = [
     "mux", "mux_connections",
     "fragment", "fragment_packets", "fragment_length", "fragment_interval",
     "mtu",
-    "localDns", "fakeDnsLocal", "vpnDns", "foreignDns", "domesticDns",
+    "localDns", "fakeDnsLocal", "foreignDns", "domesticDns",
     "dnsDisableCache", "dnsServeStale", "dnsServeExpiredTTL",
     "dnsDisableFallback", "dnsDisableFallbackIfMatch",
     "dnsParallelQuery", "dnsUseSystemHosts"
