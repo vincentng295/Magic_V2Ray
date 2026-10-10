@@ -3078,7 +3078,7 @@ function updateDnsGroupVisibility() {
 function migrateDnsSettings() {
     if (typeof advSettings.directDns !== 'string') {
         advSettings.directDns = typeof advSettings.domesticDns === 'string'
-            ? advSettings.domesticDns : "223.5.5.5";
+            ? advSettings.domesticDns : "quic+local://223.5.5.5";
     }
     delete advSettings.domesticDns;
     if (typeof advSettings.directDnsDomains !== 'string') {
@@ -3090,7 +3090,7 @@ function migrateDnsSettings() {
 }
 
 const DNS_LIST_DEFS = [
-    { key: 'direct',  field: 'directDns',        title: 'dns_card_direct',  desc: 'dns_card_direct_desc',  ph: '223.5.5.5' },
+    { key: 'direct',  field: 'directDns',        title: 'dns_card_direct',  desc: 'dns_card_direct_desc',  ph: 'quic+local://223.5.5.5' },
     { key: 'domains', field: 'directDnsDomains', title: 'dns_card_domains', desc: 'dns_card_domains_desc', ph: 'geosite:cn' },
     { key: 'proxy',   field: 'foreignDns',       title: 'dns_card_proxy',   desc: 'dns_card_proxy_desc',   ph: 'https://8.8.8.8/dns-query' },
 ];

@@ -140,7 +140,7 @@ let advSettings = {
     proMode: false,
     // Comma-separated list; defaults to every LEGACY_DNS entry (helper.js).
     foreignDns: DEFAULT_FOREIGN_DNS,
-    directDns: "223.5.5.5",
+    directDns: "quic+local://223.5.5.5",
     directDnsDomains: DEFAULT_DIRECT_DNS_DOMAINS,
     // Custom DNS hosts. Stored verbatim as the user typed it (JSON object or
     // /etc/hosts-style text) so the textarea round-trips exactly; parsing

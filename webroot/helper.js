@@ -925,7 +925,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
         fakeDnsLocal: false,
         domainStrategy: "AsIs",
         foreignDns: DEFAULT_FOREIGN_DNS,
-        directDns: "223.5.5.5",
+        directDns: "quic+local://223.5.5.5",
         directDnsDomains: DEFAULT_DIRECT_DNS_DOMAINS,
         routingRules: []
     };
