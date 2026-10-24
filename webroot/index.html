@@ -108,6 +108,7 @@
                             <button onclick="openNewNodeModal('shadowsocks'); closeImportAddMenu();" data-i18n="add_shadowsocks">Add Shadowsocks</button>
                             <button onclick="openNewNodeModal('wireguard'); closeImportAddMenu();" data-i18n="add_wireguard">Add WireGuard</button>
                             <button onclick="openNewNodeModal('hysteria2'); closeImportAddMenu();" data-i18n="add_hysteria2">Add Hysteria2</button>
+                            <button onclick="openNewNodeModal('masque'); closeImportAddMenu();" data-i18n="add_masque">Add MASQUE</button>
                             <button onclick="openNewNodeModal('socks'); closeImportAddMenu();" data-i18n="add_socks">Add SOCKS</button>
                             <button onclick="openNewNodeModal('http'); closeImportAddMenu();" data-i18n="add_http">Add HTTP Proxy</button>
                         </div>
@@ -794,7 +795,71 @@
                     </div>
                 </div>
 
-                <!-- SOCKS / HTTP proxy auth fields -->
+                <!-- MASQUE-specific fields (CONNECT-IP, RFC 9484) -->
+                <div id="subfields-masque" class="conditional-fields" style="display:none;">
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_masque_http_version">HTTP version</label>
+                        <select id="edit-masque-alpn">
+                            <option value="">h3 (HTTP/3, QUIC)</option>
+                            <option value="h2">h2 (HTTP/2, TCP)</option>
+                        </select>
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_masque_sni">TLS SNI (serverName)</label>
+                        <input type="text" id="edit-masque-sni" placeholder="consumer-masque.cloudflareclient.com">
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_masque_fp">TLS fingerprint (HTTP/2 only)</label>
+                        <select id="edit-masque-fp">
+                            <option value="chrome">chrome</option>
+                            <option value="firefox">firefox</option>
+                            <option value="safari">safari</option>
+                            <option value="edge">edge</option>
+                            <option value="qq">qq</option>
+                            <option value="random">random</option>
+                        </select>
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_masque_host">Host (:authority, optional)</label>
+                        <input type="text" id="edit-masque-host" placeholder="example.com">
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_masque_path">Path (URI template, optional)</label>
+                        <input type="text" id="edit-masque-path" placeholder="/.well-known/masque/ip/{target}/{ipproto}/">
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_masque_headers">Extra HTTP headers (JSON, optional)</label>
+                        <textarea id="edit-masque-headers" rows="3" spellcheck="false" placeholder='{"Authorization":"Bearer ..."}'></textarea>
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_masque_remote_dns">Remote DNS in tunnel (optional)</label>
+                        <input type="text" id="edit-masque-dns" placeholder="1.1.1.1,2606:4700:4700::1111">
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_masque_pcs">Pinned cert SHA256 (optional)</label>
+                        <input type="text" id="edit-masque-pcs" placeholder="">
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_masque_vcn">Verify cert by name (optional)</label>
+                        <input type="text" id="edit-masque-vcn" placeholder="">
+                    </div>
+                    <div class="modal-section-divider" style="flex-basis:100%;" data-i18n="lbl_masque_warp_title">CLOUDFLARE WARP (optional)</div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_masque_warp_private_key">Device private key (P-256)</label>
+                        <input type="text" id="edit-masque-wpk" placeholder="MHcCAQEE...">
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_masque_warp_public_key">Edge public key (P-256)</label>
+                        <input type="text" id="edit-masque-wpub" placeholder="MFkwEwYHKoZIzj0CAQYI...">
+                    </div>
+                    <div class="edit-item-field">
+                        <label data-i18n="lbl_masque_tunnel_address">Tunnel address</label>
+                        <input type="text" id="edit-masque-address" placeholder="172.16.0.2/32,2606:4700:110:8a36::2/128">
+                        <small class="field-hint" data-i18n="hint_masque_warp">With a WARP private key set, username/password are ignored. The key must be P-256.</small>
+                    </div>
+                </div>
+
+                <!-- SOCKS / HTTP proxy auth fields (also used by MASQUE for Basic auth) -->
                 <div id="subfields-proxy-auth" class="conditional-fields" style="display:none;">
                     <div class="edit-item-field">
                         <label data-i18n="lbl_proxy_username">Username (optional)</label>

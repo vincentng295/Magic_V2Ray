@@ -1494,6 +1494,73 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                 };
             }
         }
+        else if (uri.startsWith('masque://')) {
+            // MASQUE CONNECT-IP (RFC 9484): an IP tunnel over HTTP/3 (QUIC) or
+            // HTTP/2 (TCP). URI shape:
+            //   masque://[user[:pass]@]host:port?sni=&alpn=&fp=&host=&path=
+            //            &headers=<json>&dns=&pcs=&vcn=&finalmask=
+            //            &wpk=&wpub=&address=      (Cloudflare WARP device)#name
+            const fakeHttpUri = uri.replace(/^masque:\/\//i, 'https://');
+            const u = new URL(fakeHttpUri);
+            const p = new URLSearchParams(u.search);
+            const mqHost = unwrapIPv6(u.hostname);
+
+            const mqSettings = { address: mqHost, port: +u.port || 443 };
+            const mqDns = (p.get('dns') || '').split(',').map(s => s.trim()).filter(Boolean);
+            if (mqDns.length) mqSettings.remoteDNS = mqDns;
+
+            const masqueSettings = {};
+            if (p.get('host')) masqueSettings.host = p.get('host');
+            if (p.get('path')) masqueSettings.path = p.get('path');
+
+            const wpk = p.get('wpk');
+            if (wpk) {
+                // WARP device: user/pass can no longer be set and the tunnel
+                // addresses come from warp.address, not from the server.
+                masqueSettings.warp = {
+                    privateKey: wpk,
+                    ...(p.get('wpub') ? { publicKey: p.get('wpub') } : {}),
+                    address: (p.get('address') || '172.16.0.2/32').split(',').map(s => s.trim()).filter(Boolean)
+                };
+            } else {
+                if (u.username) masqueSettings.user = decodeURIComponent(u.username);
+                if (u.password) masqueSettings.pass = decodeURIComponent(u.password);
+            }
+            if (p.get('headers')) {
+                try {
+                    const hdr = JSON.parse(p.get('headers'));
+                    if (hdr && typeof hdr === 'object' && !Array.isArray(hdr)) masqueSettings.headers = hdr;
+                } catch (e) { /* ignore malformed headers */ }
+            }
+
+            // TLS is mandatory (REALITY unsupported). HTTP version follows
+            // alpn: h2 without h3 -> HTTP/2, anything else -> HTTP/3.
+            const mqTls = {
+                serverName: p.get('sni') || (wpk ? 'consumer-masque.cloudflareclient.com' : (masqueSettings.host || mqHost))
+            };
+            if (p.get('alpn')) mqTls.alpn = p.get('alpn').split(',').map(s => s.trim()).filter(Boolean);
+            if (p.get('fp')) mqTls.fingerprint = p.get('fp');
+            if (p.get('vcn')) mqTls.verifyPeerCertByName = p.get('vcn');
+            // Per-node pin only: the global pinnedPeerCertSha256 would override
+            // (and break) the WARP edge's publicKey pin.
+            if (p.get('pcs')) mqTls.pinnedPeerCertSha256 = p.get('pcs');
+
+            outbound = {
+                tag: "proxy",
+                protocol: "masque",
+                settings: mqSettings,
+                streamSettings: {
+                    // masque.md writes the transport selector as "method";
+                    // the rest of this project uses "network". Emit both.
+                    network: "masque",
+                    method: "masque",
+                    security: "tls",
+                    tlsSettings: mqTls,
+                    masqueSettings,
+                    sockopt: { mark: 255, "dialerProxy": "direct" }
+                }
+            };
+        }
         else if (uri.startsWith('socks://') || uri.startsWith('socks5://')) {
             // Fix parser on old Chrome
             const fakeHttpUri = uri.replace(/^(socks5|socks):\/\//i, 'https://');
@@ -1563,7 +1630,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
         _mergeFinalMask(outbound.streamSettings, _extractFinalMaskFromUri(uri));
     }
 
-    if (settings.mux && !isDirectOnly) {
+    if (settings.mux && !isDirectOnly && outbound.protocol !== 'masque') {
         outbound.streamSettings.mux = {
             enabled: true,
             concurrency: parseInt(settings.mux_connections) || 8
@@ -2229,6 +2296,39 @@ function convert_outbound_to_uri(outbound) {
             const auth     = pct(hy.auth || '');
             const hyHost   = bracketIPv6(cfg.address);
             return `hy2://${auth}@${hyHost}:${cfg.port}?${queryStr}#${pct(nodeTag)}`;
+        }
+
+        if (proto === 'masque') {
+            const cfg = outbound.settings || {};
+            const tls = ss.tlsSettings || {};
+            const mq  = ss.masqueSettings || {};
+            const q = {};
+            if (mq.host) q.host = mq.host;
+            if (mq.path) q.path = mq.path;
+            if (mq.headers && Object.keys(mq.headers).length) q.headers = JSON.stringify(mq.headers);
+            if (mq.warp) {
+                if (mq.warp.privateKey) q.wpk = mq.warp.privateKey;
+                if (mq.warp.publicKey)  q.wpub = mq.warp.publicKey;
+                if (mq.warp.address?.length) q.address = mq.warp.address.join(',');
+            }
+            if (tls.serverName) q.sni = tls.serverName;
+            if (tls.alpn?.length) q.alpn = tls.alpn.join(',');
+            if (tls.fingerprint) q.fp = tls.fingerprint;
+            if (tls.pinnedPeerCertSha256) q.pcs = tls.pinnedPeerCertSha256;
+            if (tls.verifyPeerCertByName) q.vcn = tls.verifyPeerCertByName;
+            if (cfg.remoteDNS?.length) q.dns = cfg.remoteDNS.join(',');
+            const fmStr = _serializeFinalMaskForUri(ss);
+            if (fmStr) q.finalmask = fmStr;
+
+            let auth = '';
+            if (!mq.warp && (mq.user || mq.pass)) {
+                auth = pct(mq.user || '');
+                if (mq.pass) auth += ':' + pct(mq.pass);
+                auth += '@';
+            }
+            const queryStr = buildQuery(q);
+            const nodeTag = 'MASQUE Node';
+            return `masque://${auth}${bracketIPv6(cfg.address)}:${cfg.port}${queryStr ? '?' + queryStr : ''}#${pct(nodeTag)}`;
         }
 
         if (proto === 'socks') {

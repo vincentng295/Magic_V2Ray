@@ -710,7 +710,7 @@ const extractUrisFromText = (text) => {
             }
         } else if (trimmedLine.includes('://')) {
             // Accept known proxy protocol schemes
-            if (/^(vmess|vless|trojan|ss|shadowsocks|wireguard|wg|hysteria2|hy2|socks|socks5|http):\/\//i.test(trimmedLine)) {
+            if (/^(vmess|vless|trojan|ss|shadowsocks|wireguard|wg|hysteria2|hy2|masque|socks|socks5|http):\/\//i.test(trimmedLine)) {
                 uris.push(trimmedLine);
             }
         }
@@ -883,7 +883,7 @@ function parseProxyUri(uri) {
         const protocolMatch = uri.match(/^([^:]+):\/\//);
         if (!protocolMatch) return null;
         const protocol = protocolMatch[1].toLowerCase();
-        if (!['vless', 'vmess', 'trojan', 'ss', 'shadowsocks', 'wireguard', 'wg', 'hysteria2', 'hy2', 'socks', 'socks5', 'http'].includes(protocol)) return null;
+        if (!['vless', 'vmess', 'trojan', 'ss', 'shadowsocks', 'wireguard', 'wg', 'hysteria2', 'hy2', 'masque', 'socks', 'socks5', 'http'].includes(protocol)) return null;
 
         // vmess uses a base64-encoded JSON payload — parse it differently
         if (protocol === 'vmess') {
@@ -1015,6 +1015,24 @@ function parseProxyUri(uri) {
                     uuid: decodeURIComponent(u.username),
                     security: "tls",
                     hy2ObfsPassword: p.get('obfs-password') || p.get('obfsPassword') || "",
+                    rawUri: uri
+                };
+            } catch(e) { return null; }
+        }
+
+        // MASQUE: masque://[user[:pass]@]host:port?...#name
+        if (protocol === 'masque') {
+            try {
+                const u = new URL(uri.replace(/^masque:\/\//i, 'https://'));
+                const name = u.hash ? decodeURIComponent(u.hash.substring(1)) : "MASQUE";
+                return {
+                    id: Math.random().toString(36).substr(2, 9),
+                    name,
+                    protocol: 'masque',
+                    address: unwrapIPv6(u.hostname),
+                    port: u.port || "443",
+                    uuid: "",
+                    security: "tls",
                     rawUri: uri
                 };
             } catch(e) { return null; }
@@ -1576,6 +1594,14 @@ function getFullNodeDetails(node) {
         hy2BandwidthDown: "",
         hy2BandwidthUp: "",
         hy2Sni: "",
+        // MASQUE
+        masqueHost: "",
+        masquePath: "",
+        masqueHeaders: "",
+        masqueDns: "",
+        masqueWarpPrivateKey: "",
+        masqueWarpPublicKey: "",
+        masqueAddress: "",
         // SOCKS / HTTP proxy auth
         proxyUsername: "",
         proxyPassword: "",
@@ -1646,7 +1672,7 @@ function getFullNodeDetails(node) {
             // this swap the block below unconditionally overwrote a
             // correctly-parsed d.address/d.port (from parseProxyUri) with
             // blank values when the edit modal was opened.
-            const fakeHttpUri = normalizeUriIPv6Host(uri).replace(/^(vless|trojan|wg|wireguard|hy2|hysteria2|socks5|socks|ss|shadowsocks):\/\//i, 'https://');
+            const fakeHttpUri = normalizeUriIPv6Host(uri).replace(/^(vless|trojan|wg|wireguard|hy2|hysteria2|masque|socks5|socks|ss|shadowsocks):\/\//i, 'https://');
             const u = new URL(fakeHttpUri);
             const p = new URLSearchParams(u.search);
             d.uuid = decodeURIComponent(u.username);
@@ -1860,6 +1886,32 @@ function getFullNodeDetails(node) {
         } catch(e) {}
     }
 
+    // MASQUE
+    if (protocol === 'masque') {
+        try {
+            const u = new URL(normalizeUriIPv6Host(uri).replace(/^masque:\/\//i, 'https://'));
+            const p = new URLSearchParams(u.search);
+            d.uuid = "";
+            d.security = 'tls';
+            d.proxyUsername = u.username ? decodeURIComponent(u.username) : "";
+            d.proxyPassword = u.password ? decodeURIComponent(u.password) : "";
+            d.masqueHost = p.get('host') || "";
+            d.masquePath = p.get('path') || "";
+            d.masqueHeaders = p.get('headers') || "";
+            d.masqueDns = p.get('dns') || "";
+            d.masqueWarpPrivateKey = p.get('wpk') || "";
+            d.masqueWarpPublicKey = p.get('wpub') || "";
+            d.masqueAddress = p.get('address') || "";
+            d.sni = p.get('sni') || "";
+            d.alpn = p.get('alpn') || "";
+            d.fingerprint = p.get('fp') || "chrome";
+            d.pcs = p.get('pcs') || "";
+            d.vcn = p.get('vcn') || "";
+            d.ech = "";
+            d.finalMask = _normalizeFinalMask(p.get('finalmask'));
+        } catch(e) {}
+    }
+
     // SOCKS
     if (protocol === 'socks') {
         try {
@@ -1977,6 +2029,38 @@ function serializeNodeDetailsToUri(d, protocol) {
         if (d.finalMask) params.set('finalmask', d.finalMask);
         const user = d.uuid ? encodeURIComponent(d.uuid) : "";
         let urlStr = `hysteria2://${user}@${bracketIPv6(d.address)}:${d.port}`;
+        const pStr = params.toString();
+        if (pStr) urlStr += "?" + pStr;
+        if (d.name) urlStr += "#" + encodeURIComponent(d.name);
+        return urlStr;
+    }
+
+    // MASQUE
+    if (protocol === 'masque') {
+        const params = new URLSearchParams();
+        if (d.masqueHost) params.set('host', d.masqueHost);
+        if (d.masquePath) params.set('path', d.masquePath);
+        if (d.masqueHeaders) params.set('headers', d.masqueHeaders);
+        if (d.masqueDns) params.set('dns', d.masqueDns);
+        if (d.masqueWarpPrivateKey) {
+            params.set('wpk', d.masqueWarpPrivateKey);
+            if (d.masqueWarpPublicKey) params.set('wpub', d.masqueWarpPublicKey);
+            if (d.masqueAddress) params.set('address', d.masqueAddress);
+        }
+        if (d.sni) params.set('sni', d.sni);
+        if (d.alpn) params.set('alpn', d.alpn);
+        if (d.fingerprint && d.fingerprint !== 'chrome') params.set('fp', d.fingerprint);
+        if (d.pcs) params.set('pcs', d.pcs);
+        if (d.vcn) params.set('vcn', d.vcn);
+        if (d.finalMask) params.set('finalmask', d.finalMask);
+        // user/pass cannot be combined with a WARP device.
+        let auth = "";
+        if (!d.masqueWarpPrivateKey && (d.proxyUsername || d.proxyPassword)) {
+            auth = encodeURIComponent(d.proxyUsername || "");
+            if (d.proxyPassword) auth += ":" + encodeURIComponent(d.proxyPassword);
+            auth += "@";
+        }
+        let urlStr = `masque://${auth}${bracketIPv6(d.address)}:${d.port}`;
         const pStr = params.toString();
         if (pStr) urlStr += "?" + pStr;
         if (d.name) urlStr += "#" + encodeURIComponent(d.name);
@@ -2137,7 +2221,7 @@ function openNewNodeModal(protocol) {
         address: "",
         port: protocol === 'wireguard' ? "51820" : protocol === 'socks' ? "1080" : protocol === 'http' ? "8080" : "443",
         uuid: "",
-        security: protocol === 'hysteria2' ? "tls" : "none",
+        security: (protocol === 'hysteria2' || protocol === 'masque') ? "tls" : "none",
         rawUri: `${protocol}://@:`
     };
     currentEditingCategory = 'Manual';
@@ -2259,7 +2343,9 @@ function _populateEditModal(node, isNew = false) {
         headerType: "none", wgSecretKey: "", wgPublicKey: "", wgPresharedKey: "",
         wgReserved: "", wgLocalAddress: "172.16.0.2/32", hy2ObfsPassword: "",
         hy2PortHopping: "", hy2HopInterval: "", hy2BandwidthDown: "", hy2BandwidthUp: "",
-        hy2Sni: "", proxyUsername: "", proxyPassword: "", ssMethod: "aes-256-gcm"
+        hy2Sni: "", proxyUsername: "", proxyPassword: "", ssMethod: "aes-256-gcm",
+        masqueHost: "", masquePath: "", masqueHeaders: "", masqueDns: "",
+        masqueWarpPrivateKey: "", masqueWarpPublicKey: "", masqueAddress: ""
     } : getFullNodeDetails(node);
 
     const proto = node.protocol;
@@ -2337,6 +2423,23 @@ function _populateEditModal(node, isNew = false) {
     document.getElementById('edit-hy2-bandwidth-down').value = d.hy2BandwidthDown;
     document.getElementById('edit-hy2-bandwidth-up').value = d.hy2BandwidthUp;
     document.getElementById('edit-hy2-sni').value = d.hy2Sni;
+    // MASQUE
+    {
+        const mqAlpn = String(d.alpn || '');
+        document.getElementById('edit-masque-alpn').value = (/(^|,)h2(,|$)/.test(mqAlpn) && !/h3/.test(mqAlpn)) ? 'h2' : '';
+        document.getElementById('edit-masque-sni').value = d.sni || '';
+        const mqFp = document.getElementById('edit-masque-fp');
+        mqFp.value = [...mqFp.options].some(o => o.value === d.fingerprint) ? d.fingerprint : 'chrome';
+        document.getElementById('edit-masque-host').value = d.masqueHost || '';
+        document.getElementById('edit-masque-path').value = d.masquePath || '';
+        document.getElementById('edit-masque-headers').value = d.masqueHeaders || '';
+        document.getElementById('edit-masque-dns').value = d.masqueDns || '';
+        document.getElementById('edit-masque-pcs').value = d.pcs || '';
+        document.getElementById('edit-masque-vcn').value = d.vcn || '';
+        document.getElementById('edit-masque-wpk').value = d.masqueWarpPrivateKey || '';
+        document.getElementById('edit-masque-wpub').value = d.masqueWarpPublicKey || '';
+        document.getElementById('edit-masque-address').value = d.masqueAddress || '';
+    }
     // SOCKS / HTTP proxy auth
     document.getElementById('edit-proxy-username').value = d.proxyUsername;
     document.getElementById('edit-proxy-password').value = d.proxyPassword;
@@ -2350,10 +2453,11 @@ function _populateEditModal(node, isNew = false) {
     const isSimpleProxy = (proto === 'socks' || proto === 'http');
     const isWireGuard = (proto === 'wireguard');
     const isHysteria2 = (proto === 'hysteria2');
+    const isMasque = (proto === 'masque');
     const isShadowsocks = (proto === 'shadowsocks');
     const isClassic = (proto === 'vmess' || proto === 'vless' || proto === 'trojan' || proto === 'shadowsocks');
 
-    document.getElementById('field-group-uuid').style.display = (proto === 'wireguard') ? 'none' : 'flex';
+    document.getElementById('field-group-uuid').style.display = (proto === 'wireguard' || proto === 'masque') ? 'none' : 'flex';
     document.getElementById('field-group-encryption').style.display = (proto === 'vmess') ? 'flex' : 'none';
     document.getElementById('field-group-flow').style.display = (proto === 'vless') ? 'flex' : 'none';
     document.getElementById('field-group-vless-encryption').style.display = (proto === 'vless') ? 'flex' : 'none';
@@ -2367,14 +2471,16 @@ function _populateEditModal(node, isNew = false) {
     // FinalMask section: classic protocols plus Hysteria2 (quicParams / udpHop /
     // salamander all live under finalmask for the hysteria transport too).
     const fmWrap = document.getElementById('section-finalmask-wrapper');
-    if (fmWrap) fmWrap.style.display = (isClassic || isHysteria2) ? 'block' : 'none';
+    if (fmWrap) fmWrap.style.display = (isClassic || isHysteria2 || isMasque) ? 'block' : 'none';
 
     // WireGuard fields
     document.getElementById('subfields-wireguard').style.display = isWireGuard ? 'flex' : 'none';
     // Hysteria2 fields
     document.getElementById('subfields-hysteria2').style.display = isHysteria2 ? 'flex' : 'none';
+    // MASQUE fields
+    document.getElementById('subfields-masque').style.display = isMasque ? 'flex' : 'none';
     // Proxy auth fields
-    document.getElementById('subfields-proxy-auth').style.display = isSimpleProxy ? 'flex' : 'none';
+    document.getElementById('subfields-proxy-auth').style.display = (isSimpleProxy || isMasque) ? 'flex' : 'none';
 
     // UUID label: "Password" for trojan/SS/Hysteria2, "ID" for vmess/vless
     const uuidLabel = document.querySelector('#edit-uuid')?.closest('.edit-item-field')?.querySelector('label');
@@ -2438,7 +2544,7 @@ function closeEditNodeModal() {
 }
 
 function _collectEditFormData() {
-    return {
+    const d = {
         name: document.getElementById('edit-remarks').value.trim() || "Unnamed Node",
         address: document.getElementById('edit-address').value.trim(),
         port: document.getElementById('edit-port').value.trim() || "443",
@@ -2513,8 +2619,32 @@ function _collectEditFormData() {
         proxyUsername: document.getElementById('edit-proxy-username').value.trim(),
         proxyPassword: document.getElementById('edit-proxy-password').value.trim(),
         // Shadowsocks
-        ssMethod: document.getElementById('edit-ss-method').value
+        ssMethod: document.getElementById('edit-ss-method').value,
+        // MASQUE
+        masqueHost: document.getElementById('edit-masque-host').value.trim(),
+        masquePath: document.getElementById('edit-masque-path').value.trim(),
+        masqueHeaders: (() => {
+            const raw = (document.getElementById('edit-masque-headers').value || "").trim();
+            if (!raw) return "";
+            try { return JSON.stringify(JSON.parse(raw)); } catch (e) { return raw; }
+        })(),
+        masqueDns: document.getElementById('edit-masque-dns').value.trim(),
+        masqueWarpPrivateKey: document.getElementById('edit-masque-wpk').value.trim(),
+        masqueWarpPublicKey: document.getElementById('edit-masque-wpub').value.trim(),
+        masqueAddress: document.getElementById('edit-masque-address').value.trim()
     };
+    if (currentEditingProtocol === 'masque') {
+        // MASQUE has its own TLS inputs (the generic Security section is hidden).
+        d.uuid = "";
+        d.security = 'tls';
+        d.sni = document.getElementById('edit-masque-sni').value.trim();
+        d.alpn = document.getElementById('edit-masque-alpn').value;
+        d.fingerprint = document.getElementById('edit-masque-fp').value;
+        d.pcs = document.getElementById('edit-masque-pcs').value.trim();
+        d.vcn = document.getElementById('edit-masque-vcn').value.trim();
+        d.ech = "";
+    }
+    return d;
 }
 
 function saveEditedNode() {
@@ -2534,6 +2664,17 @@ function saveEditedNode() {
         if (!fmOk) return showToast(t('toast_finalmask_invalid'), "error");
     }
 
+    // MASQUE extra headers must be a JSON object, otherwise they would be
+    // silently dropped when the config is generated.
+    if (currentEditingProtocol === 'masque' && d.masqueHeaders) {
+        let hOk = false;
+        try {
+            const parsed = JSON.parse(d.masqueHeaders);
+            hOk = parsed && typeof parsed === 'object' && !Array.isArray(parsed);
+        } catch (e) { hOk = false; }
+        if (!hOk) return showToast(t('toast_masque_headers_invalid'), "error");
+    }
+
     const proto = currentEditingProtocol;
     const newUri = serializeNodeDetailsToUri(d, proto);
 
@@ -2541,7 +2682,7 @@ function saveEditedNode() {
     let storedSecurity = d.security;
     let storedUuid = d.uuid;
     if (proto === 'shadowsocks') { storedSecurity = d.ssMethod; storedUuid = d.uuid; }
-    if (proto === 'hysteria2') { storedSecurity = 'tls'; }
+    if (proto === 'hysteria2' || proto === 'masque') { storedSecurity = 'tls'; }
 
     const nodeEntry = {
         id: isNew ? Math.random().toString(36).substr(2, 9) : currentEditingNodeId,
