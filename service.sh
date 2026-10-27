@@ -367,9 +367,41 @@ read_table_index() {
     return 1
 }
 
+detect_auto_table() {
+    # netd's default-network rule = which network has internet now. First match
+    # wins (rules are priority-sorted); uidrange variants are per-app VPN, skip.
+    $ip rule show 2>/dev/null \
+        | grep "fwmark 0x0/0xffff iif lo" \
+        | grep -v uidrange \
+        | head -n 1 \
+        | sed -n 's/.*lookup \([^ ]*\).*$/\1/p'
+}
+
+# Active (default-network) interface name, derived from detect_auto_table.
+# netd names each network's routing table after its interface, so the table
+# name from the rule is the interface name. If `ip` printed a bare number
+# instead (name not resolved), map it back through rt_tables.
 get_active_interface() {
-    local iface
-    iface=$($ip route get 8.8.8.8 2>/dev/null | sed -n 's/.*[[:space:]]dev[[:space:]]\{1,\}\([^[:space:]]*\).*/\1/p' | head -n 1)
+    local tbl iface="" index name
+    tbl=$(detect_auto_table)
+    [ -n "$tbl" ] || return 1
+
+    case "$tbl" in
+        *[!0-9]*)
+            iface="$tbl"
+            ;;
+        *)
+            if [ -r /data/misc/net/rt_tables ]; then
+                while read -r index name; do
+                    if [ "$index" = "$tbl" ]; then
+                        iface="$name"
+                        break
+                    fi
+                done < /data/misc/net/rt_tables
+            fi
+            ;;
+    esac
+
     [ -n "$iface" ] || return 1
     echo "$iface"
     return 0
@@ -398,125 +430,6 @@ apply_mark_rule() {
     $ip -6 rule add fwmark $FWMARK table "$iface_index" priority $RULE_PRIORITY 2>/dev/null
     log "applied fwmark $FWMARK -> table $iface_index ($iface)"
     return 0
-}
-
-# ---------------------------------------------------------------------------
-# VPN-app bypass (fixes the xray <-> other-VpnService routing loop)
-#
-# Problem: when a third-party app opens its own VpnService, Android's
-# default route flips to that app's own tun (e.g. "tun0") and our
-# fwmark-based monitor would otherwise keep marking that app's own egress
-# packets. Those packets get read back out of the *other* VpnService,
-# re-enter xray, get marked again, and never leave -> infinite loop.
-#
-# Fix: Android itself must exclude the VPN app's own uid from its tun's
-# policy routing (or the VPN app would loop on its own tun the same way),
-# which shows up as a single-uid gap in `ip rule show ... lookup <tun>`
-# between two uidrange blocks (see find_vpn_app_uids). We keep a small,
-# standalone mangle chain (BYPASS_VPN_UID) permanently populated with that
-# uid so the app's traffic exits XRAY_MARK untouched — independent of
-# whether xray is currently running, and without ever having to rebuild the
-# rest of the ruleset.
-# ---------------------------------------------------------------------------
-
-# Idempotent: safe to call at boot, on every apply_routing_rules, and from
-# the interface monitor. -N fails harmlessly if the chain already exists.
-ensure_bypass_vpn_chain() {
-    $iptables  -t mangle -N BYPASS_VPN_UID 2>/dev/null
-    $ip6tables -t mangle -N BYPASS_VPN_UID 2>/dev/null
-    return 0
-}
-
-# Replaces the whole bypass set in one go. Call with no arguments to clear
-# it (e.g. once the foreign VPN app is no longer the active route, so a
-# later app that inherits the same uid never gets bypassed by mistake).
-#
-# Deliberately ACCEPT, not RETURN: BYPASS_VPN_UID is called from XRAY_MARK
-# with a plain jump, and RETURN would only unwind back into XRAY_MARK
-# (still hitting the uid-owner MARK rules below it) instead of leaving the
-# mangle table entirely. ACCEPT terminates that table's traversal outright,
-# regardless of nesting, which is what an actual bypass needs. This never
-# touches nat/filter, so normal routing/forwarding for that uid is
-# unaffected.
-set_vpn_bypass_uids() {
-    ensure_bypass_vpn_chain
-    $iptables  -t mangle -F BYPASS_VPN_UID 2>/dev/null
-    $ip6tables -t mangle -F BYPASS_VPN_UID 2>/dev/null
-    local uid
-    for uid in "$@"; do
-        [ -z "$uid" ] && continue
-        $iptables  -t mangle -A BYPASS_VPN_UID -m owner --uid-owner "$uid" -j ACCEPT
-        $ip6tables -t mangle -A BYPASS_VPN_UID -m owner --uid-owner "$uid" -j ACCEPT
-        log "vpn bypass: uid $uid added to BYPASS_VPN_UID"
-    done
-    return 0
-}
-
-# Interfaces we already know are physical/mobile radios, our own tun, or
-# loopback. Anything else that becomes the default route (tun*, ppp*, ...)
-# is treated as a foreign VpnService and is a candidate for uid bypass.
-is_vpn_enabled() {
-    local iface="$1" iface_index
-    iface_index="$(read_table_index "$iface")"
-    [ -z "$iface_index" ] && return 1
-    return 0
-}
-
-# Finds the uid Android excluded from a foreign VpnService's own policy
-# routing table, i.e. the VPN app's own uid (it has to be excluded there or
-# the VPN app would loop on its own tun the same way xray would)
-find_vpn_app_uids() {
-    local pids pid uid fd_path fd_num fd_flags
-
-    pids=$(fuser /dev/tun /dev/net/tun 2>/dev/null)
-    [ -z "$pids" ] && return 1
-
-    for pid in $pids; do
-        uid=$(stat -c '%u' "/proc/$pid" 2>/dev/null)
-
-        if [ -n "$uid" ] && [ "$uid" -ge 10000 ]; then
-            for fd_path in /proc/"$pid"/fd/*; do
-                if readlink "$fd_path" 2>/dev/null | grep -qE "/dev/net/tun|/dev/tun"; then
-                    fd_num=$(basename "$fd_path")
-                    fd_flags=$(grep -i "flags" "/proc/$pid/fdinfo/$fd_num" 2>/dev/null | awk '{print $2}')
-
-                    case "$fd_flags" in
-                        *2|*6)
-                            echo "$uid"
-                            break
-                            ;;
-                    esac
-                fi
-            done
-        fi
-    done | sort -u
-}
-
-# Called whenever the active interface changes. Keeps BYPASS_VPN_UID in
-# sync regardless of whether xray is currently started — the chain is
-# always ready, apply_routing_rules just has to reference it.
-update_vpn_bypass() {
-    local vpn_uids
-    if is_vpn_enabled "tun0"; then
-        log "foreign VPN interface detected"
-
-        local attempt=0 max_attempts=5
-        while [ "$attempt" -lt "$max_attempts" ]; do
-            vpn_uids=$(find_vpn_app_uids)
-            [ -n "$vpn_uids" ] && break
-            attempt=$((attempt + 1))
-            [ "$attempt" -lt "$max_attempts" ] && sleep 0.2
-        done
-
-        if [ -n "$vpn_uids" ]; then
-            log "vpn bypass: uid(s) [$(echo "$vpn_uids" | tr '\n' ' ')] -> BYPASS_VPN_UID"
-            set_vpn_bypass_uids $vpn_uids
-        else
-            log "vpn bypass: could not determine uid"
-        fi
-    else
-        set_vpn_bypass_uids
-    fi
 }
 
 # ===========================================================================
@@ -649,7 +562,7 @@ check_ip_hunter() {
 #   pref 31999  lookup table 31999           default dev <iface> src <ULA>
 #
 # Marked app traffic never gets here (rule 1010 sends it into $TUN_NAME first).
-# Only unmarked traffic (excluded apps, foreign VPN apps, bypassIface) does.
+# Only unmarked traffic (excluded apps, bypassIface) does.
 
 ULA_TABLE=31999
 ULA_RULE_PREF=31999
@@ -782,14 +695,13 @@ monitor_net_interfaces() {
     rm -f "$IFACE_EVENT_PIPE"
     mkfifo "$IFACE_EVENT_PIPE" 2>/dev/null || return 1
 
-    $ip monitor route > "$IFACE_EVENT_PIPE" 2>/dev/null &
+    $ip monitor route rule > "$IFACE_EVENT_PIPE" 2>/dev/null &
     echo $! > "$IFACE_MON_CHILD"
 
     cur=$(get_active_interface) || cur=""
     if [ -n "$cur" ]; then
         log "initial active interface: $cur"
         apply_mark_rule "$cur" || cur=""
-        update_vpn_bypass
         ula_apply "$cur"
     else
         log "no active interface at startup"
@@ -810,8 +722,6 @@ monitor_net_interfaces() {
         done
 
         new=$(get_active_interface) || new=""
-
-        update_vpn_bypass
 
         if [ "$new" = "$cur" ]; then
             # Same interface, but netd/IpClient may have flushed its
@@ -861,9 +771,8 @@ stop_iface_monitor() {
 # Mechanism: a standalone mangle chain, XRAY_EXCLUDE_APP, holds one
 # `-m owner --uid-owner <uid> -j ACCEPT` rule per excluded uid. XRAY_MARK
 # jumps to it before anything is marked. ACCEPT rather than RETURN for the
-# same reason as BYPASS_VPN_UID: the chain is entered with a plain jump, so
-# RETURN would only unwind into XRAY_MARK and the MARK rules below would
-# still catch the uid.
+# the chain is entered with a plain jump, so RETURN would only unwind into
+# XRAY_MARK and the MARK rules below would still catch the uid.
 #
 # Lifecycle:
 #   * Full start (apply_routing_rules -> sync_exclude_apps): the chain is
@@ -1331,12 +1240,6 @@ apply_routing_rules() {
         return 1
     fi
 
-    # BYPASS_VPN_UID must exist before XRAY_MARK can jump to it. This is
-    # normally already created at boot (and kept alive across xray
-    # stop/start by clear_routing_rules never touching it) — this call is
-    # just a cheap self-heal in case that boot-time call was ever missed.
-    ensure_bypass_vpn_chain
-
     # Rebuild XRAY_EXCLUDE_APP from the Exclude Apps list. Done now, before
     # XRAY_MARK is attached to OUTPUT below, so excluded apps are never
     # proxied even for a moment. monitor_apps keeps it current afterwards.
@@ -1355,9 +1258,6 @@ apply_routing_rules() {
 
     # Step 3: Create Mangle chain for local output traffic
     $iptables -t mangle -N XRAY_MARK
-    # Foreign VpnService apps (see BYPASS_VPN_UID above) never get marked,
-    # so xray never re-swallows their already-tunneled traffic and loops.
-    $iptables -t mangle -A XRAY_MARK -j BYPASS_VPN_UID
     # Excluded apps (Exclude Apps tab) are never marked either.
     $iptables -t mangle -A XRAY_MARK -j XRAY_EXCLUDE_APP
     $iptables -t mangle -A XRAY_MARK -m mark --mark $FWMARK -j RETURN
@@ -1491,8 +1391,6 @@ apply_routing_rules() {
 
         # Step 3: Create Mangle chain for local IPv6 output traffic
         $ip6tables -t mangle -N XRAY_MARK
-        # See the IPv4 XRAY_MARK chain above for why this jump exists.
-        $ip6tables -t mangle -A XRAY_MARK -j BYPASS_VPN_UID
         $ip6tables -t mangle -A XRAY_MARK -j XRAY_EXCLUDE_APP
         $ip6tables -t mangle -A XRAY_MARK -m mark --mark $FWMARK -j RETURN
         # bypassIface: mirrors the IPv4 XRAY_MARK rule above.
@@ -1580,8 +1478,6 @@ apply_routing_rules() {
 
         # Step 2: Create Mangle chain for local IPv6 output traffic (Drop all IPv6)
         $ip6tables -t mangle -N XRAY_MARK
-        # See the IPv4 XRAY_MARK chain above for why this jump exists.
-        $ip6tables -t mangle -A XRAY_MARK -j BYPASS_VPN_UID
         $ip6tables -t mangle -A XRAY_MARK -j XRAY_EXCLUDE_APP
         # Allow core proxy socket bypass if fwmark is already present
         $ip6tables -t mangle -A XRAY_MARK -m mark --mark $FWMARK -j RETURN
@@ -1976,11 +1872,6 @@ if [ ! -f /data/misc/net/rt_tables ]; then
     log "rt_tables never appeared after ${boot_wait}s; continuing anyway"
 fi
 
-# Create the VPN-app bypass chain now, before the interface monitor starts,
-# so it's already there to receive uid updates the moment any foreign
-# VpnService becomes the active route — independent of whether xray itself
-# is ever started this boot.
-ensure_bypass_vpn_chain
 ensure_exclude_app_chain
 # Clear a stale gate if the loop died mid hard_restart on a previous run.
 release_traffic
