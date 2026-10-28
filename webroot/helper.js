@@ -644,9 +644,10 @@ function convert_chain_uris_to_xray_json(hop1Uri, hop2Uri, optional_settings) {
 // would have matched then simply follows the remaining rules / default proxy.
 const ROUTING_BUILTIN_TAGS = ["proxy", "direct", "block"];
 
-function _buildCustomRoutingRules(routingRules, nodeTagByRemark) {
+function _buildCustomRoutingRules(routingRules, nodeTagByRemark, balancerTagById) {
     if (!Array.isArray(routingRules)) return [];
     nodeTagByRemark = nodeTagByRemark || {};
+    balancerTagById = balancerTagById || {};
 
     const splitCsv = v => (typeof v === 'string' ? v : '')
         .split(',')
@@ -658,8 +659,15 @@ function _buildCustomRoutingRules(routingRules, nodeTagByRemark) {
         .map(r => {
             const wanted = r.outboundTag || "proxy";
             let outTag;
+            let balancerTag = null;
             if (ROUTING_BUILTIN_TAGS.includes(wanted)) {
                 outTag = wanted;
+            } else if (wanted.indexOf(POLICY_GROUP_PREFIX) === 0) {
+                // Policy group -> routing.balancers. A group that is empty or
+                // was deleted has no balancer, so its rule is dropped.
+                const id = wanted.slice(POLICY_GROUP_PREFIX.length);
+                if (!Object.prototype.hasOwnProperty.call(balancerTagById, id)) return null;
+                balancerTag = balancerTagById[id];
             } else if (Object.prototype.hasOwnProperty.call(nodeTagByRemark, wanted)) {
                 outTag = nodeTagByRemark[wanted];
             } else {
@@ -676,7 +684,8 @@ function _buildCustomRoutingRules(routingRules, nodeTagByRemark) {
             if (r.port && String(r.port).trim()) rule.port = String(r.port).trim();
             if (r.network && String(r.network).trim()) rule.network = String(r.network).trim();
             if (protocol.length) rule.protocol = protocol;
-            rule.outboundTag = outTag;
+            if (balancerTag) rule.balancerTag = balancerTag;
+            else rule.outboundTag = outTag;
 
             return rule;
         })
@@ -698,7 +707,7 @@ function _buildRuleNodeOutbounds(settings) {
     const uris = settings && settings.routeNodeUris;
     if (!uris || typeof uris !== 'object' || !Array.isArray(settings.routingRules)) return result;
 
-    const inner = Object.assign({}, settings, { routingRules: [], routeNodeUris: null });
+    const inner = Object.assign({}, settings, { routingRules: [], routeNodeUris: null, policyGroupsResolved: null });
 
     settings.routingRules.forEach(r => {
         if (!r || r.enabled === false) return;
@@ -742,6 +751,120 @@ function _buildRuleNodeOutbounds(settings) {
         }
     });
 
+    return result;
+}
+
+// ===== Policy groups (routing.balancers) =====
+//
+// A policy group is a set of saved nodes (picked by category + a regex on the
+// node remark) that Xray load-balances through a `routing.balancers` entry.
+// A routing rule targets it with outboundTag "group:<id>"; that becomes
+// `balancerTag` on the generated rule.
+//
+// helper.js has no access to the saved profiles, so the UI resolves each group
+// that an enabled rule uses and passes it in as
+//   settings.policyGroupsResolved = [{ id, type, uris: [rawUri, ...] }]
+//
+// Member outbounds are tagged `pg-<id>-<n>` and the balancer selector is the
+// prefix `pg-<id>-`. Xray matches selectors by PREFIX, so the trailing dash
+// matters (group "1" must not swallow "11"), and a chain's first hop is tagged
+// `pghop-...` so it never joins the balancer by accident.
+const POLICY_GROUP_PREFIX = "group:";
+const POLICY_GROUP_TYPES = ["random", "roundRobin", "leastPing", "leastLoad"];
+const POLICY_PROBE_URL = "https://www.google.com/generate_204";
+
+// Converts one saved node into 1 outbound (2 for a chain), tagged `tag`.
+// Returns null when the node cannot be converted.
+function _nodeUriToTaggedOutbounds(rawUri, tag, hopTag, inner) {
+    rawUri = String(rawUri || '').trim();
+    if (!rawUri) return null;
+    _plainVlessDefer++; // the pool pass runs once, on the final merged config
+    try {
+        if (/^chain:\/\//i.test(rawUri)) {
+            const u = new URL(rawUri.replace(/^chain:\/\//i, 'https://'));
+            const cfg = JSON.parse(convert_chain_uris_to_xray_json(
+                u.searchParams.get('hop1') || '', u.searchParams.get('hop2') || '', inner));
+            if (cfg.error) return null;
+            const hop2 = cfg.outbounds[0];
+            const hop1 = cfg.outbounds[1];
+            hop2.tag = tag;
+            hop1.tag = hopTag;
+            hop2.streamSettings.sockopt.dialerProxy = hopTag;
+            return [hop2, hop1];
+        }
+        const cfg = JSON.parse(convert_uri_to_xray_json(rawUri, inner));
+        if (cfg.error || !Array.isArray(cfg.outbounds) || !cfg.outbounds[0]) return null;
+        cfg.outbounds[0].tag = tag;
+        return [cfg.outbounds[0]];
+    } catch (e) {
+        return null;
+    } finally {
+        _plainVlessDefer--;
+    }
+}
+
+// Returns { outbounds, balancers, balancerTagById, observatory, burstObservatory }.
+function _buildPolicyGroupOutbounds(settings) {
+    const result = {
+        outbounds: [], balancers: [], balancerTagById: {},
+        observatory: null, burstObservatory: null
+    };
+    const groups = settings && settings.policyGroupsResolved;
+    if (!Array.isArray(groups) || groups.length === 0) return result;
+
+    const inner = Object.assign({}, settings, { routingRules: [], routeNodeUris: null, policyGroupsResolved: null });
+    const pingSubjects = [];
+    const loadSubjects = [];
+
+    groups.forEach(g => {
+        if (!g || !/^[A-Za-z0-9_-]+$/.test(String(g.id || '')) || !Array.isArray(g.uris)) return;
+        const prefix = `pg-${g.id}-`;
+        let count = 0;
+        g.uris.forEach(uri => {
+            const outs = _nodeUriToTaggedOutbounds(uri, `${prefix}${count}`, `pghop-${g.id}-${count}`, inner);
+            if (!outs) return;
+            result.outbounds.push(...outs);
+            count++;
+        });
+        if (count === 0) return; // nothing usable: the rule pointing here is dropped
+
+        const type = POLICY_GROUP_TYPES.includes(g.type) ? g.type : "random";
+        const tag = `pgb-${g.id}`;
+        result.balancers.push({
+            tag: tag,
+            selector: [prefix],
+            // If every member is observed dead, fall back to the main node
+            // rather than dropping traffic.
+            fallbackTag: "proxy",
+            strategy: { type: type }
+        });
+        result.balancerTagById[g.id] = tag;
+        if (type === "leastPing") pingSubjects.push(prefix);
+        if (type === "leastLoad") loadSubjects.push(prefix);
+    });
+
+    // leastPing needs `observatory`, leastLoad needs `burstObservatory`.
+    // Xray accepts one of each, so every group of that type shares it.
+    if (pingSubjects.length) {
+        result.observatory = {
+            subjectSelector: pingSubjects,
+            probeUrl: POLICY_PROBE_URL,
+            probeInterval: "1m",
+            enableConcurrency: true
+        };
+    }
+    if (loadSubjects.length) {
+        result.burstObservatory = {
+            subjectSelector: loadSubjects,
+            pingConfig: {
+                destination: POLICY_PROBE_URL,
+                connectivity: "",
+                interval: "5m",
+                sampling: 10,
+                timeout: "5s"
+            }
+        };
+    }
     return result;
 }
 
@@ -1753,6 +1876,8 @@ function convert_uri_to_xray_json(uri, optional_settings) {
 
     // Extra outbounds for rules that target a saved node by remark.
     const ruleNodes = _buildRuleNodeOutbounds(settings);
+    // Policy groups (routing.balancers) used by rules.
+    const policyGroups = _buildPolicyGroupOutbounds(settings);
 
     const fullConfig = {
         log: { 
@@ -1825,10 +1950,12 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                 }
             },
             ...(hijackDns ? [{ "protocol": "dns", "tag": "dns-out" }] : []),
-            ...ruleNodes.outbounds
+            ...ruleNodes.outbounds,
+            ...policyGroups.outbounds
         ],
         routing: {
             "domainStrategy": routingDomainStrategy,
+            ...(policyGroups.balancers.length ? { "balancers": policyGroups.balancers } : {}),
             "rules": [
                 // Hijack ON: the client DNS rule must be FIRST so that no custom
                 // rule (or the private-network bypass) can catch port-53 traffic
@@ -1837,7 +1964,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
                 // User-defined routing rules (Routing Settings tab). Evaluated in the
                 // order the user arranged them, above the private-network bypass so a
                 // custom rule can override it if the user explicitly wants to.
-                ..._buildCustomRoutingRules(settings.routingRules, ruleNodes.tagByRemark),
+                ..._buildCustomRoutingRules(settings.routingRules, ruleNodes.tagByRemark, policyGroups.balancerTagById),
                 {
                     "type": "field",
                     "ip": [
@@ -1912,6 +2039,21 @@ function convert_uri_to_xray_json(uri, optional_settings) {
             ]
         }
     };
+
+    // Active policy group: every rule that would send traffic to the main
+    // `proxy` outbound goes through the group's balancer instead.
+    const activeBal = settings.activeGroupId && policyGroups.balancerTagById[settings.activeGroupId];
+    if (activeBal) {
+        fullConfig.routing.rules.forEach(r => {
+            if (r.outboundTag === "proxy") {
+                delete r.outboundTag;
+                r.balancerTag = activeBal;
+            }
+        });
+    }
+
+    if (policyGroups.observatory) fullConfig.observatory = policyGroups.observatory;
+    if (policyGroups.burstObservatory) fullConfig.burstObservatory = policyGroups.burstObservatory;
 
     if (_plainVlessDefer === 0 && settings.plainVlessTunnel !== false) {
         applyPlainVlessLoopback(fullConfig);

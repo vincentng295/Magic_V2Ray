@@ -229,6 +229,12 @@ function applyActiveConfig(options = {}) {
     let rawUri;
     if (!activeConfig) {
         rawUri = DIRECT_NODE_URI;
+    } else if (activeConfig.indexOf(ACTIVE_GROUP_PREFIX) === 0) {
+        if (!_findPolicyGroup(activeConfig.slice(ACTIVE_GROUP_PREFIX.length))) {
+            if (onDone) onDone(false);
+            return;
+        }
+        rawUri = 'pgroup://' + activeConfig.slice(ACTIVE_GROUP_PREFIX.length);
     } else {
         const [category, id] = activeConfig.split(':');
         const node = profiles[category]?.nodes?.find(n => n.id === id);
@@ -538,6 +544,10 @@ document.addEventListener('DOMContentLoaded', () => {
 function getActiveNodeLabel() {
     if (advSettings.proMode) return t('status_node_pro');
     if (!activeConfig) return t('builtin_direct_name');
+    if (activeConfig.indexOf(ACTIVE_GROUP_PREFIX) === 0) {
+        const g = _findPolicyGroup(activeConfig.slice(ACTIVE_GROUP_PREFIX.length));
+        return g ? g.name : '';
+    }
     const sep = activeConfig.indexOf(':');
     const category = activeConfig.slice(0, sep);
     const id = activeConfig.slice(sep + 1);
@@ -860,6 +870,7 @@ function parseAndAppendNodes(category, xrayConfigs, url = null, isReload = false
  
     saveProfiles();
     renderProfiles();
+    _refreshIfPolicyGroupsUsed();
 }
 
 function reloadCategory(category) {
@@ -1152,6 +1163,7 @@ function _collectRouteNodeUris() {
         if (!r || r.enabled === false) return;
         const remark = r.outboundTag;
         if (!remark || ROUTING_BUILTIN_TAGS_UI.includes(remark) || remark in map) return;
+        if (remark.indexOf(POLICY_GROUP_PREFIX) === 0) return; // handled by _collectPolicyGroupsResolved()
         const node = _findNodeByRemark(remark);
         if (node && node.rawUri) map[remark] = node.rawUri;
     });
@@ -1160,8 +1172,23 @@ function _collectRouteNodeUris() {
 
 function _resolveXrayConfig(rawUri) {
     // A copy, so routeNodeUris never leaks into the persisted advSettings.
-    const genSettings = Object.assign({}, advSettings, { routeNodeUris: _collectRouteNodeUris() });
+    const genSettings = Object.assign({}, advSettings, {
+        routeNodeUris: _collectRouteNodeUris(),
+        policyGroupsResolved: _collectPolicyGroupsResolved()
+    });
     let config_json = {};
+    // An active policy group: the base config is built from its first member
+    // (that node becomes the `proxy` outbound / fallback) and helper.js then
+    // points every "proxy" rule at the group's balancer.
+    if (rawUri && rawUri.startsWith('pgroup://')) {
+        const gid = rawUri.slice('pgroup://'.length);
+        const g = _findPolicyGroup(gid);
+        const members = g ? _policyGroupNodes(g) : [];
+        if (!members.length) throw new Error(t('toast_pg_empty'));
+        genSettings.policyGroupsResolved = _collectPolicyGroupsResolved(gid);
+        genSettings.activeGroupId = gid;
+        rawUri = members[0].rawUri;
+    }
     if (rawUri && rawUri.startsWith('chain://')) {
         const fakeRawUri = rawUri.replace(/^chain:\/\//i, 'https://');
         const u = new URL(fakeRawUri);
@@ -1219,6 +1246,7 @@ async function selectDirectNode() {
 
 function removeCategory(category) {
     delete profiles[category];
+    _refreshIfPolicyGroupsUsed();
     if (activeConfig && activeConfig.startsWith(category + ':')) {
         activeConfig = null;
         saveActiveConfig();
@@ -1280,7 +1308,8 @@ function renderProfiles() {
     const container = document.getElementById('profiles-container');
     container.innerHTML = "";
     container.appendChild(_mkDirectNodeItem());
-    const categories = Object.keys(profiles).filter(c => profiles[c]?.nodes?.length > 0);
+    renderPolicyGroups(container);
+    const categories = Object.keys(profiles).filter(c => profiles[c]?.nodes?.length > 0 || profiles[c]?.custom);
     if (categories.length === 0) {
         const p = document.createElement('p');
         p.style.cssText = "color: var(--text-muted); font-size:14px; text-align:center; padding: 24px 0;";
@@ -1407,6 +1436,8 @@ function renderProfiles() {
                 isChain ? openProxyChainEditModal(e, category, node.id)
                         : openEditNodeModal(e, category, node.id)
             )));
+            nodeDropdown.appendChild(_mkButton(t('menu_move_node'), '',
+                (e) => openMoveNodeModal(e, category, node.id)));
             nodeDropdown.appendChild(_mkButton(t('menu_copy_payload'), '',
                 (e) => copyNodePayloadUrl(e, category, node.id)));
             nodeDropdown.appendChild(_mkButton(t('menu_copy_full_config'), '',
@@ -1458,6 +1489,7 @@ function deleteNode(event, category, id) {
     closeAllMenus();
     if (!profiles[category]) return;
     profiles[category].nodes = profiles[category].nodes.filter(n => n.id !== id);
+    _refreshIfPolicyGroupsUsed();
     if (activeConfig === `${category}:${id}`) {
         activeConfig = null;
         saveActiveConfig();
@@ -2742,9 +2774,15 @@ function saveEditedSubscription() {
 
     if (!newName) return;
     if (!profiles[originalCat]) return;
+    if (newName !== originalCat) {
+        if (newName.indexOf(':') !== -1) return showToast(t('toast_category_bad_name'), 'error');
+        if (profiles[newName]) return showToast(t('toast_category_exists'), 'error');
+    }
 
     // Rename category if name changed
     if (newName !== originalCat) {
+        (advSettings.policyGroups || []).forEach(g => { if (g.category === originalCat) g.category = newName; });
+        writeFileB64(SETTINGS_FILE, utoa(JSON.stringify(advSettings)));
         profiles[newName] = { ...profiles[originalCat] };
         delete profiles[originalCat];
 
@@ -3834,15 +3872,20 @@ function renderRoutingRules() {
 
         const badge = document.createElement('span');
         const tag = rule.outboundTag || 'proxy';
+        let badgeText = tag;
         if (ROUTING_BUILTIN_TAGS_UI.includes(tag)) {
             badge.className = `routing-rule-outbound-badge tag-${tag}`;
+        } else if (tag.indexOf(POLICY_GROUP_PREFIX) === 0) {
+            const g = _findPolicyGroup(tag.slice(POLICY_GROUP_PREFIX.length));
+            badge.className = `routing-rule-outbound-badge tag-group${g ? '' : ' tag-missing'}`;
+            badgeText = g ? g.name : t('opt_outbound_group_missing');
         } else {
             // Saved-node remark: free text, so never put it into the class name.
             const exists = !!_findNodeByRemark(tag);
             badge.className = `routing-rule-outbound-badge tag-node${exists ? '' : ' tag-missing'}`;
             if (!exists) badge.title = t('opt_outbound_node_missing', { name: tag });
         }
-        badge.textContent = tag;
+        badge.textContent = badgeText;
         info.appendChild(badge);
 
         row.appendChild(info);
@@ -3927,7 +3970,19 @@ function _populateRuleOutboundSelect(selected) {
         sel.appendChild(group);
     });
 
-    if (selected && !seen.has(selected)) {
+    const groups = Array.isArray(advSettings.policyGroups) ? advSettings.policyGroups : [];
+    if (groups.length) {
+        const og = document.createElement('optgroup');
+        og.label = t('opt_outbound_group_label');
+        groups.forEach(g => addOpt(og, POLICY_GROUP_PREFIX + g.id, g.name));
+        sel.appendChild(og);
+    }
+
+    if (selected && selected.indexOf(POLICY_GROUP_PREFIX) === 0) {
+        if (!groups.some(g => POLICY_GROUP_PREFIX + g.id === selected)) {
+            addOpt(sel, selected, t('opt_outbound_group_missing'));
+        }
+    } else if (selected && !seen.has(selected)) {
         addOpt(sel, selected, t('opt_outbound_node_missing', { name: selected }));
     }
     sel.value = selected || 'proxy';
@@ -5348,4 +5403,338 @@ async function deleteHostEntry(domain) {
         applyActiveConfig();
         showToast(t('toast_host_deleted'), 'success');
     });
+}
+
+
+// ===== Categories: create empty ones, move nodes between them =====
+//
+// A category is just profiles[name]. Subscriptions create one with a url;
+// "Add category" creates one with no url and custom:true, which keeps it
+// visible while it is empty. Names may not contain ':' because activeConfig
+// is stored as "category:id" and split on it.
+
+function _validCategoryName(name) {
+    return !!name && name.indexOf(':') === -1;
+}
+
+function openAddCategoryModal() {
+    document.getElementById('add-category-name').value = '';
+    document.getElementById('add-category-modal').style.display = 'block';
+    setTimeout(() => document.getElementById('add-category-name').focus(), 50);
+}
+
+function closeAddCategoryModal() {
+    document.getElementById('add-category-modal').style.display = 'none';
+}
+
+function saveNewCategory() {
+    const name = document.getElementById('add-category-name').value.trim();
+    if (!_validCategoryName(name)) return showToast(t('toast_category_bad_name'), 'error');
+    if (profiles[name]) return showToast(t('toast_category_exists'), 'error');
+    profiles[name] = { url: null, nodes: [], custom: true };
+    categoryExpandedState[name] = true;
+    saveProfiles();
+    closeAddCategoryModal();
+    renderProfiles();
+    showToast(t('toast_category_created', { name }), 'success');
+}
+
+let _movingNode = null; // { category, id }
+
+function openMoveNodeModal(event, category, id) {
+    event.stopPropagation();
+    closeAllMenus();
+    if (!profiles[category]?.nodes?.some(n => n.id === id)) return;
+    _movingNode = { category, id };
+
+    const sel = document.getElementById('move-node-target');
+    sel.innerHTML = '';
+    Object.keys(profiles).forEach(c => {
+        if (c === category) return;
+        const o = document.createElement('option');
+        o.value = c;
+        o.textContent = c;
+        sel.appendChild(o);
+    });
+    document.getElementById('move-node-newcat').value = '';
+    document.getElementById('move-node-modal').style.display = 'block';
+}
+
+function closeMoveNodeModal() {
+    document.getElementById('move-node-modal').style.display = 'none';
+    _movingNode = null;
+}
+
+function confirmMoveNode() {
+    if (!_movingNode) return;
+    const { category, id } = _movingNode;
+    const src = profiles[category];
+    const idx = src ? src.nodes.findIndex(n => n.id === id) : -1;
+    if (idx === -1) return closeMoveNodeModal();
+
+    const newCat = document.getElementById('move-node-newcat').value.trim();
+    const dest = newCat || document.getElementById('move-node-target').value;
+    if (!dest || dest === category) return closeMoveNodeModal();
+    if (newCat && !_validCategoryName(newCat)) return showToast(t('toast_category_bad_name'), 'error');
+
+    if (!profiles[dest]) profiles[dest] = { url: null, nodes: [], custom: true };
+    const node = src.nodes[idx];
+    const wasActive = activeConfig === `${category}:${id}`;
+    // Node ids are only unique within a category.
+    if (profiles[dest].nodes.some(n => n.id === node.id)) {
+        node.id = Math.random().toString(36).substr(2, 9);
+    }
+    src.nodes.splice(idx, 1);
+    profiles[dest].nodes.push(node);
+    categoryExpandedState[dest] = true;
+
+    if (wasActive) {
+        activeConfig = `${dest}:${node.id}`;
+        saveActiveConfig();
+    }
+    saveProfiles();
+    closeMoveNodeModal();
+    renderProfiles();
+    showToast(t('toast_node_moved', { cat: dest }), 'success');
+    _refreshIfPolicyGroupsUsed();
+}
+
+// ===== Policy groups (routing.balancers) =====
+//
+// advSettings.policyGroups = [{ id, name, type, category, filter }]
+//   type     random | roundRobin | leastPing | leastLoad  (Xray balancer strategy)
+//   category '' = every category, otherwise one category name
+//   filter   case-insensitive regex tested against the node remark ('' = all)
+// A routing rule uses a group through outboundTag "group:<id>". Membership is
+// evaluated each time the config is generated, so new subscription nodes that
+// match the filter join the group automatically.
+
+const ACTIVE_GROUP_PREFIX = '@pg:'; // activeConfig value for a selected policy group
+const POLICY_GROUP_TYPE_KEYS = {
+    random: 'pg_type_random',
+    roundRobin: 'pg_type_roundRobin',
+    leastPing: 'pg_type_leastPing',
+    leastLoad: 'pg_type_leastLoad'
+};
+let currentEditingGroupId = null;
+
+function _findPolicyGroup(id) {
+    return (advSettings.policyGroups || []).find(g => g.id === id) || null;
+}
+
+// Saved nodes that belong to `group` right now (de-duplicated by rawUri,
+// because a node can sit in two categories after a subscription reload).
+function _policyGroupNodes(group) {
+    let re = null;
+    const f = (group.filter || '').trim();
+    if (f) {
+        try { re = new RegExp(f, 'i'); } catch (e) { return []; }
+    }
+    const cats = group.category
+        ? (profiles[group.category] ? [group.category] : [])
+        : Object.keys(profiles);
+    const seen = new Set();
+    const out = [];
+    cats.forEach(c => {
+        (profiles[c]?.nodes || []).forEach(n => {
+            if (!n || !n.rawUri || seen.has(n.rawUri)) return;
+            if (re && !re.test(_nodeRemark(n))) return;
+            seen.add(n.rawUri);
+            out.push(n);
+        });
+    });
+    return out;
+}
+
+function _enabledGroupRuleIds() {
+    const ids = new Set();
+    (advSettings.routingRules || []).forEach(r => {
+        if (!r || r.enabled === false) return;
+        const tag = r.outboundTag || '';
+        if (tag.indexOf(POLICY_GROUP_PREFIX) === 0) ids.add(tag.slice(POLICY_GROUP_PREFIX.length));
+    });
+    return ids;
+}
+
+// Only groups that an enabled rule actually points at are sent to helper.js,
+// so unused groups cost nothing in config.json.
+function _collectPolicyGroupsResolved(alsoId) {
+    const wanted = _enabledGroupRuleIds();
+    if (alsoId) wanted.add(alsoId);
+    if (wanted.size === 0) return [];
+    return (advSettings.policyGroups || [])
+        .filter(g => wanted.has(g.id))
+        .map(g => ({
+            id: g.id,
+            type: g.type,
+            uris: _policyGroupNodes(g).map(n => n.rawUri)
+        }));
+}
+
+// Node membership changed (delete / move / category removed / reload): if a
+// rule depends on a group, regenerate the config so the balancer follows.
+function _refreshIfPolicyGroupsUsed() {
+    const activeIsGroup = !!activeConfig && activeConfig.indexOf(ACTIVE_GROUP_PREFIX) === 0;
+    if ((advSettings.policyGroups || []).length && (activeIsGroup || _enabledGroupRuleIds().size > 0)) {
+        applyActiveConfig();
+    }
+}
+
+// Policy groups are listed on the Dashboard like nodes: tap to make one the
+// active outbound, ⋮ to edit or delete.
+function renderPolicyGroups(container) {
+    const groups = Array.isArray(advSettings.policyGroups) ? advSettings.policyGroups : [];
+    groups.forEach(g => {
+        const isSelected = activeConfig === ACTIVE_GROUP_PREFIX + g.id;
+        const item = document.createElement('div');
+        item.className = `config-item${isSelected ? ' selected' : ''}`;
+
+        const info = document.createElement('div');
+        info.className = 'config-info';
+        info.style.cssText = "flex: 1; display: flex; flex-direction: column;";
+        const nameEl = document.createElement('div');
+        nameEl.className = 'config-name';
+        nameEl.textContent = `⚖ ${g.name}`;
+        const metaEl = document.createElement('div');
+        metaEl.className = 'config-meta';
+        const parts = [t(POLICY_GROUP_TYPE_KEYS[g.type] || 'pg_type_random'), g.category || t('opt_pg_all')];
+        if ((g.filter || '').trim()) parts.push(`/${g.filter.trim()}/i`);
+        parts.push(t('pg_nodes_count', { count: _policyGroupNodes(g).length }));
+        metaEl.textContent = parts.join(' | ');
+        info.appendChild(nameEl);
+        info.appendChild(metaEl);
+        info.addEventListener('click', () => selectPolicyGroup(g.id));
+        item.appendChild(info);
+
+        const actions = document.createElement('div');
+        actions.className = 'node-actions-container';
+        if (isSelected) {
+            const pin = document.createElement('span');
+            pin.textContent = '📌';
+            actions.appendChild(pin);
+        }
+        const wrap = document.createElement('div');
+        wrap.className = 'node-menu-container';
+        wrap.style.cssText = "display: flex; align-items: center; justify-content: flex-end; gap: 8px; position: relative;";
+        const kebab = _mkButton("⋮", 'btn-menu-trigger', function (e) { toggleNodeMenu(e, this); });
+        kebab.style.flexShrink = '0';
+        wrap.appendChild(kebab);
+        const dd = document.createElement('div');
+        dd.className = 'node-dropdown-menu';
+        dd.appendChild(_mkButton(t('menu_edit'), '', (e) => { e.stopPropagation(); closeAllMenus(); openPolicyGroupModal(g.id); }));
+        dd.appendChild(_mkButton(t('menu_delete'), 'btn-delete-item', (e) => { e.stopPropagation(); closeAllMenus(); deletePolicyGroup(g.id); }));
+        wrap.appendChild(dd);
+        actions.appendChild(wrap);
+        item.appendChild(actions);
+        container.appendChild(item);
+    });
+}
+
+async function selectPolicyGroup(id) {
+    const g = _findPolicyGroup(id);
+    if (!g) return;
+    if (_policyGroupNodes(g).length === 0) return showToast(t('toast_pg_empty'), 'error');
+    const key = ACTIVE_GROUP_PREFIX + id;
+    if (activeConfig === key) return;
+    const res = resolveXrayConfigChecked('pgroup://' + id);
+    if (!res.ok) return showToast(t('toast_config_invalid', { reason: res.error }), 'error');
+    if (!(await showConfirm(t('confirm_connect_node', { name: g.name })))) return;
+    activeConfig = key;
+    saveActiveConfig();
+    renderProfiles();
+    applyActiveConfig();
+}
+
+function openPolicyGroupModal(id) {
+    const g = id ? _findPolicyGroup(id) : null;
+    currentEditingGroupId = g ? g.id : null;
+
+    const title = document.getElementById('pg-modal-title');
+    const key = g ? 'modal_edit_pg_title' : 'modal_add_pg_title';
+    title.setAttribute('data-i18n', key);
+    title.textContent = t(key);
+
+    document.getElementById('pg-name').value = g ? g.name : '';
+    document.getElementById('pg-type').value = g && POLICY_GROUP_TYPE_KEYS[g.type] ? g.type : 'leastPing';
+    document.getElementById('pg-filter').value = g ? (g.filter || '') : '';
+
+    const sel = document.getElementById('pg-category');
+    sel.innerHTML = '';
+    const all = document.createElement('option');
+    all.value = '';
+    all.textContent = t('opt_pg_all');
+    sel.appendChild(all);
+    Object.keys(profiles).forEach(c => {
+        const o = document.createElement('option');
+        o.value = c;
+        o.textContent = c;
+        sel.appendChild(o);
+    });
+    // A group whose category was deleted keeps its value visible instead of
+    // silently turning into "all categories".
+    if (g && g.category && !profiles[g.category]) {
+        const o = document.createElement('option');
+        o.value = g.category;
+        o.textContent = g.category;
+        sel.appendChild(o);
+    }
+    sel.value = g ? (g.category || '') : '';
+
+    document.getElementById('policy-group-modal').style.display = 'block';
+}
+
+function closePolicyGroupModal() {
+    document.getElementById('policy-group-modal').style.display = 'none';
+    currentEditingGroupId = null;
+}
+
+function savePolicyGroup() {
+    const name = document.getElementById('pg-name').value.trim();
+    const type = document.getElementById('pg-type').value;
+    const category = document.getElementById('pg-category').value;
+    const filter = document.getElementById('pg-filter').value.trim();
+
+    if (!name) return showToast(t('toast_pg_name_required'), 'error');
+    if (!POLICY_GROUP_TYPE_KEYS[type]) return;
+    if (filter) {
+        try { new RegExp(filter, 'i'); } catch (e) {
+            return showToast(t('toast_pg_bad_regex'), 'error');
+        }
+    }
+    if (!Array.isArray(advSettings.policyGroups)) advSettings.policyGroups = [];
+    if (advSettings.policyGroups.some(g => g.name === name && g.id !== currentEditingGroupId)) {
+        return showToast(t('toast_pg_name_exists'), 'error');
+    }
+
+    if (currentEditingGroupId) {
+        const g = _findPolicyGroup(currentEditingGroupId);
+        if (!g) return;
+        Object.assign(g, { name, type, category, filter });
+    } else {
+        // id goes into xray tags / selectors, so keep it [a-z0-9] only.
+        const id = 'g' + Math.random().toString(36).slice(2, 8);
+        advSettings.policyGroups.push({ id, name, type, category, filter });
+    }
+
+    closePolicyGroupModal();
+    renderProfiles();
+    showToast(t('toast_pg_saved'), 'success');
+    persistRoutingRules();
+}
+
+async function deletePolicyGroup(id) {
+    const g = _findPolicyGroup(id);
+    if (!g) return;
+    const inUse = (advSettings.routingRules || []).some(r => r && r.outboundTag === POLICY_GROUP_PREFIX + id);
+    const ok = await showConfirm(t(inUse ? 'confirm_delete_pg_in_use' : 'confirm_delete_pg', { name: g.name }));
+    if (!ok) return;
+    advSettings.policyGroups = advSettings.policyGroups.filter(x => x.id !== id);
+    if (activeConfig === ACTIVE_GROUP_PREFIX + id) {
+        activeConfig = null;
+        saveActiveConfig();
+    }
+    renderProfiles();
+    renderRoutingRules();
+    showToast(t('toast_pg_deleted'), 'success');
+    persistRoutingRules();
 }

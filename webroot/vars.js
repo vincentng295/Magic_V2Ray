@@ -147,6 +147,9 @@ let advSettings = {
     // and merging with DEFAULT_DNS_HOSTS happens at config-generation time
     // in buildDnsHosts() (helper.js).
     customHosts: "",
+    // Policy groups -> routing.balancers (see main.js). Not part of the
+    // routing-rule defaults, so "reset rules" leaves them alone.
+    policyGroups: [],
     routingRules: [
         {
             "remarks": "阻断udp443",

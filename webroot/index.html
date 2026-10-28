@@ -100,6 +100,8 @@
                             <button onclick="importFromClipboard(); closeImportAddMenu();" data-i18n="import_from_clipboard">Import from Clipboard</button>
                             <button onclick="importFromFile(); closeImportAddMenu();" data-i18n="import_from_file">Import from File</button>
                             <div class="import-add-divider"></div>-->
+                            <button onclick="openAddCategoryModal(); closeImportAddMenu();" data-i18n="add_category">Add category</button>
+                            <button onclick="openPolicyGroupModal(); closeImportAddMenu();" data-i18n="add_policy_group">Add policy group</button>
                             <button onclick="openProxyChainModal(); closeImportAddMenu();" data-i18n="add_proxy_chain">Add Proxy Chain</button>
                             <div class="import-add-divider"></div>
                             <button onclick="openNewNodeModal('vmess'); closeImportAddMenu();" data-i18n="add_vmess">Add VMess</button>
@@ -1295,6 +1297,78 @@
                     <label data-i18n="lbl_sub_useragent">User-Agent</label>
                     <input type="text" id="edit-sub-useragent" placeholder="v2rayNG/2.2.3">
                 </div>
+            </div>
+        </div>
+    </div>
+    <!-- Add Category Modal -->
+    <div id="add-category-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-window">
+            <header class="modal-header">
+                <button class="modal-icon-btn" onclick="closeAddCategoryModal()">←</button>
+                <h2 data-i18n="modal_add_category_title">Add category</h2>
+                <button class="modal-icon-btn check-btn" onclick="saveNewCategory()">✓</button>
+            </header>
+            <div class="modal-body" style="padding: 16px; display: flex; flex-direction: column; gap: 14px;">
+                <div class="edit-item-field">
+                    <label data-i18n="lbl_sub_cat_name">Category Name</label>
+                    <input type="text" id="add-category-name">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Move Node Modal -->
+    <div id="move-node-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-window">
+            <header class="modal-header">
+                <button class="modal-icon-btn" onclick="closeMoveNodeModal()">←</button>
+                <h2 data-i18n="modal_move_node_title">Move to category</h2>
+                <button class="modal-icon-btn check-btn" onclick="confirmMoveNode()">✓</button>
+            </header>
+            <div class="modal-body" style="padding: 16px; display: flex; flex-direction: column; gap: 14px;">
+                <div class="edit-item-field">
+                    <label data-i18n="lbl_move_target">Destination category</label>
+                    <select id="move-node-target"></select>
+                </div>
+                <div class="edit-item-field">
+                    <label data-i18n="lbl_move_newcat">Or create a new category</label>
+                    <input type="text" id="move-node-newcat">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Policy Group Modal -->
+    <div id="policy-group-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-window">
+            <header class="modal-header">
+                <button class="modal-icon-btn" onclick="closePolicyGroupModal()">←</button>
+                <h2 id="pg-modal-title" data-i18n="modal_add_pg_title">Add policy group</h2>
+                <button class="modal-icon-btn check-btn" onclick="savePolicyGroup()">✓</button>
+            </header>
+            <div class="modal-body" style="padding: 16px; display: flex; flex-direction: column; gap: 14px;">
+                <div class="edit-item-field">
+                    <label data-i18n="lbl_pg_name">Name</label>
+                    <input type="text" id="pg-name">
+                </div>
+                <div class="edit-item-field">
+                    <label data-i18n="lbl_pg_type">Policy group type</label>
+                    <select id="pg-type">
+                        <option value="random" data-i18n="pg_type_random">Random (random)</option>
+                        <option value="roundRobin" data-i18n="pg_type_roundRobin">Round robin (roundRobin)</option>
+                        <option value="leastPing" data-i18n="pg_type_leastPing">Lowest ping (leastPing)</option>
+                        <option value="leastLoad" data-i18n="pg_type_leastLoad">Most stable (leastLoad)</option>
+                    </select>
+                </div>
+                <div class="edit-item-field">
+                    <label data-i18n="lbl_pg_category">From category</label>
+                    <select id="pg-category"></select>
+                </div>
+                <div class="edit-item-field">
+                    <label data-i18n="lbl_pg_filter">Remark regex filter</label>
+                    <input type="text" id="pg-filter" data-i18n-placeholder="ph_pg_filter" placeholder="e.g. US|Singapore">
+                </div>
+                <p class="routing-strategy-hint" data-i18n="pg_probe_note">leastPing / leastLoad probe each node in the background (generate_204). If every node looks dead, traffic falls back to the main node.</p>
             </div>
         </div>
     </div>

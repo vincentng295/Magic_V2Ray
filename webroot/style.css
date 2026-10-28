@@ -2512,3 +2512,12 @@ textarea.pro-config-input {
     font-size: 13px;
     outline: none;
 }
+
+.routing-rule-outbound-badge.tag-group {
+    background: var(--md-surface-2, rgba(255,255,255,.08));
+    border: 1px solid var(--md-outline-variant);
+}
+.routing-rule-outbound-badge.tag-group.tag-missing {
+    opacity: .6;
+    text-decoration: line-through;
+}
