@@ -305,6 +305,12 @@
                             <option value="2" data-i18n="network_mode_mobile">Mobile Data Only</option>
                         </select>
                     </div>
+                    <div class="setting-item-row">
+                        <label for="set-upstreamiface"><span data-i18n="lbl_upstreamiface">Upstream network interface</span><small data-i18n="desc_upstreamiface">Network interface Xray itself connects out through. Auto follows the system's active network.</small></label>
+                        <select id="set-upstreamiface">
+                            <option value="auto" data-i18n="upstream_iface_auto">Auto</option>
+                        </select>
+                    </div>
                     <div class="setting-item-row toggle-row">
                         <label for="set-enableipv6"><span data-i18n="lbl_enableipv6">Enable IPv6</span><small data-i18n="desc_enableipv6">Allow IPv6 network connectivity</small></label>
                         <input type="checkbox" id="set-enableipv6" onchange="toggleSubSettingField('set-enableipv6', 'enableipv6ula-sub-fields')">

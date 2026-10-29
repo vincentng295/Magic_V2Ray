@@ -3194,6 +3194,12 @@ function switchTab(tabId, evt) {
         renderRoutingRules();
     }
 
+    // Interfaces come and go (Wi-Fi off, hotspot on), so re-list them each
+    // time the Network tab is opened.
+    if (tabId === 'tab-network' && prevTabId !== 'tab-network') {
+        refreshUpstreamIfaceOptions(document.getElementById('set-upstreamiface')?.value);
+    }
+
     if (tabId === 'tab-hosts') {
         onHostsTabOpened();
     }
@@ -3581,6 +3587,7 @@ function bindSettingsToFormView() {
 
     document.getElementById('set-mtu').value = advSettings.mtu || 1350;
     document.getElementById('set-networkmode').value = advSettings.networkMode ?? 0;
+    refreshUpstreamIfaceOptions(advSettings.upstreamIface);
     document.getElementById('set-allowtether').checked = advSettings.allowTether !== false;
     migrateLanBypassSetting();
     renderLanBypassList();
@@ -3666,6 +3673,7 @@ async function resetTrafficSettings() {
 // in memory from the last load/save of the Traffic form.
 function saveNetworkSettingsForm() {
     advSettings.networkMode = parseInt(document.getElementById('set-networkmode').value) || 0;
+    advSettings.upstreamIface = sanitizeUpstreamIface(document.getElementById('set-upstreamiface').value);
     advSettings.enableIPv6 = document.getElementById('set-enableipv6').checked;
     advSettings.enableIPv6ULA = document.getElementById('set-enableipv6ula').checked;
     advSettings.allowTether = document.getElementById('set-allowtether').checked;
@@ -3678,6 +3686,54 @@ function saveNetworkSettingsForm() {
             applyActiveConfig({ force: true });
         });
     });
+}
+
+// ===== Upstream network interface =====
+// advSettings.upstreamIface: "auto" (default) or an interface name. Read by
+// service.sh (query_settings upstreamIface), which pins Xray's own egress
+// (fwmark 255) to that interface's routing table. IFNAMSIZ is 16 incl. NUL,
+// so a name is at most 15 chars; the charset matches service.sh's check.
+function sanitizeUpstreamIface(raw) {
+    const v = String(raw || '').trim();
+    if (!v || v.toLowerCase() === 'auto') return 'auto';
+    return /^[A-Za-z0-9_.-]{1,15}$/.test(v) ? v : 'auto';
+}
+
+// Fills the dropdown with "Auto" plus the interfaces currently present.
+// A saved name that is not up right now is still listed (marked) so opening
+// the tab never silently rewrites the user's choice to "auto".
+function refreshUpstreamIfaceOptions(selected) {
+    const sel = document.getElementById('set-upstreamiface');
+    if (!sel) return;
+    const want = sanitizeUpstreamIface(selected);
+    const build = (names) => {
+        const present = new Set(names);
+        sel.innerHTML = '';
+        const auto = document.createElement('option');
+        auto.value = 'auto';
+        auto.textContent = t('upstream_iface_auto');
+        sel.appendChild(auto);
+        const list = names.slice();
+        if (want !== 'auto' && !present.has(want)) list.push(want);
+        list.forEach(name => {
+            const o = document.createElement('option');
+            o.value = name;
+            o.textContent = present.has(name) ? name : t('upstream_iface_missing', { name });
+            sel.appendChild(o);
+        });
+        sel.value = want;
+    };
+    // Loopback, our own tun and tunnel/dummy pseudo-devices are never a
+    // sensible upstream; everything else in /sys/class/net is offered.
+    execShell(
+        `for i in /sys/class/net/*; do n=\${i##*/}; case "$n" in lo|${TUN_NAME_UI}|dummy*|ifb*|sit*|ip6tnl*|ip_vti*|ip6_vti*|ip6gre*|gre*|erspan*|bond*|tunl*) continue ;; esac; echo "$n"; done`,
+        (out) => {
+            const names = (out && out !== 'ERROR' ? out : '')
+                .split('\n').map(x => x.trim())
+                .filter(x => /^[A-Za-z0-9_.-]{1,15}$/.test(x));
+            build(names);
+        }
+    );
 }
 
 // ===== Bypass LAN =====

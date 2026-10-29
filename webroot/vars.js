@@ -60,6 +60,9 @@ const EXCLUDE_LIST_FILE = `${DATADIR}/excludelist.txt`;
 // Per-subscription override lives in profiles[category].useragent.
 const DEFAULT_SUB_USERAGENT = "v2rayNG/2.2.3";
 const STUB_DIR = "/dev/sysctl_stubs";
+// Must match TUN_NAME in service.sh; only used to hide it from the
+// upstream-interface list.
+const TUN_NAME_UI = "xraytun0";
 const TIME_RES_FILE = `${STUB_DIR}/run/time_res`;
 const ADDR_INFO_FILE = `${STUB_DIR}/run/addr_info`;
 const LOG_DIR = `${STUB_DIR}/logs`;
@@ -96,6 +99,13 @@ let advSettings = {
     queryStrategy: "UseIPv4",
     networkMode: 0,
     allowTether: true,
+    // Network tab, "Upstream network interface". The interface Xray's own
+    // egress (fwmark 255) is pinned to by service.sh (apply_mark_rule).
+    // "auto" (default) = follow the system's default network and re-pin on
+    // every handover; anything else is an interface name such as wlan0 or
+    // rmnet_data0. If the named interface is not up, service.sh falls back
+    // to auto. Read by service.sh (query_settings upstreamIface).
+    upstreamIface: "auto",
     // Network tab, "Bypass LAN". Space-separated CIDRs the user UNticked, i.e.
     // the LAN/private/special-use ranges that are sent into Xray instead of
     // skipping it. "" (default) = every range in LAN_BYPASS_CIDRS is bypassed.
