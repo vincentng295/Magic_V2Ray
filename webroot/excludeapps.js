@@ -242,7 +242,10 @@ function setExcludeFilter(filter) {
 function onExcludeSearchInput() {
     clearTimeout(_exclude.searchTimer);
     _exclude.searchTimer = setTimeout(() => {
-        _exclude.query = document.getElementById('exclude-search-input').value.trim();
+        const raw = document.getElementById('exclude-search-input').value.trim();
+        // Strip HTML-significant characters and cap length so this value stays
+        // safe even if a future change reflects it outside a textContent sink.
+        _exclude.query = raw.replace(/[<>"'&]/g, '').slice(0, 100);
         renderExcludeList();
     }, 250);
 }
