@@ -1,8 +1,12 @@
-# Magic V2Ray v1.26 Release Notes
+# Magic V2Ray v1.27 Release Notes
 
-Magic V2Ray version 1.26 brings significant improvements to network monitoring, active interface detection, and protocol support.
+Magic V2Ray version 1.27 updates the core engine to Xray-core v26.10.29 and introduces configurable upstream network interface selection. You can now pin Xray's egress traffic directly to a specific network interface in Network Settings, while automatically falling back to auto-detection whenever the chosen interface becomes unavailable.
 
-This update improves active network detection by parsing netd default-network routing rules directly, cleanly mapping numeric table IDs through the system rt_tables. In addition, the redundant VPN-app UID bypass chain and its associated monitoring logic have been completely removed to streamline routing performance. Furthermore, full MASQUE proxy support has been introduced, covering URI parsing, serialization, and configurable settings for TLS, HTTP, DNS, and Cloudflare WARP.
+Policy groups are now integrated directly into profile categories as standard nodes. This allow policy groups to be edited, moved, renamed, and organized alongside other regular proxy nodes while retaining their dynamic node filtering capabilities. Additionally, nodes can now be moved between categories directly within the node editor modal.
+
+Network routing and IPv6 connectivity have been refined with updated IPv6 ULA address prefixes for active network interfaces and VirtualAP IPv6 Routed mode compatibility.
+
+Update Xray-core to v26.10.29
 
 ---
 
