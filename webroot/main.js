@@ -2243,6 +2243,24 @@ function openEditNodeModal(event, category, id) {
     currentEditingNodeId = id;
     currentEditingProtocol = node.protocol;
     _populateEditModal(node);
+    _populateEditCategory(category);
+}
+
+// Category selector at the bottom of the node modal. New nodes default to
+// Manual; editing preselects the node's current category.
+function _populateEditCategory(selected) {
+    const sel = document.getElementById('edit-node-category');
+    if (!sel) return;
+    sel.innerHTML = '';
+    const cats = Object.keys(profiles);
+    if (!cats.includes(selected)) cats.unshift(selected);
+    cats.forEach(c => {
+        const o = document.createElement('option');
+        o.value = c;
+        o.textContent = c;
+        sel.appendChild(o);
+    });
+    sel.value = selected;
 }
 
 function openNewNodeModal(protocol) {
@@ -2264,6 +2282,7 @@ function openNewNodeModal(protocol) {
     currentEditingNodeId = tempId;
     currentEditingProtocol = protocol;
     _populateEditModal(emptyNode, true);
+    _populateEditCategory('Manual');
 }
 
 // Parses the plain-text output of `xray wg genkey`:
@@ -2731,17 +2750,34 @@ function saveEditedNode() {
         rawUri: newUri
     };
 
+    const destCat = document.getElementById('edit-node-category').value || currentEditingCategory;
+    let wasActive = !isNew && activeConfig === `${currentEditingCategory}:${currentEditingNodeId}`;
+
     if (isNew) {
-        if (!profiles['Manual']) profiles['Manual'] = { url: null, nodes: [] };
-        profiles['Manual'].nodes.push(nodeEntry);
+        if (!profiles[destCat]) profiles[destCat] = { url: null, nodes: [] };
+        profiles[destCat].nodes.push(nodeEntry);
         showToast(t('toast_new_node_saved'), "success");
     } else {
         const nodeIdx = profiles[currentEditingCategory]?.nodes?.findIndex(n => n.id === currentEditingNodeId);
         if (nodeIdx === -1) return;
-        profiles[currentEditingCategory].nodes[nodeIdx] = nodeEntry;
+        if (destCat === currentEditingCategory) {
+            profiles[currentEditingCategory].nodes[nodeIdx] = nodeEntry;
+        } else {
+            // Moved to another category while editing. Ids are only unique
+            // within a category, so re-issue one on collision.
+            if (!profiles[destCat]) profiles[destCat] = { url: null, nodes: [] };
+            if (profiles[destCat].nodes.some(n => n.id === nodeEntry.id)) {
+                nodeEntry.id = Math.random().toString(36).substr(2, 9);
+            }
+            profiles[currentEditingCategory].nodes.splice(nodeIdx, 1);
+            profiles[destCat].nodes.push(nodeEntry);
+            categoryExpandedState[destCat] = true;
+            if (wasActive) {
+                activeConfig = `${destCat}:${nodeEntry.id}`;
+                saveActiveConfig();
+            }
+        }
     }
-
-    const wasActive = !isNew && activeConfig === `${currentEditingCategory}:${currentEditingNodeId}`;
 
     saveProfiles();
     closeEditNodeModal();
