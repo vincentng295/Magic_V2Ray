@@ -229,12 +229,6 @@ function applyActiveConfig(options = {}) {
     let rawUri;
     if (!activeConfig) {
         rawUri = DIRECT_NODE_URI;
-    } else if (activeConfig.indexOf(ACTIVE_GROUP_PREFIX) === 0) {
-        if (!_findPolicyGroup(activeConfig.slice(ACTIVE_GROUP_PREFIX.length))) {
-            if (onDone) onDone(false);
-            return;
-        }
-        rawUri = 'pgroup://' + activeConfig.slice(ACTIVE_GROUP_PREFIX.length);
     } else {
         const [category, id] = activeConfig.split(':');
         const node = profiles[category]?.nodes?.find(n => n.id === id);
@@ -544,10 +538,6 @@ document.addEventListener('DOMContentLoaded', () => {
 function getActiveNodeLabel() {
     if (advSettings.proMode) return t('status_node_pro');
     if (!activeConfig) return t('builtin_direct_name');
-    if (activeConfig.indexOf(ACTIVE_GROUP_PREFIX) === 0) {
-        const g = _findPolicyGroup(activeConfig.slice(ACTIVE_GROUP_PREFIX.length));
-        return g ? g.name : '';
-    }
     const sep = activeConfig.indexOf(':');
     const category = activeConfig.slice(0, sep);
     const id = activeConfig.slice(sep + 1);
@@ -1151,7 +1141,7 @@ function _nodeRemark(node) {
 
 function _findNodeByRemark(remark) {
     for (const category of Object.keys(profiles)) {
-        const node = (profiles[category]?.nodes || []).find(n => _nodeRemark(n) === remark);
+        const node = (profiles[category]?.nodes || []).find(n => !_isGroupNode(n) && _nodeRemark(n) === remark);
         if (node) return node;
     }
     return null;
@@ -1305,10 +1295,10 @@ function _mkDirectNodeItem() {
 }
 
 function renderProfiles() {
+    _migrateLegacyPolicyGroups();
     const container = document.getElementById('profiles-container');
     container.innerHTML = "";
     container.appendChild(_mkDirectNodeItem());
-    renderPolicyGroups(container);
     const categories = Object.keys(profiles).filter(c => profiles[c]?.nodes?.length > 0 || profiles[c]?.custom);
     if (categories.length === 0) {
         const p = document.createElement('p');
@@ -1375,8 +1365,12 @@ function renderProfiles() {
             item.className = `config-item${isSelected ? ' selected' : ''}`;
 
             // Chain nodes show hop labels instead of address:port
+            const isGroup = _isGroupNode(node);
             let metaLine;
-            if (isChain) {
+            if (isGroup) {
+                const g = _findPolicyGroup(node.id);
+                metaLine = g ? _policyGroupMeta(g) : '';
+            } else if (isChain) {
                 try {
                     const fakeRawUri = node.rawUri.replace(/^chain:\/\//i, 'https://');
                     const u = new URL(fakeRawUri);
@@ -1423,7 +1417,7 @@ function renderProfiles() {
             pingSpan.id = `ping-${category}-${node.id}`;
             pingSpan.className = 'ping-info';
             pingSpan.style.cssText = "text-align: right; white-space: nowrap;";
-            nodeMenuWrap.appendChild(pingSpan);
+            if (!isGroup) nodeMenuWrap.appendChild(pingSpan);
 
             const nodeKebab = _mkButton("⋮", 'btn-menu-trigger', function (e) { toggleNodeMenu(e, this); });
             nodeKebab.style.flexShrink = '0';
@@ -1432,12 +1426,22 @@ function renderProfiles() {
             const nodeDropdown = document.createElement('div');
             nodeDropdown.className = 'node-dropdown-menu';
             // Chain nodes open the chain modal; regular nodes open edit-node-modal
-            nodeDropdown.appendChild(_mkButton(t('menu_edit'), '', (e) => (
-                isChain ? openProxyChainEditModal(e, category, node.id)
-                        : openEditNodeModal(e, category, node.id)
-            )));
+            nodeDropdown.appendChild(_mkButton(t('menu_edit'), '', (e) => {
+                if (isGroup) { e.stopPropagation(); closeAllMenus(); openPolicyGroupModal(node.id); return; }
+                return isChain ? openProxyChainEditModal(e, category, node.id)
+                               : openEditNodeModal(e, category, node.id);
+            }));
             nodeDropdown.appendChild(_mkButton(t('menu_move_node'), '',
                 (e) => openMoveNodeModal(e, category, node.id)));
+            if (isGroup) {
+                nodeDropdown.appendChild(_mkButton(t('menu_delete'), 'btn-delete-item',
+                    (e) => deleteNode(e, category, node.id)));
+                nodeMenuWrap.appendChild(nodeDropdown);
+                actions.appendChild(nodeMenuWrap);
+                item.appendChild(actions);
+                listNode.appendChild(item);
+                return;
+            }
             nodeDropdown.appendChild(_mkButton(t('menu_copy_payload'), '',
                 (e) => copyNodePayloadUrl(e, category, node.id)));
             nodeDropdown.appendChild(_mkButton(t('menu_copy_full_config'), '',
@@ -2781,7 +2785,7 @@ function saveEditedSubscription() {
 
     // Rename category if name changed
     if (newName !== originalCat) {
-        (advSettings.policyGroups || []).forEach(g => { if (g.category === originalCat) g.category = newName; });
+        Object.keys(profiles).forEach(c => (profiles[c].nodes || []).forEach(n => { if (_isGroupNode(n) && n.pg.source === originalCat) n.pg.source = newName; }));
         writeFileB64(SETTINGS_FILE, utoa(JSON.stringify(advSettings)));
         profiles[newName] = { ...profiles[originalCat] };
         delete profiles[originalCat];
@@ -4026,7 +4030,7 @@ function _populateRuleOutboundSelect(selected) {
         sel.appendChild(group);
     });
 
-    const groups = Array.isArray(advSettings.policyGroups) ? advSettings.policyGroups : [];
+    const groups = _allPolicyGroups();
     if (groups.length) {
         const og = document.createElement('optgroup');
         og.label = t('opt_outbound_group_label');
@@ -4515,7 +4519,7 @@ async function _pingCategory(category, mode) {
     const catData = profiles[category];
     if (!catData || !catData.nodes || catData.nodes.length === 0) return;
 
-    await parallelWithLimit(catData.nodes, NODE_TEST_CONCURRENCY, async (node) => {
+    await parallelWithLimit(catData.nodes.filter(n => !_isGroupNode(n)), NODE_TEST_CONCURRENCY, async (node) => {
         const pingSpan = document.getElementById(`ping-${category}-${node.id}`);
         await _execNodeProbe(node, pingSpan, mode);
     });
@@ -5539,6 +5543,7 @@ function confirmMoveNode() {
     // Node ids are only unique within a category.
     if (profiles[dest].nodes.some(n => n.id === node.id)) {
         node.id = Math.random().toString(36).substr(2, 9);
+        if (_isGroupNode(node)) node.rawUri = 'pgroup://' + node.id;
     }
     src.nodes.splice(idx, 1);
     profiles[dest].nodes.push(node);
@@ -5557,15 +5562,17 @@ function confirmMoveNode() {
 
 // ===== Policy groups (routing.balancers) =====
 //
-// advSettings.policyGroups = [{ id, name, type, category, filter }]
-//   type     random | roundRobin | leastPing | leastLoad  (Xray balancer strategy)
-//   category '' = every category, otherwise one category name
-//   filter   case-insensitive regex tested against the node remark ('' = all)
-// A routing rule uses a group through outboundTag "group:<id>". Membership is
-// evaluated each time the config is generated, so new subscription nodes that
-// match the filter join the group automatically.
+// A policy group is an ordinary node that lives inside a category:
+//   { id, name, protocol: 'policygroup', rawUri: 'pgroup://<id>',
+//     pg: { type, source, filter } }
+//   pg.type    random | roundRobin | leastPing | leastLoad (Xray strategy)
+//   pg.source  '' = nodes from every category, otherwise one category name
+//   pg.filter  case-insensitive regex tested against each node's remark
+// It is selected, moved, renamed and deleted like any node. Membership is
+// evaluated every time the config is generated, so new subscription nodes that
+// match the filter join automatically. The id doubles as the group id used in
+// xray tags and in routing rules ("group:<id>").
 
-const ACTIVE_GROUP_PREFIX = '@pg:'; // activeConfig value for a selected policy group
 const POLICY_GROUP_TYPE_KEYS = {
     random: 'pg_type_random',
     roundRobin: 'pg_type_roundRobin',
@@ -5574,8 +5581,53 @@ const POLICY_GROUP_TYPE_KEYS = {
 };
 let currentEditingGroupId = null;
 
+function _isGroupNode(n) {
+    return !!n && typeof n.rawUri === 'string' && n.rawUri.indexOf('pgroup://') === 0 && !!n.pg;
+}
+
+function _toGroup(cat, n) {
+    return {
+        id: n.id, name: n.name, container: cat,
+        type: n.pg.type, category: n.pg.source || '', filter: n.pg.filter || ''
+    };
+}
+
+function _allPolicyGroups() {
+    const out = [];
+    Object.keys(profiles).forEach(c => {
+        (profiles[c]?.nodes || []).forEach(n => { if (_isGroupNode(n)) out.push(_toGroup(c, n)); });
+    });
+    return out;
+}
+
 function _findPolicyGroup(id) {
-    return (advSettings.policyGroups || []).find(g => g.id === id) || null;
+    return _allPolicyGroups().find(g => g.id === id) || null;
+}
+
+function _policyGroupMeta(g) {
+    const parts = [t(POLICY_GROUP_TYPE_KEYS[g.type] || 'pg_type_random'), g.category || t('opt_pg_all')];
+    if ((g.filter || '').trim()) parts.push(`/${g.filter.trim()}/i`);
+    parts.push(t('pg_nodes_count', { count: _policyGroupNodes(g).length }));
+    return '⚖ ' + parts.join(' | ');
+}
+
+// Groups created by the earlier version were kept in advSettings.policyGroups;
+// move them into the Manual category as normal nodes.
+function _migrateLegacyPolicyGroups() {
+    const legacy = advSettings.policyGroups;
+    if (!Array.isArray(legacy) || legacy.length === 0) return;
+    if (!profiles['Manual']) profiles['Manual'] = { url: null, nodes: [] };
+    legacy.forEach(g => {
+        if (!g || !g.id) return;
+        profiles['Manual'].nodes.push({
+            id: g.id, name: g.name, protocol: 'policygroup', address: '', port: '',
+            rawUri: 'pgroup://' + g.id,
+            pg: { type: g.type, source: g.category || '', filter: g.filter || '' }
+        });
+    });
+    advSettings.policyGroups = [];
+    saveProfiles();
+    persistRoutingRules();
 }
 
 // Saved nodes that belong to `group` right now (de-duplicated by rawUri,
@@ -5593,7 +5645,7 @@ function _policyGroupNodes(group) {
     const out = [];
     cats.forEach(c => {
         (profiles[c]?.nodes || []).forEach(n => {
-            if (!n || !n.rawUri || seen.has(n.rawUri)) return;
+            if (!n || !n.rawUri || _isGroupNode(n) || seen.has(n.rawUri)) return;
             if (re && !re.test(_nodeRemark(n))) return;
             seen.add(n.rawUri);
             out.push(n);
@@ -5612,93 +5664,29 @@ function _enabledGroupRuleIds() {
     return ids;
 }
 
-// Only groups that an enabled rule actually points at are sent to helper.js,
-// so unused groups cost nothing in config.json.
+// Only groups that an enabled rule (or the active node) uses are sent to
+// helper.js, so unused groups cost nothing in config.json.
 function _collectPolicyGroupsResolved(alsoId) {
     const wanted = _enabledGroupRuleIds();
     if (alsoId) wanted.add(alsoId);
     if (wanted.size === 0) return [];
-    return (advSettings.policyGroups || [])
+    return _allPolicyGroups()
         .filter(g => wanted.has(g.id))
-        .map(g => ({
-            id: g.id,
-            type: g.type,
-            uris: _policyGroupNodes(g).map(n => n.rawUri)
-        }));
+        .map(g => ({ id: g.id, type: g.type, uris: _policyGroupNodes(g).map(n => n.rawUri) }));
 }
 
-// Node membership changed (delete / move / category removed / reload): if a
-// rule depends on a group, regenerate the config so the balancer follows.
+function _activeIsGroup() {
+    if (!activeConfig) return false;
+    const i = activeConfig.indexOf(':');
+    const n = profiles[activeConfig.slice(0, i)]?.nodes?.find(x => x.id === activeConfig.slice(i + 1));
+    return _isGroupNode(n);
+}
+
+// Node membership changed (delete / move / category removed / reload): if the
+// active node or a rule depends on a group, regenerate the config.
 function _refreshIfPolicyGroupsUsed() {
-    const activeIsGroup = !!activeConfig && activeConfig.indexOf(ACTIVE_GROUP_PREFIX) === 0;
-    if ((advSettings.policyGroups || []).length && (activeIsGroup || _enabledGroupRuleIds().size > 0)) {
-        applyActiveConfig();
-    }
-}
-
-// Policy groups are listed on the Dashboard like nodes: tap to make one the
-// active outbound, ⋮ to edit or delete.
-function renderPolicyGroups(container) {
-    const groups = Array.isArray(advSettings.policyGroups) ? advSettings.policyGroups : [];
-    groups.forEach(g => {
-        const isSelected = activeConfig === ACTIVE_GROUP_PREFIX + g.id;
-        const item = document.createElement('div');
-        item.className = `config-item${isSelected ? ' selected' : ''}`;
-
-        const info = document.createElement('div');
-        info.className = 'config-info';
-        info.style.cssText = "flex: 1; display: flex; flex-direction: column;";
-        const nameEl = document.createElement('div');
-        nameEl.className = 'config-name';
-        nameEl.textContent = `⚖ ${g.name}`;
-        const metaEl = document.createElement('div');
-        metaEl.className = 'config-meta';
-        const parts = [t(POLICY_GROUP_TYPE_KEYS[g.type] || 'pg_type_random'), g.category || t('opt_pg_all')];
-        if ((g.filter || '').trim()) parts.push(`/${g.filter.trim()}/i`);
-        parts.push(t('pg_nodes_count', { count: _policyGroupNodes(g).length }));
-        metaEl.textContent = parts.join(' | ');
-        info.appendChild(nameEl);
-        info.appendChild(metaEl);
-        info.addEventListener('click', () => selectPolicyGroup(g.id));
-        item.appendChild(info);
-
-        const actions = document.createElement('div');
-        actions.className = 'node-actions-container';
-        if (isSelected) {
-            const pin = document.createElement('span');
-            pin.textContent = '📌';
-            actions.appendChild(pin);
-        }
-        const wrap = document.createElement('div');
-        wrap.className = 'node-menu-container';
-        wrap.style.cssText = "display: flex; align-items: center; justify-content: flex-end; gap: 8px; position: relative;";
-        const kebab = _mkButton("⋮", 'btn-menu-trigger', function (e) { toggleNodeMenu(e, this); });
-        kebab.style.flexShrink = '0';
-        wrap.appendChild(kebab);
-        const dd = document.createElement('div');
-        dd.className = 'node-dropdown-menu';
-        dd.appendChild(_mkButton(t('menu_edit'), '', (e) => { e.stopPropagation(); closeAllMenus(); openPolicyGroupModal(g.id); }));
-        dd.appendChild(_mkButton(t('menu_delete'), 'btn-delete-item', (e) => { e.stopPropagation(); closeAllMenus(); deletePolicyGroup(g.id); }));
-        wrap.appendChild(dd);
-        actions.appendChild(wrap);
-        item.appendChild(actions);
-        container.appendChild(item);
-    });
-}
-
-async function selectPolicyGroup(id) {
-    const g = _findPolicyGroup(id);
-    if (!g) return;
-    if (_policyGroupNodes(g).length === 0) return showToast(t('toast_pg_empty'), 'error');
-    const key = ACTIVE_GROUP_PREFIX + id;
-    if (activeConfig === key) return;
-    const res = resolveXrayConfigChecked('pgroup://' + id);
-    if (!res.ok) return showToast(t('toast_config_invalid', { reason: res.error }), 'error');
-    if (!(await showConfirm(t('confirm_connect_node', { name: g.name })))) return;
-    activeConfig = key;
-    saveActiveConfig();
-    renderProfiles();
-    applyActiveConfig();
+    if (_allPolicyGroups().length === 0) return;
+    if (_activeIsGroup() || _enabledGroupRuleIds().size > 0) applyActiveConfig();
 }
 
 function openPolicyGroupModal(id) {
@@ -5714,6 +5702,21 @@ function openPolicyGroupModal(id) {
     document.getElementById('pg-type').value = g && POLICY_GROUP_TYPE_KEYS[g.type] ? g.type : 'leastPing';
     document.getElementById('pg-filter').value = g ? (g.filter || '') : '';
 
+    // Which category the group itself is saved in (new groups only; an
+    // existing one is relocated with "Move to category").
+    const cont = document.getElementById('pg-container');
+    cont.innerHTML = '';
+    const cats = Object.keys(profiles);
+    if (!cats.includes('Manual')) cats.unshift('Manual');
+    cats.forEach(c => {
+        const o = document.createElement('option');
+        o.value = c;
+        o.textContent = c;
+        cont.appendChild(o);
+    });
+    cont.value = g ? g.container : (cats.includes('Manual') ? 'Manual' : cats[0]);
+    document.getElementById('pg-container-field').style.display = g ? 'none' : '';
+
     const sel = document.getElementById('pg-category');
     sel.innerHTML = '';
     const all = document.createElement('option');
@@ -5726,8 +5729,8 @@ function openPolicyGroupModal(id) {
         o.textContent = c;
         sel.appendChild(o);
     });
-    // A group whose category was deleted keeps its value visible instead of
-    // silently turning into "all categories".
+    // Keep a deleted source category visible instead of silently turning the
+    // group into "all categories".
     if (g && g.category && !profiles[g.category]) {
         const o = document.createElement('option');
         o.value = g.category;
@@ -5747,7 +5750,7 @@ function closePolicyGroupModal() {
 function savePolicyGroup() {
     const name = document.getElementById('pg-name').value.trim();
     const type = document.getElementById('pg-type').value;
-    const category = document.getElementById('pg-category').value;
+    const source = document.getElementById('pg-category').value;
     const filter = document.getElementById('pg-filter').value.trim();
 
     if (!name) return showToast(t('toast_pg_name_required'), 'error');
@@ -5757,40 +5760,36 @@ function savePolicyGroup() {
             return showToast(t('toast_pg_bad_regex'), 'error');
         }
     }
-    if (!Array.isArray(advSettings.policyGroups)) advSettings.policyGroups = [];
-    if (advSettings.policyGroups.some(g => g.name === name && g.id !== currentEditingGroupId)) {
+    if (_allPolicyGroups().some(g => g.name === name && g.id !== currentEditingGroupId)) {
         return showToast(t('toast_pg_name_exists'), 'error');
     }
 
+    let activeAffected = false;
     if (currentEditingGroupId) {
         const g = _findPolicyGroup(currentEditingGroupId);
-        if (!g) return;
-        Object.assign(g, { name, type, category, filter });
+        const node = g && profiles[g.container].nodes.find(n => n.id === g.id);
+        if (!node) return;
+        node.name = name;
+        node.pg = { type, source, filter };
+        activeAffected = activeConfig === `${g.container}:${g.id}`;
     } else {
-        // id goes into xray tags / selectors, so keep it [a-z0-9] only.
-        const id = 'g' + Math.random().toString(36).slice(2, 8);
-        advSettings.policyGroups.push({ id, name, type, category, filter });
+        const dest = document.getElementById('pg-container').value || 'Manual';
+        if (!profiles[dest]) profiles[dest] = { url: null, nodes: [] };
+        // The id goes into xray tags/selectors, so keep it [a-z0-9] only and
+        // unique within the destination category.
+        let id;
+        do { id = 'g' + Math.random().toString(36).slice(2, 8); }
+        while (profiles[dest].nodes.some(n => n.id === id));
+        profiles[dest].nodes.push({
+            id, name, protocol: 'policygroup', address: '', port: '',
+            rawUri: 'pgroup://' + id, pg: { type, source, filter }
+        });
+        categoryExpandedState[dest] = true;
     }
 
+    saveProfiles();
     closePolicyGroupModal();
     renderProfiles();
     showToast(t('toast_pg_saved'), 'success');
-    persistRoutingRules();
-}
-
-async function deletePolicyGroup(id) {
-    const g = _findPolicyGroup(id);
-    if (!g) return;
-    const inUse = (advSettings.routingRules || []).some(r => r && r.outboundTag === POLICY_GROUP_PREFIX + id);
-    const ok = await showConfirm(t(inUse ? 'confirm_delete_pg_in_use' : 'confirm_delete_pg', { name: g.name }));
-    if (!ok) return;
-    advSettings.policyGroups = advSettings.policyGroups.filter(x => x.id !== id);
-    if (activeConfig === ACTIVE_GROUP_PREFIX + id) {
-        activeConfig = null;
-        saveActiveConfig();
-    }
-    renderProfiles();
-    renderRoutingRules();
-    showToast(t('toast_pg_deleted'), 'success');
-    persistRoutingRules();
+    if (activeAffected || _enabledGroupRuleIds().size > 0) applyActiveConfig();
 }
