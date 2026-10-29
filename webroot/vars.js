@@ -198,7 +198,7 @@ let advSettings = {
             "remarks": "Gateway Magic IP",
             "locked": false,
             "domain": "",
-            "ip": "198.18.0.1,fdfe:dcba:9876::1",
+            "ip": "198.18.0.1,fdfe:dcba:9876::1,2001:db8:7872:6179::1",
             "port": "",
             "protocol": "",
             "network": "",

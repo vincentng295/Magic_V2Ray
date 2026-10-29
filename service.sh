@@ -87,9 +87,9 @@ APPS_MON_CHILD="$RUN_DIR/apps_monitor_child.pid"
 ULA_FLAG="$RUN_DIR/ula_enabled"
 ULA_IFACE_FILE="$RUN_DIR/ula_iface"
 ULA_SUFFIX_FILE="$RUN_DIR/ula_suffix"
-# fc00:7872:6179::/64 - "xray" in hex (78 72 61 79). The address is this prefix
-# plus a random 32-bit suffix, e.g. fc00:7872:6179::d6ba:7979.
-ULA_PREFIX="fc00:7872:6179::"
+# 2001:db8:6875:736b::/64 - The address is this prefix
+# plus a random 32-bit suffix, e.g. 2001:db8:6875:736b::d6ba:7979.
+ULA_PREFIX="2001:db8:6875:736b::"
 
 # List of UIDs we want them to be routed into Xray-core
 XRAY_UID_LIST="
@@ -575,7 +575,7 @@ check_ip_hunter() {
 # xraytun0 is not the default network, so Android judges IPv6 by the physical
 # interface alone. When that interface only has IPv4, apps see "no IPv6" and
 # never open IPv6 sockets, even though Xray could carry them. With the
-# "enableIPv6ULA" setting on (and enableIPv6), a fc00:7872:6179::xxxx:xxxx address
+# "enableIPv6ULA" setting on (and enableIPv6), a 2001:db8:6875:736b::xxxx:xxxx address
 # is added to the active interface so apps consider IPv6 usable. No route goes
 # into the main table: marked packets are re-routed into $TUN_NAME by
 # XRAY_MARK, and Xray's own egress (fwmark $FWMARK) must keep falling back to
@@ -584,7 +584,7 @@ check_ip_hunter() {
 # Prefix length: /64 when allowTether is on, /128 when it is off. Android's
 # tethering only advertises (router advertisement) a /64 taken from the
 # upstream interface, so /64 is what lets hotspot clients pick up
-# fc00:7872:6179::/64 as well; their traffic is then marked in
+# 2001:db8:6875:736b::/64 as well; their traffic is then marked in
 # HOTSPOT_PREROUTING and sent to the tun like the phone's own. With tethering
 # off nothing should be advertised, so the address stays a /128.
 #
@@ -1223,6 +1223,7 @@ configure_tun_iface() {
 
     if [ "$ipv6_enabled" = true ]; then
         $ip -6 addr add fdfe:dcba:9876::1/64 dev $TUN_NAME 2>/dev/null
+        $ip -6 addr add 2001:db8:7872:6179::1/64 dev $TUN_NAME 2>/dev/null # For VirtualAP IPv6 Routed mode
         $ip -6 route replace default dev $TUN_NAME table 100
     fi
     return 0
