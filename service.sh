@@ -432,6 +432,48 @@ apply_mark_rule() {
     return 0
 }
 
+# Upstream interface = where Xray's own egress (fwmark $FWMARK) is pinned.
+# Setting "upstreamIface" (Network tab): "auto"/absent follows the system's
+# default network (get_active_interface); an interface name pins to that
+# interface instead. Falls back to auto when the named interface has no
+# routing table / does not exist right now, so a switched-off Wi-Fi never
+# leaves Xray without a way out. The name only ever reaches `ip rule`
+# after passing the charset check below.
+UPSTREAM_WARNED=""
+get_upstream_interface() {
+    local want
+    want="$(query_settings upstreamIface)"
+    case "$want" in
+        ''|auto) UPSTREAM_WARNED=""; get_active_interface; return $? ;;
+        *[!A-Za-z0-9_.-]*)
+            [ "$UPSTREAM_WARNED" = "$want" ] || log "upstream interface: invalid name, using auto"
+            UPSTREAM_WARNED="$want"
+            get_active_interface; return $?
+            ;;
+    esac
+    if [ "$want" != "$TUN_NAME" ] && [ -d "/sys/class/net/$want" ] \
+        && read_table_index "$want" >/dev/null; then
+        UPSTREAM_WARNED=""
+        echo "$want"
+        return 0
+    fi
+    # Log once per distinct name, not on every route event.
+    [ "$UPSTREAM_WARNED" = "$want" ] || log "upstream interface $want unavailable, falling back to auto"
+    UPSTREAM_WARNED="$want"
+    get_active_interface
+}
+
+# Re-pins the fwmark rule to the current upstream interface.
+refresh_mark_rule() {
+    local up
+    if up=$(get_upstream_interface); then
+        apply_mark_rule "$up"
+    else
+        log "no upstream interface to apply"
+        return 1
+    fi
+}
+
 # ===========================================================================
 # 5. Mobile IP hunter
 # ===========================================================================
@@ -690,7 +732,7 @@ ula_remove() {
 #    route messages, and each one used to fork `ip route get` + grep + awk.
 #    We now drain the burst and act once it goes quiet.
 monitor_net_interfaces() {
-    local cur new line drained
+    local cur_act new_act cur_up new_up line drained
 
     rm -f "$IFACE_EVENT_PIPE"
     mkfifo "$IFACE_EVENT_PIPE" 2>/dev/null || return 1
@@ -698,11 +740,17 @@ monitor_net_interfaces() {
     $ip monitor route rule > "$IFACE_EVENT_PIPE" 2>/dev/null &
     echo $! > "$IFACE_MON_CHILD"
 
-    cur=$(get_active_interface) || cur=""
-    if [ -n "$cur" ]; then
-        log "initial active interface: $cur"
-        apply_mark_rule "$cur" || cur=""
-        ula_apply "$cur"
+    # Two interfaces are tracked: the system's active one (ULA decoy, IP
+    # hunter, address info) and the upstream one the fwmark rule points at.
+    # They are the same unless "upstreamIface" pins a specific interface.
+    cur_act=$(get_active_interface) || cur_act=""
+    cur_up=$(get_upstream_interface) || cur_up=""
+    if [ -n "$cur_act" ] || [ -n "$cur_up" ]; then
+        log "initial active interface: ${cur_act:-none}, upstream: ${cur_up:-none}"
+        if [ -n "$cur_up" ]; then
+            apply_mark_rule "$cur_up" || cur_up=""
+        fi
+        ula_apply "$cur_act"
     else
         log "no active interface at startup"
     fi
@@ -721,31 +769,46 @@ monitor_net_interfaces() {
             drained=$((drained + 1))
         done
 
-        new=$(get_active_interface) || new=""
+        new_act=$(get_active_interface) || new_act=""
+        new_up=$(get_upstream_interface) || new_up=""
 
-        if [ "$new" = "$cur" ]; then
-            # Same interface, but netd/IpClient may have flushed its
-            # addresses during a reconnect: re-assert the ULA (no-op if
-            # present or if the feature is off).
-            ula_apply "$cur"
+        if [ "$new_act" = "$cur_act" ] && [ "$new_up" = "$cur_up" ]; then
+            # Same interfaces, but netd/IpClient may have flushed addresses
+            # during a reconnect: re-assert the ULA (no-op if present or if
+            # the feature is off).
+            ula_apply "$cur_act"
             continue
         fi
 
-        if [ -z "$new" ]; then
+        if [ -z "$new_act" ] && [ -z "$new_up" ]; then
             log "network interface disconnected"
-            cur=""
+            cur_act=""
+            cur_up=""
             rm -f "$ADDR_INFO_FILE"
             continue
         fi
 
-        log "network interface changed: ${cur:-none} -> $new"
-        if apply_mark_rule "$new"; then
-            cur="$new"
-            ip_hunt_reset
+        if [ "$new_up" != "$cur_up" ] && [ -n "$new_up" ]; then
+            log "upstream interface changed: ${cur_up:-none} -> $new_up"
+            if apply_mark_rule "$new_up"; then
+                cur_up="$new_up"
+            fi
         fi
-        ula_apply "$new"
-        $ip addr show "$new" > "$ADDR_INFO_FILE" 2>/dev/null
-        check_ip_hunter "$new"
+
+        if [ "$new_act" != "$cur_act" ]; then
+            log "network interface changed: ${cur_act:-none} -> ${new_act:-none}"
+            cur_act="$new_act"
+            ip_hunt_reset
+            if [ -n "$new_act" ]; then
+                ula_apply "$new_act"
+                $ip addr show "$new_act" > "$ADDR_INFO_FILE" 2>/dev/null
+                check_ip_hunter "$new_act"
+            else
+                rm -f "$ADDR_INFO_FILE"
+            fi
+        else
+            ula_apply "$cur_act"
+        fi
     done < "$IFACE_EVENT_PIPE"
 
     log "interface monitor exiting"
@@ -1660,6 +1723,10 @@ start_xray() {
 
     mount_proc_with_name "$XRAY_PID" "xray"
     apply_routing_rules
+    # The upstream interface setting is saved together with the settings that
+    # force a full restart, and the monitor only reacts to route events, so
+    # re-pin the fwmark rule here.
+    refresh_mark_rule
     start_apps_monitor
     touch "$ENABLED_FLAG"
     return 0
@@ -1756,13 +1823,8 @@ do_job() {
             return 0
             ;;
         apply_cur_iface)
-            local cur_iface
-            if cur_iface=$(get_active_interface); then
-                log "re-applying mark rule for $cur_iface"
-                apply_mark_rule "$cur_iface"
-            else
-                log "no active interface to apply"
-            fi
+            log "re-applying mark rule"
+            refresh_mark_rule
             return 0
             ;;
         start)
