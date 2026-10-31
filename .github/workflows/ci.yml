@@ -131,6 +131,21 @@ jobs:
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y zip bash
 
+      # Prerelease builds get "x-alpha-build-<8-char commit hash> & Xray-core@vX"
+      # so the zip filename and the module.prop shipped inside it identify the
+      # exact commit. The Xray-core part is kept from module.prop (build.sh
+      # parses it to decide which xray binary to download). Stable builds
+      # keep module.prop's version untouched.
+      - name: Stamp prerelease version (alpha only)
+        if: github.ref == 'refs/heads/alpha'
+        run: |
+          set -e
+          xray=$(sed -n 's/^version=.*\(Xray-core@v[0-9.]*\).*/\1/p' module.prop | head -n 1)
+          [ -n "$xray" ] || { echo "::error::could not parse Xray-core version from module.prop"; exit 1; }
+          # "\&" because a bare & in a sed replacement means "the matched text"
+          sed -i "s|^version=.*|version=x-alpha-build-${GITHUB_SHA::8} \& ${xray}|" module.prop
+          grep '^version=' module.prop
+
       - name: Run release packager
         run: |
           chmod +x build.sh
@@ -219,8 +234,16 @@ jobs:
             pattern: magic_v2ray-*
             merge-multiple: true
 
+        - name: Derive prerelease name
+          id: ver
+          run: |
+            set -e
+            xray=$(sed -n 's/^version=.*\(Xray-core@v[0-9.]*\).*/\1/p' module.prop | head -n 1)
+            [ -n "$xray" ] || { echo "::error::could not parse Xray-core version from module.prop"; exit 1; }
+            echo "release_name=x-alpha-build-${GITHUB_SHA::8} & ${xray}" >> "$GITHUB_OUTPUT"
+
         # tag_name is fixed, so every push to alpha lands on the same
-        # "alpha-pre-release" tag/release instead of piling up new ones.
+        # "x-alpha-pre-release" tag/release instead of piling up new ones.
         - name: Build release notes from main...alpha
           id: log
           run: |
@@ -238,16 +261,16 @@ jobs:
         # The tag must be deleted (not just the release) or it keeps
         # pointing at the old commit and the "release" ends up detached
         # from what was actually just built.
-        - name: Delete previous alpha-pre-release
+        - name: Delete previous x-alpha-pre-release
           env:
             GH_TOKEN: ${{ github.token }}
-          run: gh release delete alpha-pre-release --yes --cleanup-tag || true
+          run: gh release delete x-alpha-pre-release --yes --cleanup-tag || true
 
         - name: Create/overwrite alpha pre-release
           uses: softprops/action-gh-release@v2
           with:
-            tag_name: alpha-pre-release
-            name: Alpha pre-release
+            tag_name: x-alpha-pre-release
+            name: ${{ steps.ver.outputs.release_name }}
             target_commitish: ${{ github.sha }}
             body: ${{ steps.log.outputs.notes }}
             prerelease: true
