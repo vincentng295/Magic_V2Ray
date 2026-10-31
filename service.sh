@@ -197,7 +197,29 @@ fi
 exec >> "$SERVICE_LOG" 2>&1
 [ "$DEBUG" = "1" ] && set -x
 
-log() { echo "[$(date '+%H:%M:%S')] $*"; }
+# Hold one RDWR fd on the logservice input pipe. Opening a FIFO O_RDWR never
+# blocks even with no reader, and every child (monitors, control loop) inherits
+# fd 9, so log() works in any subshell. Each line is < PIPE_BUF => atomic write.
+LOG_PIPE_FD_OK=0
+if [ -p "$XRAY_LOG" ] && exec 9<>"$XRAY_LOG" 2>/dev/null; then
+    LOG_PIPE_FD_OK=1
+fi
+
+# Format: yyyy/mm/dd hh:mm:ss.xxxxxx [service] message
+# Written to service.log (stdout) and tee'd into the xray.log pipe.
+log() {
+    local ts line
+    ts=$(date '+%Y/%m/%d %H:%M:%S.%N')
+    # %N yields 9 digits -> trim to 6 (microseconds). Fall back to .000000
+    # if this toybox build does not support %N.
+    case "$ts" in
+        *.[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ts=${ts%???} ;;
+        *) ts="${ts%.*}.000000" ;;
+    esac
+    line="$ts [service] $*"
+    echo "$line"
+    [ "$LOG_PIPE_FD_OK" = "1" ] && echo "$line" >&9
+}
 
 log "=== service.sh starting (debug=$DEBUG) ==="
 
