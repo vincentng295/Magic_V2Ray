@@ -391,10 +391,11 @@ read_table_index() {
 
 detect_auto_table() {
     # netd's default-network rule = which network has internet now. First match
-    # wins (rules are priority-sorted); uidrange variants are per-app VPN, skip.
+    # wins (rules are priority-sorted). A full UID range is a system default;
+    # skip narrower per-app UID ranges.
     $ip rule show 2>/dev/null \
         | grep "fwmark 0x0/0xffff iif lo" \
-        | grep -v uidrange \
+        | grep -E 'iif lo (lookup |uidrange 0-2147483647 lookup )' \
         | head -n 1 \
         | sed -n 's/.*lookup \([^ ]*\).*$/\1/p'
 }
