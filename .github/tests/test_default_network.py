@@ -1,6 +1,6 @@
 """Run the production detector against netd rule fixtures; no device changes.
 
-Run: python3 -m unittest discover -s tests
+Run: python3 -m unittest discover -s .github/tests
 """
 from pathlib import Path
 import shutil
@@ -11,7 +11,7 @@ import unittest
 class DefaultNetworkTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        source = (Path(__file__).resolve().parents[1] / "service.sh").read_text()
+        source = (Path(__file__).resolve().parents[2] / "service.sh").read_text()
         start = source.index("detect_auto_table() {\n")
         end = source.index("\n}", start) + len("\n}")
         cls.detector = source[start:end]

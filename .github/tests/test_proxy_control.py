@@ -1,6 +1,6 @@
 """Exercise the real control front-end against a temporary service FIFO.
 
-Run: python3 -m unittest discover -s tests
+Run: python3 -m unittest discover -s .github/tests
 """
 import os
 from pathlib import Path
@@ -24,7 +24,7 @@ class ProxyControlStartTests(unittest.TestCase):
         self.fd = os.open(self.fifo, os.O_RDWR | os.O_NONBLOCK)
         self.addCleanup(os.close, self.fd)
         (self.stub / "run/control_loop.pid").write_text(str(os.getpid()))
-        original = (Path(__file__).resolve().parents[1] / "proxy_control.sh").read_text()
+        original = (Path(__file__).resolve().parents[2] / "proxy_control.sh").read_text()
         original = original.replace('DATADIR="/data/adb/magic_v2ray"', f'DATADIR="{self.data}"')
         original = original.replace('STUB_DIR=/dev/sysctl_stubs', f'STUB_DIR="{self.stub}"')
         self.script = root / "proxy_control.sh"

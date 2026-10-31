@@ -87,6 +87,21 @@ jobs:
           fi
           exit $fail
 
+  python-tests:
+    name: Python tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      # These run the real service.sh / proxy_control.sh logic under /bin/sh
+      # (dash on ubuntu-latest, same POSIX subset Android's ash/mksh accept)
+      # against fixtures, so nothing touches iptables or a device.
+      - name: Run unit tests
+        run: python3 -m unittest discover -s .github/tests -v
+
   manifest:
     name: Packaging
     runs-on: ubuntu-latest
@@ -124,7 +139,7 @@ jobs:
   build:
     name: Build & Upload Module Zips
     runs-on: ubuntu-latest
-    needs: [shell, webui, manifest]
+    needs: [shell, webui, python-tests, manifest]
     steps:
       - uses: actions/checkout@v4
 
