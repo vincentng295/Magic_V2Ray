@@ -91,7 +91,7 @@ start_proxy() {
         echo "running"
         return 0
     fi
-    if [ ! -s "$DATADIR/config.json" ]; then
+    if [ ! -s "$DATADIR/config.v2.json" ]; then
         echo "no config" >&2
         return 1
     fi
@@ -100,7 +100,7 @@ start_proxy() {
 }
 
 stop_proxy() {
-    # NOTE: config.json is deliberately NOT deleted here any more. Boot-time
+    # NOTE: config.v2.json is deliberately NOT deleted here any more. Boot-time
     # resume now keys off the separate `enabled` marker that service.sh
     # manages, so stopping the engine no longer destroys the user's selected
     # node — which previously made "stop then start" impossible from
@@ -109,7 +109,7 @@ stop_proxy() {
     echo "stopped"
 }
 
-# Swaps the xray process for one reading the freshly-written config.json
+# Swaps the xray process for one reading the freshly-written config.v2.json
 # without clearing/reapplying iptables rules. For node switches / node edits
 # / Xray-level routing-rule edits while running, where nothing that
 # apply_routing_rules reads has changed — full `restart` would tear the
