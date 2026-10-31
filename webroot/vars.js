@@ -50,6 +50,9 @@ const HOSTS_HEADER_TEXT = `# Copyright (c) 1993-2009 Microsoft Corp.
 // entirely — stored as a plain file rather than inside settings.base64,
 // same pattern as IP_HUNT_FILE: existence of the file means the feature is
 // enabled, and its content (re-read live by service.sh) is the list.
+// iptables interface wildcard matching tun0, tun1, ... (VpnService tunnels).
+// Does not match our own xraytun0, since '+' only wildcards the suffix.
+const VPN_IFACE_PATTERN = "tun+";
 const BYPASS_IFACE_FILE = `${DATADIR}/bypassIface.txt`;
 // Exclude Apps tab: one Android package name per line. Apps listed here skip
 // Xray when advSettings.excludeApps is true (enforced by service.sh). The list
@@ -99,6 +102,12 @@ let advSettings = {
     queryStrategy: "UseIPv4",
     networkMode: 0,
     allowTether: true,
+    // Network tab, "Bypass VpnService". true (default): traffic headed to other
+    // apps' VPN tunnels (tun0, tun1, ... = VPN_IFACE_PATTERN) skips Xray, so
+    // VpnService handles the packet first and only its own outgoing traffic
+    // reaches Xray. Implemented by adding VPN_IFACE_PATTERN to the bypass
+    // interface list (see applyBypassIfaceForm in main.js).
+    bypassVpnService: true,
     // Network tab, "Upstream network interface". The interface Xray's own
     // egress (fwmark 255) is pinned to by service.sh (apply_mark_rule).
     // "auto" (default) = follow the system's default network and re-pin on

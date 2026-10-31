@@ -3629,6 +3629,7 @@ function bindSettingsToFormView() {
     document.getElementById('set-networkmode').value = advSettings.networkMode ?? 0;
     refreshUpstreamIfaceOptions(advSettings.upstreamIface);
     document.getElementById('set-allowtether').checked = advSettings.allowTether !== false;
+    document.getElementById('set-bypassvpn').checked = advSettings.bypassVpnService !== false;
     migrateLanBypassSetting();
     renderLanBypassList();
 
@@ -3717,6 +3718,7 @@ function saveNetworkSettingsForm() {
     advSettings.enableIPv6 = document.getElementById('set-enableipv6').checked;
     advSettings.enableIPv6ULA = document.getElementById('set-enableipv6ula').checked;
     advSettings.allowTether = document.getElementById('set-allowtether').checked;
+    advSettings.bypassVpnService = document.getElementById('set-bypassvpn').checked;
     advSettings.lanProxyCidrs = collectLanProxyCidrs();
     delete advSettings.includeLan;
 
@@ -3861,11 +3863,15 @@ function syncBypassIfaceState() {
             const toggle = document.getElementById('set-bypassiface');
             const input = document.getElementById('set-bypassiface-list');
             const lines = (output || '').split('\n');
-            const enabled = lines[0].trim() === '1';
-            const content = lines.slice(1).join('\n').trim();
+            const fileEnabled = lines[0].trim() === '1';
+            // The VpnService pattern is managed by its own switch; keep it out
+            // of the user-visible list.
+            const userList = sanitizeBypassIfaceList(lines.slice(1).join('\n'))
+                .split(',').filter(x => x && x !== VPN_IFACE_PATTERN).join(',');
+            const enabled = fileEnabled && !!userList;
 
             if (toggle) toggle.checked = enabled;
-            if (input) input.value = content || "tailscale0,wt0";
+            if (input) input.value = userList || "tailscale0,wt0";
             toggleSubSettingField('set-bypassiface', 'bypassiface-sub-fields');
         }
     );
@@ -3885,19 +3891,24 @@ function sanitizeBypassIfaceList(raw) {
 function applyBypassIfaceForm(callback) {
     const toggle = document.getElementById('set-bypassiface');
     const input = document.getElementById('set-bypassiface-list');
-    const enabled = !!toggle?.checked;
+    const vpnBypass = !!document.getElementById('set-bypassvpn')?.checked;
     const done = callback || (() => {});
 
-    if (!enabled) {
+    let list = [];
+    if (toggle?.checked) {
+        const sanitized = sanitizeBypassIfaceList(input?.value || '') || "tailscale0,wt0";
+        if (input) input.value = sanitized;
+        list = sanitized.split(',').filter(x => x && x !== VPN_IFACE_PATTERN);
+    }
+    if (vpnBypass) list.push(VPN_IFACE_PATTERN);
+
+    if (!list.length) {
         execShell(`rm -f ${shQuote(BYPASS_IFACE_FILE)}`, done);
         return;
     }
 
-    const sanitized = sanitizeBypassIfaceList(input?.value || '') || "tailscale0,wt0";
-    if (input) input.value = sanitized;
-
     execShell(`mkdir -p ${shQuote(DATADIR)} && chmod 700 ${shQuote(DATADIR)}`, () => {
-        writeFileB64(BYPASS_IFACE_FILE, sanitized, done);
+        writeFileB64(BYPASS_IFACE_FILE, list.join(','), done);
     });
 }
 

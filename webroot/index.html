@@ -326,6 +326,10 @@
                         <input type="checkbox" id="set-allowtether" checked>
                     </div>
                     <div class="setting-item-row toggle-row">
+                        <label for="set-bypassvpn"><span data-i18n="lbl_bypassvpn">Bypass VpnService</span><small data-i18n="desc_bypassvpn">Let VpnService handle packets first (tun0 / tun+). Only the VPN app's own outgoing traffic is then handled by Xray.</small></label>
+                        <input type="checkbox" id="set-bypassvpn" checked>
+                    </div>
+                    <div class="setting-item-row toggle-row">
                         <label for="set-bypassiface"><span data-i18n="lbl_bypassiface">Bypass Network Interface</span><small data-i18n="desc_bypassiface">Traffic headed to these interfaces skips Xray entirely.</small></label>
                         <input type="checkbox" id="set-bypassiface" onchange="toggleSubSettingField('set-bypassiface', 'bypassiface-sub-fields')">
                     </div>
