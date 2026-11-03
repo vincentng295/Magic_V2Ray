@@ -1790,7 +1790,10 @@ function convert_uri_to_xray_json(uri, optional_settings) {
 
     // Resolve effective fakeip flag — new field (fakeDnsLocal) takes priority when
     // Local DNS is enabled; fall back to legacy fakeDns for backward compatibility.
-    const useFakeIp = settings.localDns
+    // The built-in direct node (freedom://) does not support FakeDNS: it is a
+    // pure router, so the setting is ignored (the saved value is kept and
+    // takes effect again as soon as a real node is selected).
+    const useFakeIp = (settings.localDns && !isDirectOnly)
         ? settings.fakeDnsLocal
         : false;
 
