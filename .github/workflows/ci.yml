@@ -36,6 +36,35 @@ jobs:
             --exclude=SC2154 \
             -e SC2148 customize.sh
 
+  native:
+    name: Native (xhuskydg_helper)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Host build of the exact sources the NDK build compiles: service/*.c with
+      # the C driver, applets with C++, linked together. Catches compile errors
+      # and C/C++ symbol clashes before the (slower) Android build job.
+      - name: Host compile + link
+        run: |
+          set -e
+          mkdir -p /tmp/o
+          for f in native/jni/service/*.c; do
+            gcc -std=gnu11 -D_GNU_SOURCE -Wall -Wextra -Wno-override-init \
+              -DMV_XTABLES_LOCK='"/system/etc/xtables.lock"' \
+              -c "$f" -o "/tmp/o/$(basename "${f%.c}").o"
+          done
+          for f in native/jni/*.cpp; do
+            g++ -std=c++17 -Wall -c "$f" -o "/tmp/o/$(basename "${f%.cpp}").o"
+          done
+          g++ /tmp/o/*.o -o /tmp/xhuskydg_helper -lpthread
+          # no args / bad flag must print usage and not touch the system
+          /tmp/xhuskydg_helper service -x 2>&1 | grep -q 'usage: xhuskydg_helper service'
+
+      # iptables engine against a fake kernel (ASan + UBSan).
+      - name: iptables engine tests
+        run: sh native/tests/run_host_tests.sh
+
   webui:
     name: Web UI
     runs-on: ubuntu-latest
@@ -139,12 +168,21 @@ jobs:
   build:
     name: Build & Upload Module Zips
     runs-on: ubuntu-latest
-    needs: [shell, webui, python-tests, manifest]
+    needs: [shell, native, webui, python-tests, manifest]
     steps:
       - uses: actions/checkout@v4
 
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y zip bash
+
+      # build.sh compiles native/ with the Android NDK. GitHub's ubuntu image
+      # ships one and exports ANDROID_NDK_HOME; fail early if that ever changes.
+      - name: Check Android NDK
+        run: |
+          ndk="${ANDROID_NDK_HOME:-${ANDROID_NDK_LATEST_HOME:-}}"
+          [ -d "$ndk/toolchains/llvm/prebuilt" ] || { echo "::error::Android NDK not found on runner"; exit 1; }
+          echo "NDK: $ndk"
+          echo "ANDROID_NDK_HOME=$ndk" >> "$GITHUB_ENV"
 
       # Prerelease builds get "x-alpha-build-<8-char commit hash> & Xray-core@vX"
       # so the zip filename and the module.prop shipped inside it identify the
