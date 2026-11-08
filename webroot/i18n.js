@@ -403,6 +403,9 @@ const i18n = {
         lbl_sub_insecure: "Skip TLS certificate check",
         desc_sub_insecure: "Unsafe — only for hosts with a self-signed certificate. Anyone on the network can then replace this subscription's contents.",
         lbl_sub_useragent: "User-Agent",
+        lbl_sub_autoupdate: "Auto update every hour",
+        desc_sub_autoupdate: "The service refreshes this subscription in the background; the new nodes are applied the next time you open this page.",
+        toast_sublist_updated: "Subscription updated: {cats}",
         toast_dedup_done: "Removed {removed} duplicate(s). {total} node(s) remaining.",
 
         // Log tab
@@ -927,6 +930,9 @@ const i18n = {
         lbl_sub_insecure: "跳过 TLS 证书校验",
         desc_sub_insecure: "不安全 — 仅适用于自签名证书的主机。启用后，网络中的任何人都可以替换此订阅的内容。",
         lbl_sub_useragent: "User-Agent",
+        lbl_sub_autoupdate: "每小时自动更新",
+        desc_sub_autoupdate: "服务会在后台刷新此订阅；新节点将在您下次打开此页面时应用。",
+        toast_sublist_updated: "订阅已更新：{cats}",
         toast_dedup_done: "已移除 {removed} 个重复节点，剩余 {total} 个节点。",
 
         // Log tab
@@ -1451,6 +1457,9 @@ const i18n = {
         lbl_sub_insecure: "略過 TLS 憑證驗證",
         desc_sub_insecure: "不安全 — 僅適用於自簽憑證的主機。啟用後，網路上的任何人都可以替換此訂閱的內容。",
         lbl_sub_useragent: "User-Agent",
+        lbl_sub_autoupdate: "每小時自動更新",
+        desc_sub_autoupdate: "服務會在背景重新整理此訂閱；新節點將在您下次開啟此頁面時套用。",
+        toast_sublist_updated: "訂閱已更新：{cats}",
         toast_dedup_done: "已移除 {removed} 個重複節點，剩餘 {total} 個節點。",
 
         // Log tab
@@ -1975,6 +1984,9 @@ const i18n = {
         lbl_sub_insecure: "Bỏ qua kiểm tra chứng chỉ TLS",
         desc_sub_insecure: "Không an toàn — chỉ dùng cho máy chủ có chứng chỉ tự ký. Khi bật, bất kỳ ai trong mạng cũng có thể thay thế nội dung của subscription này.",
         lbl_sub_useragent: "User-Agent",
+        lbl_sub_autoupdate: "Tự động cập nhật mỗi giờ",
+        desc_sub_autoupdate: "Service cập nhật subscription này ở chế độ nền; node mới sẽ được áp dụng ở lần tiếp theo bạn mở trang này.",
+        toast_sublist_updated: "Đã cập nhật subscription: {cats}",
         toast_dedup_done: "Đã xóa {removed} bản trùng. Còn lại {total} nút.",
 
         // Log tab
@@ -2467,6 +2479,9 @@ const i18n = {
         lbl_sub_insecure: "Пропускать проверку TLS-сертификата",
         desc_sub_insecure: "Небезопасно — только для хостов с самоподписанным сертификатом. Тогда любой в сети может подменить содержимое этой подписки.",
         lbl_sub_useragent: "User-Agent",
+        lbl_sub_autoupdate: "Автообновление каждый час",
+        desc_sub_autoupdate: "Служба обновляет эту подписку в фоне; новые узлы применятся при следующем открытии страницы.",
+        toast_sublist_updated: "Подписка обновлена: {cats}",
         toast_dedup_done: "Удалено {removed} дубликат(ов). Осталось {total} узел(ов).",
         tab_log: "Журнал Xray",
         log_filter_all: "Все",

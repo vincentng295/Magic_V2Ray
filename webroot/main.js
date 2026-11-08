@@ -170,6 +170,7 @@ function writeFileB64(path, content, callback) {
 
 function saveProfiles() {
     writeFileB64(PROFILES_FILE, utoa(JSON.stringify(profiles)));
+    syncAutocheckList();
 }
 
 function saveActiveConfig() {
@@ -528,7 +529,10 @@ document.addEventListener('DOMContentLoaded', () => {
     loadState(() => {
         applyI18n();
         updateStatusDisplay();
+        _migrateNodeIds();
         renderProfiles();
+        syncAutocheckList();
+        importPendingSublist();
     });
 });
  
@@ -808,13 +812,15 @@ function buildNodeKey(node) {
     ].join('|');
 }
 
-function parseAndAppendNodes(category, xrayConfigs, url = null, isReload = false) {
+function parseAndAppendNodes(category, xrayConfigs, url = null, isReload = false, silent = false) {
     if (!Array.isArray(xrayConfigs) || xrayConfigs.length === 0) {
-        return showToast(t('toast_no_configs_extracted'), "error");
+        if (!silent) showToast(t('toast_no_configs_extracted'), "error");
+        return false;
     }
 
     if (isReload && profiles[category]) {
-        profiles[category].nodes = [];
+        // Policy groups are user-made nodes that merely live in this category.
+        profiles[category].nodes = profiles[category].nodes.filter(_isGroupNode);
     }
 
     if (!profiles[category]) {
@@ -828,11 +834,16 @@ function parseAndAppendNodes(category, xrayConfigs, url = null, isReload = false
     const existingKeys = shouldDedup
         ? new Set(profiles[category].nodes.map(n => buildNodeKey(n)))
         : null;
+    const takenIds = new Set(profiles[category].nodes.map(n => n.id));
     xrayConfigs.forEach(line => {
         const parsedNode = parseProxyUri(line);
         if (parsedNode) {
             const duplicate = shouldDedup && existingKeys.has(buildNodeKey(parsedNode));
             if (!duplicate) {
+                // Stable id: the same node keeps the same "category:id" across reloads,
+                // so a pinned (selected) node survives a subscription refresh.
+                parsedNode.id = _hashNodeId(parsedNode, takenIds);
+                takenIds.add(parsedNode.id);
                 profiles[category].nodes.push(parsedNode);
                 if (shouldDedup) existingKeys.add(buildNodeKey(parsedNode));
                 importedCount++;
@@ -841,7 +852,7 @@ function parseAndAppendNodes(category, xrayConfigs, url = null, isReload = false
     });
 
     if (isReload) {
-        showToast(t('toast_reload_success', { count: profiles[category].nodes.length, cat: category }), "success");
+        if (!silent) showToast(t('toast_reload_success', { count: profiles[category].nodes.length, cat: category }), "success");
         if (activeConfig && activeConfig.startsWith(category + ':')) {
             const [_, currentId] = activeConfig.split(':');
             const stillExists = profiles[category].nodes.some(n => n.id === currentId);
@@ -850,7 +861,7 @@ function parseAndAppendNodes(category, xrayConfigs, url = null, isReload = false
                 saveActiveConfig();
             }
         }
-    } else {
+    } else if (!silent) {
         if (importedCount === 0) {
             showToast(t('toast_no_new_configs'), "info");
         } else {
@@ -858,9 +869,12 @@ function parseAndAppendNodes(category, xrayConfigs, url = null, isReload = false
         }
     }
  
-    saveProfiles();
-    renderProfiles();
-    _refreshIfPolicyGroupsUsed();
+    if (!silent) {            // silent callers (background import) save and render once at the end
+        saveProfiles();
+        renderProfiles();
+        _refreshIfPolicyGroupsUsed();
+    }
+    return true;
 }
 
 function reloadCategory(category) {
@@ -2740,7 +2754,7 @@ function saveEditedNode() {
     if (proto === 'hysteria2' || proto === 'masque') { storedSecurity = 'tls'; }
 
     const nodeEntry = {
-        id: isNew ? Math.random().toString(36).substr(2, 9) : currentEditingNodeId,
+        id: isNew ? _hashNodeId({ rawUri: newUri, protocol: proto, address: d.address, port: d.port, uuid: storedUuid, security: storedSecurity }, new Set((profiles[document.getElementById('edit-node-category').value || currentEditingCategory]?.nodes || []).map(n => n.id))) : currentEditingNodeId,
         name: d.name,
         protocol: proto,
         address: d.address,
@@ -2767,7 +2781,7 @@ function saveEditedNode() {
             // within a category, so re-issue one on collision.
             if (!profiles[destCat]) profiles[destCat] = { url: null, nodes: [] };
             if (profiles[destCat].nodes.some(n => n.id === nodeEntry.id)) {
-                nodeEntry.id = Math.random().toString(36).substr(2, 9);
+                nodeEntry.id = _uniqueNodeId(profiles[destCat].nodes, nodeEntry.id);
             }
             profiles[currentEditingCategory].nodes.splice(nodeIdx, 1);
             profiles[destCat].nodes.push(nodeEntry);
@@ -2794,6 +2808,7 @@ function openEditSubModal(category) {
     document.getElementById('edit-sub-url').value = catData.url || '';
     document.getElementById('edit-sub-dedup').checked = catData.dedup !== false; // default true
     document.getElementById('edit-sub-insecure').checked = catData.insecure === true; // default false
+    document.getElementById('edit-sub-autoupdate').checked = catData.autoupdate === true; // default false
     document.getElementById('edit-sub-useragent').value = catData.useragent || DEFAULT_SUB_USERAGENT;
     document.getElementById('edit-sub-modal').dataset.originalCat = category;
     document.getElementById('edit-sub-modal').style.display = 'block';
@@ -2810,6 +2825,7 @@ function saveEditedSubscription() {
     const newUrl = document.getElementById('edit-sub-url').value.trim();
     const newDedup = document.getElementById('edit-sub-dedup').checked;
     const newInsecure = document.getElementById('edit-sub-insecure').checked;
+    const newAutoUpdate = document.getElementById('edit-sub-autoupdate').checked;
     const newUserAgent = document.getElementById('edit-sub-useragent').value.trim() || DEFAULT_SUB_USERAGENT;
 
     if (!newName) return;
@@ -2836,6 +2852,7 @@ function saveEditedSubscription() {
     profiles[newName].url = newUrl || null;
     profiles[newName].dedup = newDedup;
     profiles[newName].insecure = newInsecure;
+    profiles[newName].autoupdate = newAutoUpdate;
     profiles[newName].useragent = newUserAgent;
 
     saveProfiles();
@@ -3027,7 +3044,7 @@ function saveProxyChain() {
     const editingCat = document.getElementById('proxy-chain-modal').dataset.editingCat;
 
     const chainEntry = {
-        id: editingId || Math.random().toString(36).substr(2, 9),
+        id: editingId || _hashNodeId({ rawUri: `chain://localhost/?hop1=${encodeURIComponent(hop1Node.rawUri)}&hop2=${encodeURIComponent(hop2Node.rawUri)}` }, new Set((profiles['Manual'].nodes || []).map(n => n.id))),
         name: chainName,
         protocol: 'chain',
         address: hop2Node.address,
@@ -5589,7 +5606,7 @@ function confirmMoveNode() {
     const wasActive = activeConfig === `${category}:${id}`;
     // Node ids are only unique within a category.
     if (profiles[dest].nodes.some(n => n.id === node.id)) {
-        node.id = Math.random().toString(36).substr(2, 9);
+        node.id = _uniqueNodeId(profiles[dest].nodes, node.id);
         if (_isGroupNode(node)) node.rawUri = 'pgroup://' + node.id;
     }
     src.nodes.splice(idx, 1);
@@ -5839,4 +5856,120 @@ function savePolicyGroup() {
     renderProfiles();
     showToast(t('toast_pg_saved'), 'success');
     if (activeAffected || _enabledGroupRuleIds().size > 0) applyActiveConfig();
+}
+
+
+// ===== Stable node ids + subscription auto-update =====
+//
+// Node ids are "h_<hash>" where the hash covers the node's identity (buildNodeKey: protocol,
+// address, port, credentials, transport... but NOT the remark). The same node therefore gets
+// the same "<category>:<id>" every time a subscription is reloaded, which keeps a pinned node
+// pinned. Hashing is plain JS (cyrb53, 53 bit) - no external command.
+// "h_" cannot occur in the old random ids (base36), so migration is idempotent and a node whose
+// fields were later edited keeps the id it has.
+
+const HASH_ID_RE = /^h_[0-9a-z]+(-\d+)?$/;
+
+function _cyrb53(str) {
+    let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+    for (let i = 0; i < str.length; i++) {
+        const c = str.charCodeAt(i);
+        h1 = Math.imul(h1 ^ c, 2654435761);
+        h2 = Math.imul(h2 ^ c, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return 4294967296 * (2097151 & h2) + (h1 >>> 0);
+}
+
+// Ids only have to be unique inside one category. Two identical nodes (dedup off) get -2, -3...
+function _uniqueNodeId(nodes, base) {
+    const taken = new Set(nodes.map(n => n.id));
+    let id = base, i = 2;
+    while (taken.has(id)) id = `${base}-${i++}`;
+    return id;
+}
+
+function _hashNodeId(node, takenIds) {
+    const base = 'h_' + _cyrb53(buildNodeKey(node)).toString(36);
+    let id = base, i = 2;
+    while (takenIds.has(id)) id = `${base}-${i++}`;
+    return id;
+}
+
+// One-time conversion of old random ids. Updates the pinned node (activeConfig) as well.
+function _migrateNodeIds() {
+    let changed = false, activeChanged = false;
+    Object.keys(profiles).forEach(cat => {
+        const nodes = profiles[cat]?.nodes || [];
+        const taken = new Set(nodes.filter(n => HASH_ID_RE.test(n.id)).map(n => n.id));
+        nodes.forEach(n => {
+            if (!n || _isGroupNode(n) || HASH_ID_RE.test(n.id)) return;
+            const oldId = n.id;
+            n.id = _hashNodeId(n, taken);
+            taken.add(n.id);
+            if (activeConfig === `${cat}:${oldId}`) { activeConfig = `${cat}:${n.id}`; activeChanged = true; }
+            changed = true;
+        });
+    });
+    if (changed) saveProfiles();
+    if (activeChanged) saveActiveConfig();
+}
+
+const AUTOCHECK_FILE = `${DATADIR}/autocheck_sublist.txt`;
+const PENDING_FILE = `${DATADIR}/pending_sublist.txt`;
+
+// Tells service.sh which subscriptions to refresh in the background: "<url>#<category>" per line
+// (the category is whatever follows the LAST '#', so '#' inside a url is fine).
+function syncAutocheckList() {
+    const lines = [];
+    Object.keys(profiles).forEach(cat => {
+        const p = profiles[cat];
+        if (!p || !p.url || p.autoupdate !== true) return;
+        if (cat.indexOf('#') !== -1 || cat.indexOf('\n') !== -1) return;   // would break the line format
+        if (!/^https?:\/\//i.test(p.url) || /[\r\n]/.test(p.url)) return;
+        lines.push(`${p.url}#${cat}`);
+    });
+    if (lines.length === 0) {
+        execShell(`rm -f ${shQuote(AUTOCHECK_FILE)}`, () => {});
+    } else {
+        writeFileB64(AUTOCHECK_FILE, lines.join('\n') + '\n');
+    }
+}
+
+// Applies what service.sh downloaded in the background. The file is renamed first (atomic), so
+// a write by the service while we parse can never be deleted by mistake. On any failure the
+// service's cache is dropped, which makes it push everything again at its next round.
+function importPendingSublist() {
+    const f = shQuote(PENDING_FILE), w = shQuote(PENDING_FILE + '.processing');
+    execShell(`[ -f ${f} ] && mv -f ${f} ${w} && cat ${w}`, (out, _err, errno) => {
+        if (errno !== 0 || !out) return;
+        let updated = [];
+        try {
+            const perCat = {};
+            out.split('\n').forEach(line => {
+                line = line.trim();
+                const sep = line.indexOf(':');
+                if (sep <= 0) return;
+                const cat = line.slice(0, sep);
+                const text = decodeBase64(line.slice(sep + 1));
+                (perCat[cat] = perCat[cat] || []).push(...extractUrisFromText(text));
+            });
+            Object.keys(perCat).forEach(cat => {
+                if (!profiles[cat] || !profiles[cat].url) return;          // category was deleted meanwhile
+                const ok = parseAndAppendNodes(cat, perCat[cat], null, true, true);
+                if (ok) updated.push(cat);
+            });
+            if (updated.length) {
+                saveProfiles();
+                renderProfiles();
+                _refreshIfPolicyGroupsUsed();
+                showToast(t('toast_sublist_updated', { cats: updated.join(', ') }), 'success');
+            }
+            execShell(`rm -f ${w}`, () => {});
+        } catch (e) {
+            console.error('[importPendingSublist]', e);
+            execShell(`rm -rf ${shQuote(DATADIR + '/sublist_cache')} ${w}`, () => {});
+        }
+    });
 }
