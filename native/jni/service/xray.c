@@ -38,18 +38,52 @@ static void *reaper(void *arg)
     return NULL;
 }
 
+/* SIGKILL is asynchronous: kill() returns before the process is gone, and a non-persistent
+ * tun device is only released when the LAST holder of its fd exits. Starting the next xray
+ * right after the kill therefore raced the old one and failed with
+ * "TUNSETIFF xraytun0 failed: Device or resource busy". Block until the pid is really gone
+ * (zombies still answer kill(pid,0), the reaper thread clears them within milliseconds). */
+static void kill_and_wait(pid_t pid)
+{
+    if (pid <= 1) return;
+    kill(pid, SIGKILL);
+    for (int i = 0; i < 300; i++) {                  /* up to 3 s */
+        if (kill(pid, 0) < 0 && errno == ESRCH) return;
+        u_msleep(10);
+    }
+    log_msg("xray pid %d still alive 3s after SIGKILL", (int)pid);
+}
+
+/* Opens /dev/net/tun and attaches it to TUN_NAME. EBUSY (old holder not released yet) is
+ * retried, as the old openxtun did. O_CLOEXEC: no concurrent fork()/exec elsewhere in the
+ * service can inherit the fd and keep the device busy; the xray child clears the flag. */
+static int open_tun_retry(void)
+{
+    for (int attempt = 0; attempt < 25; attempt++) {
+        int tun = open("/dev/net/tun", O_RDWR | O_CLOEXEC);
+        if (tun < 0) { log_msg("cannot open /dev/net/tun: %s", strerror(errno)); return -1; }
+        struct ifreq ifr; memset(&ifr, 0, sizeof ifr);
+        snprintf(ifr.ifr_name, IFNAMSIZ, "%s", TUN_NAME);
+        ifr.ifr_flags = IFF_TUN | IFF_NO_PI;
+        if (ioctl(tun, TUNSETIFF, &ifr) == 0) return tun;
+        int e = errno;
+        close(tun);
+        if (e != EBUSY) { log_msg("TUNSETIFF %s failed: %s", TUN_NAME, strerror(e)); return -1; }
+        if (attempt == 0) log_msg("TUNSETIFF %s busy, waiting for the previous owner to release it", TUN_NAME);
+        u_msleep(200);
+    }
+    log_msg("TUNSETIFF %s failed: %s (still busy after retries)", TUN_NAME, strerror(EBUSY));
+    return -1;
+}
+
 /* Everything async-unsafe happens BEFORE fork; the child only dup2()s and execs. */
 static pid_t spawn_xray(void)
 {
     char xray[300], cfg[300], envfd[32];
     bin(xray, sizeof xray, "xray");
     snprintf(cfg, sizeof cfg, DATADIR "/" CONFIG_NAME);
-    int tun = open("/dev/net/tun", O_RDWR);          /* no CLOEXEC: xray inherits it */
-    if (tun < 0) { log_msg("cannot open /dev/net/tun: %s", strerror(errno)); return -1; }
-    struct ifreq ifr; memset(&ifr, 0, sizeof ifr);
-    snprintf(ifr.ifr_name, IFNAMSIZ, "%s", TUN_NAME);
-    ifr.ifr_flags = IFF_TUN | IFF_NO_PI;
-    if (ioctl(tun, TUNSETIFF, &ifr) < 0) { log_msg("TUNSETIFF %s failed: %s", TUN_NAME, strerror(errno)); close(tun); return -1; }
+    int tun = open_tun_retry();
+    if (tun < 0) return -1;
     snprintf(envfd, sizeof envfd, "XRAY_TUN_FD=%d", tun);
     int n = 0; while (environ[n]) n++;
     char **env = malloc((n + 2) * sizeof *env);
@@ -61,6 +95,7 @@ static pid_t spawn_xray(void)
     pid_t pid = fork();
     if (pid == 0) {
         setsid();
+        fcntl(tun, F_SETFD, 0);                      /* the one fd xray must inherit */
         if (nul >= 0) dup2(nul, 0);
         if (out >= 0) { dup2(out, 1); dup2(out, 2); }
         execve(xray, argv, env);
@@ -79,7 +114,7 @@ static void kill_stale_pidfile(void)
     char b[32];
     if (u_read(PIDFILE, b, sizeof b) > 0) {
         pid_t p = atoi(b);
-        if (p > 0 && p != g_xray) { log_msg("killing untracked xray pid %d from pidfile", (int)p); kill(p, SIGKILL); }
+        if (p > 1 && p != g_xray) { log_msg("killing untracked xray pid %d from pidfile", (int)p); kill_and_wait(p); }
     }
 }
 
@@ -112,7 +147,7 @@ int stop_xray(void)
 {
     apps_monitor_stop();
     clear_routing_rules();
-    if (g_xray > 0) kill(g_xray, SIGKILL);
+    if (g_xray > 0) kill_and_wait(g_xray);
     kill_stale_pidfile();
     unlink(PIDFILE);
     g_xray = 0;
@@ -130,7 +165,7 @@ int restart_xray(void)
 {
     if (!config_ok()) { log_msg("refusing to reload: %s missing or empty", CONFIG_NAME); return -1; }
     install_tun_blackhole();                    /* fail closed while the tun is gone */
-    if (g_xray > 0) kill(g_xray, SIGKILL);
+    if (g_xray > 0) kill_and_wait(g_xray);
     kill_stale_pidfile();
     proc_untrack("xray");
     xray_helper_logservice("read", "-o", XRAY_LOG_FILE);
