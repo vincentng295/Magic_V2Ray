@@ -2524,3 +2524,4 @@ textarea.pro-config-input {
 
 /* Non-root mode: settings implemented with iptables / ip rules stay visible but cannot be used. */
 .root-only-disabled { opacity: 0.45; pointer-events: none; }
+.root-only-note { color: #ff3b30; font-size: 12px; line-height: 1.4; margin: -12px 0 16px; }   /* -12px cancels most of the row's 16px margin-bottom: the note hugs its option */

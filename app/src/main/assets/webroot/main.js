@@ -565,11 +565,20 @@ function applyRunModeUi() {
     const notice = document.getElementById('nonroot-notice');
     if (notice) notice.style.display = '';
     const hint = t('hint_root_only');
-    const grey = (el) => {
+    const grey = (el, noNote) => {
         if (!el) return;
         el.classList.add('root-only-disabled');
         el.title = hint;
         el.querySelectorAll('input, select, button').forEach(c => { c.disabled = true; });
+        // Red note right after the greyed block (a sibling, so the block's dimming doesn't fade it)
+        if (!noNote && !el.dataset.rootNote) {
+            el.dataset.rootNote = '1';
+            const note = document.createElement('div');
+            note.className = 'root-only-note';
+            note.setAttribute('data-i18n', 'nonroot_unavailable');
+            note.textContent = t('nonroot_unavailable');
+            el.insertAdjacentElement('afterend', note);
+        }
     };
     ['set-networkmode', 'set-upstreamiface', 'set-enableipv6ula', 'set-allowtether',
      'set-bypassvpn', 'set-bypassiface', 'set-bypassiface-list'].forEach(id => {
@@ -578,7 +587,7 @@ function applyRunModeUi() {
         el.disabled = true;
         grey(el.closest('.setting-item-row'));
     });
-    grey(document.getElementById('bypassiface-sub-fields'));
+    grey(document.getElementById('bypassiface-sub-fields'), true);   // its row already has the note
     // Bypass LAN uses VpnService.Builder.excludeRoute(), Android 13+
     if (!(k && typeof k.sdk === 'function' && k.sdk() >= 33)) {
         const list = document.getElementById('lan-bypass-list');

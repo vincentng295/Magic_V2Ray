@@ -294,6 +294,7 @@ const i18n = {
         runmode_nonroot: "Non-root (VpnService)",
         nonroot_notice: "Non-root mode: traffic is captured by Android's VpnService. Options that need root are greyed out.",
         hint_root_only: "Needs root mode",
+        nonroot_unavailable: "Not available in non-root mode",
         runmode_switch_confirm: "Switch the run mode? The running engine is stopped and the app reloads.",
         add_proxy_chain: "Add proxy chain",
 
@@ -829,6 +830,7 @@ const i18n = {
         runmode_nonroot: "非 Root(VpnService)",
         nonroot_notice: "非 Root 模式:流量由 Android 的 VpnService 接管,需要 root 的选项已置灰。",
         hint_root_only: "需要 Root 模式",
+        nonroot_unavailable: "非 Root 模式下不可用",
         runmode_switch_confirm: "切换运行模式?正在运行的引擎将被停止,应用会重新加载。",
         add_proxy_chain: "添加代理链",
 
@@ -1364,6 +1366,7 @@ const i18n = {
         runmode_nonroot: "非 Root(VpnService)",
         nonroot_notice: "非 Root 模式:流量由 Android 的 VpnService 接管,需要 root 的選項已灰階顯示。",
         hint_root_only: "需要 Root 模式",
+        nonroot_unavailable: "非 Root 模式下無法使用",
         runmode_switch_confirm: "切換執行模式?正在執行的引擎將被停止,應用程式會重新載入。",
         add_proxy_chain: "新增代理鏈",
 
@@ -1899,6 +1902,7 @@ const i18n = {
         runmode_nonroot: "Non-root (VpnService)",
         nonroot_notice: "Chế độ non-root: lưu lượng được VpnService của Android bắt. Các tuỳ chọn cần root bị làm mờ.",
         hint_root_only: "Cần chế độ root",
+        nonroot_unavailable: "Không khả dụng ở chế độ non-root",
         runmode_switch_confirm: "Chuyển chế độ chạy? Lõi đang chạy sẽ bị dừng và ứng dụng sẽ tải lại.",
         add_proxy_chain: "Thêm proxy chain",
 
@@ -2414,6 +2418,7 @@ const i18n = {
         runmode_nonroot: "Без root (VpnService)",
         nonroot_notice: "Режим без root: трафик перехватывает VpnService Android. Опции, требующие root, недоступны.",
         hint_root_only: "Требуется режим root",
+        nonroot_unavailable: "Недоступно в режиме без root",
         runmode_switch_confirm: "Переключить режим? Работающее ядро будет остановлено, приложение перезагрузится.",
         add_proxy_chain: "Добавить цепочку прокси",
         modal_proxy_chain_title: "Добавить цепочку прокси",
