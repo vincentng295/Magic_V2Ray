@@ -69,6 +69,7 @@ public class MagicVpnService extends VpnService {
     private volatile int netMode;                 // 0 all, 1 WiFi/Ethernet only, 2 mobile only
     private volatile int netKind = NET_UNKNOWN;   // kind of the current default network
     private volatile boolean standby;             // VPN up, no routes, xray stopped
+    private volatile Network netCur;              // default network netKind was read from
     private ConnectivityManager.NetworkCallback netCb;
     private volatile ScheduledExecutorService netExec;
     private volatile ScheduledFuture<?> netPending;
@@ -267,12 +268,17 @@ public class MagicVpnService extends VpnService {
             netCb = new ConnectivityManager.NetworkCallback() {
                 @Override
                 public void onCapabilitiesChanged(Network n, NetworkCapabilities c) {
+                    netCur = n;
                     onNetKind(kindOf(c));
                 }
 
                 @Override
                 public void onLost(Network n) {
-                    netKind = NET_UNKNOWN;      // keep the current state until a new network shows up
+                    // Only the network we are tracking may reset the kind: a late onLost() of the
+                    // previous network must not wipe out the kind of the one that replaced it,
+                    // otherwise applyNetwork() sees "unknown", keeps the old state and the
+                    // selected network stays in standby (traffic, IPv6 included, goes direct).
+                    if (n.equals(netCur)) netKind = NET_UNKNOWN;   // keep the state until a new network shows up
                 }
             };
             cm.registerDefaultNetworkCallback(netCb);
@@ -304,9 +310,15 @@ public class MagicVpnService extends VpnService {
         if (f != null) f.cancel(false);
         ScheduledExecutorService ex = netExec;
         if (ex == null) return;
-        if (wantRouted(netMode, kind, !standby) == !standby) return;    // already in the right state
+        boolean want = wantRouted(netMode, kind, !standby);
+        if (want == !standby) return;    // already in the right state
+        // Arriving on the selected network: capture traffic at once. Waiting out the debounce
+        // would leave a window where everything (IPv6 included) leaves directly on a network
+        // that should be proxied, and connections opened then would outlive the switch.
+        // Leaving it can wait: a few more seconds through the tunnel are harmless.
+        long delay = want ? 0 : NET_DEBOUNCE_MS;
         try {
-            netPending = ex.schedule(this::applyNetwork, NET_DEBOUNCE_MS, TimeUnit.MILLISECONDS);
+            netPending = ex.schedule(this::applyNetwork, delay, TimeUnit.MILLISECONDS);
         } catch (RejectedExecutionException ignored) {
         }
     }
