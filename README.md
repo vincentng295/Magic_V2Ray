@@ -4,92 +4,98 @@
 
 ![screenshot_1](images/screenshot_1.jpg) 
 
-A powerful and easy-to-use internet proxy manager for rooted Android devices. It helps you route all device traffic through a proxy server to secure your connection, bypass restrictions, and share your high-speed connection with other devices.
+A powerful, modern internet proxy manager for Android devices (supporting both Rooted and Non-Rooted environments). It routes system and application traffic through high-performance proxy cores to secure your connection, bypass network restrictions, and share your connection with other devices.
 
 ---
 
 ## What is Magic V2Ray?
 
-**Magic V2Ray** is an advanced network tool designed for rooted Android phones. By combining top-tier proxy cores, it creates a seamless system-wide connection that covers all your apps. 
+**Magic V2Ray** is an advanced network client for Android. Built as a standalone Android app, it packages management tools and proxy cores natively to create a seamless network connection across your device.
 
-It comes with a clean Web UI where you can easily organize your proxy configurations, save your subscription links, and manage your network with a few clicks.
+Starting with **v2.0**, Magic V2Ray introduces a **Non-Root Mode** powered by Android's `VpnService`, allowing non-rooted users to run the proxy engine smoothly. Rooted users continue to enjoy kernel-level daemon routing, persistent background processing, and low-level packet marking.
 
----
-
-## Why Use Magic V2Ray for rooted Android devices?
-
-If you are used to standard V2Ray apps (like v2rayNG, Matsuri, Nekobox), here is why Magic V2Ray is a game-changer:
-
-- **Immortal System-Wide Coverage:** Standard apps run in user-space via Android's native `VpnService` API and get easily killed by Android's aggressive memory management (Low Memory Killer) when RAM is tight, dropping your connection or leaking your real IP. Magic V2Ray operates with Root privileges, running as a system daemon that the OS does not kill under memory pressure.
-- **Reaches traffic `VpnService` cannot:** A `VpnService` app only sees traffic from UIDs the framework routes to it. Magic V2Ray marks packets at the Netfilter layer, so it can also cover system UIDs, and it does not consume the single system-wide VPN slot — no conflict with a per-app VPN, and no persistent VPN key icon in the status bar.
-- **Native Hotspot / Tethering Support:** `VpnService` cannot carry tethered clients, because Android forwards their traffic outside the VPN's namespace. Magic V2Ray intercepts it at `PREROUTING` and policy-routes it into the same tunnel, so devices sharing your hotspot get the proxied connection too.
-- **Seamless Dynamic Reconnects:** Detects Wi-Fi ↔ 4G/5G handovers from kernel routing events (`ip monitor`) rather than polling, and re-applies the routing marks without waiting for a timeout.
-- **Universal Root Support:** Works across Magisk, KernelSU, and APatch.
+It features a clean Web UI to organize proxy configurations, manage subscriptions, and monitor your network with ease.
 
 ---
 
-## Install
+## Key Highlights & Operation Modes
 
-The release APK is also a flashable module zip, like Magisk's own APK.
+### 1. Root Mode (Daemon Engine)
+Designed for maximum stability and advanced network routing on rooted devices (Magisk, KernelSU, APatch):
+- **Immortal Connection:** Operates as a root-level system daemon. The OS Low Memory Killer (LMK) will not kill the process under heavy memory pressure.
+- **Deep Routing Coverage:** Intercepts traffic at the Netfilter layer, enabling transparent proxying for system UIDs that standard VPNs cannot reach.
+- **No System VPN Slot Consumed:** Works without taking up the standard Android VPN slot—no permanent VPN key icon in the status bar, and no conflicts with per-app VPNs.
+- **Native Hotspot / Tethering:** Intercepts traffic at `PREROUTING` to route tethered devices (Wi-Fi Hotspot, USB Tethering) through the proxy tunnel automatically.
+- **Dynamic Reconnects:** Listens directly to kernel network events (`ip monitor`) for instant Wi-Fi ↔ Cellular handovers.
 
-**Option A: flash (module + app in one go)**
+### 2. Non-Root Mode (VpnService)
+Starting with **v2.0**, devices without root access can run Magic V2Ray seamlessly using Android's native `VpnService` engine:
+- Safe, standard user-space proxy routing.
+- No root or custom kernel modules required.
+
+---
+
+## Additional Features
+
+- **Quick Settings Tile:** Toggle the proxy engine directly from your notification shade. Long-pressing the tile opens the app.
+- **Live Module Updates:** Fully supports live updates for version 176 and newer—upgrade the service on the fly without rebooting your device.
+- **Category Organization:** Group your proxy servers into custom folders/categories.
+- **Smart Subscription Import:** Easily paste subscription URLs, raw configurations, or mixed text codes.
+- **One-Click Auto-Reload:** Keep your subscriptions up-to-date with a single tap.
+- **Hotspot Sharing:** Share your proxied connection with laptops, consoles, or other phones via IPv4/IPv6 Wi-Fi Hotspot.
+
+---
+
+## Installation & Usage
+
+Magic V2Ray is distributed as a standalone Android application (`.apk`), which also doubles as a flashable root module zip.
+
+### Non-Root Users
+1. Download and install `magic_v2ray-*-arm64-v8a.apk` (or `-x86_64.apk`).
+2. Open the app, select **Non-Root (VpnService) Mode**, grant the VPN permission, and start the connection.
+
+### Root Users (Magisk / KernelSU / APatch)
+**Option A: Install via Root Manager (Module + App)**
 1. Rename `magic_v2ray-*.apk` to `magic_v2ray-*.zip`.
-2. Flash it in Magisk / KernelSU / APatch (Modules → Install from storage). It installs the module, then installs the app itself with `pm install` (not possible from recovery; install the `.apk` manually there).
-3. Reboot, or just open the app.
+2. Flash it in Magisk / KernelSU / APatch (Modules → Install from storage). It installs the background module and runs `pm install` for the app interface.
+3. Reboot, or open the app directly.
 
-**Option B: install the APK normally**
-1. Install `magic_v2ray-*-arm64-v8a.apk` (or `-x86_64.apk`) and open it.
-2. Grant root. On every launch the app checks root and installs / updates the module in `/data/adb/modules/magic_v2ray` (settings in `/data/adb/magic_v2ray` are kept). The engine starts right away after a first install; after a module *update*, reboot once to run the new binaries.
+**Option B: Standard APK Installation**
+1. Install `magic_v2ray-*-arm64-v8a.apk` and open it.
+2. Grant Root permissions. The app automatically checks and sets up the root daemon engine in `/data/adb/modules/magic_v2ray` (user settings are preserved in `/data/adb/magic_v2ray`).
 
-The module's **Action** button (Magisk 27+ / KernelSU / APatch) opens the app, and installs it first from the copy kept in the module (`app.apk`) if it is not installed.
+*Note: The module's **Action** button (Magisk 27+ / KernelSU / APatch) launches the app directly, installing `app.apk` automatically if it is not present.*
 
-### Building
+---
+
+## Building from Source
 
 ```sh
-./build.sh          # APKs: arm64-v8a, x86_64, universal  ->  dist/
-                    # (each APK also works renamed to .zip as a module installer)
+./build.sh          # Outputs APKs (arm64-v8a, x86_64, universal) -> dist/
+                    # (Each APK can also be renamed to .zip to serve as a module installer)
+
 ```
 
-APKs need JDK 17+, Gradle 8.7+ (8.9 recommended), an Android SDK (`ANDROID_HOME`, platform android-35) and the NDK for the native helper. `build.sh` checks these first and prints install instructions for whatever is missing.
+**Requirements:**
 
-The WebUI lives in `app/src/main/assets/webroot`; the app exposes a `window.ksu`-compatible bridge (`exec`, `listPackages`, `getPackagesInfo`) so it runs unchanged.
+* JDK 17+
+* Gradle 8.7+ (8.9 recommended)
+* Android SDK (`ANDROID_HOME`, target platform `android-35`)
+* Android NDK (for native helpers)
 
----
-
-## You dont have root?
-
-> [!IMPORTANT]
-> Magic V2Ray needs **root** (Magisk / KernelSU / APatch). The Android app is the control panel; the engine itself (Xray-core, iptables/routing daemon) is installed by the app as a root module.
-
-If your device is not rooted, or if you are looking for a regular GUI application with a visual interface for Android, Windows, macOS, or iOS, please find the official and community-supported clients here:
-👉 **[Xray-core GUI Clients](https://github.com/xtls/xray-core#gui-clients)**
-
----
-
-## Key Features
-
-- **Category Organizing:** Group your proxy servers into custom folders or categories.
-- **Smart Link Import:** Easily paste subscription URLs, raw configuration strings, or mixed text codes.
-- **One-Click Auto-Reload:** Saves your subscription links so you can update an entire category with a single tap.
-- **No Battery Drain:** Native background processing ensures your battery lasts much longer compared to running heavy standalone VPN apps.
-- **Native Hotspot Tethering:** Share your secured and bypassed proxy connection to laptops, consoles, or other phones via Wi-Fi Hotspot with full IPv4 and IPv6 routing support.
-
-
-**Note:** Magisk users need to install [KsuWebUIStandalone](https://github.com/5ec1cff/KsuWebUIStandalone/releases/tag/v1.0) to open WebUI of the module
+The Web UI assets are located at `app/src/main/assets/webroot`. The app exposes a `window.ksu`-compatible bridge (`exec`, `listPackages`, `getPackagesInfo`).
 
 ---
 
 ## Acknowledgments & Credits
 
-This project uses pre-built binaries from the following open-source projects:
-* **[Xray-core](https://github.com/XTLS/Xray-core):** The underlying engine that handles next-generation proxy protocols.
-* **[openxtun](https://github.com/vincentng295/openxtun):** Tiny wrapper that opens a Linux TUN device and hands its file descriptor to Xray.
-* **[curl-android](https://github.com/vvb2060/curl-android):** curl tool and libcurl static library prefab for android
+* **[Xray-core](https://github.com/XTLS/Xray-core):** The underlying engine handling next-generation proxy protocols.
+* **[curl-android](https://github.com/vvb2060/curl-android):** Pre-built `curl` command-line tool and `libcurl` static library prefab.
+
+---
 
 ## License
 
-This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)**. 
-
 By using this project, you agree to the terms and conditions set forth in the license. For more details, please refer to the [LICENSE](LICENSE) file in this repository.
 
-Essentially, you are free to use, modify, and distribute this software, provided that you include the same license and source code availability in your own project.
+Essentially, you are free to use, modify, and distribute this software, provided that you include the same license and source code availability in your own project. No newline at end of file

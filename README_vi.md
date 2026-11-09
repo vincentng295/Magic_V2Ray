@@ -4,89 +4,98 @@
 
 ![screenshot_1](images/screenshot_1.jpg)
 
-Một công cụ quản lý proxy Internet mạnh mẽ và dễ sử dụng dành cho các thiết bị Android đã root. Dự án giúp bạn định tuyến toàn bộ lưu lượng mạng của thiết bị qua một proxy server để bảo mật kết nối, vượt tường lửa, đồng thời chia sẻ kết nối tốc độ cao này cho các thiết bị khác.
+Một ứng dụng quản lý proxy Internet mạnh mẽ và hiện đại cho Android (hỗ trợ cả thiết bị **Root** và **Chưa Root / Non-Root**). Dự án giúp bạn định tuyến toàn bộ lưu lượng mạng của hệ thống và ứng dụng qua proxy để bảo mật kết nối, vượt tường lửa và chia sẻ mạng cho các thiết bị khác.
 
 ---
 
 ## Magic V2Ray là gì?
 
-**Magic V2Ray** là một công cụ mạng nâng cao được thiết kế riêng cho điện thoại Android đã root. Bằng cách kết hợp các lõi proxy hàng đầu hiện nay, dự án tạo ra một kết nối mượt mà xuyên suốt toàn hệ thống và bao phủ mọi ứng dụng của bạn.
+**Magic V2Ray** là giải pháp mạng nâng cao dành cho Android. Được thiết kế lại thành một ứng dụng Android độc lập, ứng dụng đóng gói sẵn toàn bộ các binary và tài nguyên quản lý proxy để tạo ra trải nghiệm mượt mà nhất.
 
-Dự án đi kèm với một giao diện Web UI tối giản, nơi bạn có thể dễ dàng sắp xếp các cấu hình proxy, lưu trữ các liên kết đăng ký (subscription) và quản lý mạng lưới của mình chỉ với vài cú click.
+Từ phiên bản **v2.0**, Magic V2Ray chính thức hỗ trợ **Chế độ Non-Root (VpnService)**, cho phép người dùng máy chưa root sử dụng lõi proxy an toàn và tiện lợi. Đối với máy đã root, ứng dụng vẫn giữ nguyên sức mạnh với cơ chế định tuyến tiến trình daemon cấp hệ thống.
 
----
-
-## Vì sao nên dùng Magic V2Ray dành cho thiết bị Android đã root?
-
-Nếu bạn đã quen thuộc với các ứng dụng V2Ray tiêu chuẩn (như v2rayNG, Matsuri, Nekobox), thì đây là lý do **Magic V2Ray** tạo nên sự khác biệt hoàn toàn:
-
-* **Bao phủ toàn hệ thống, không bao giờ bị văng:** Các ứng dụng thông thường chạy ở không gian người dùng (user-space) thông qua API `VpnService` mặc định của Android. Khi bộ nhớ RAM bị đầy, hệ thống quản lý RAM gắt gao của Android (Low Memory Killer) sẽ dễ dàng tước quyền/tắt ứng dụng, làm gián đoạn kết nối hoặc rò rỉ IP thật của bạn. Magic V2Ray hoạt động với quyền Root, chạy như một tiến trình hệ thống (system daemon) giúp giữ kết nối luôn bền vững và không bao giờ bị hệ điều hành tắt khi thiếu RAM.
-* **Định tuyến cả các lưu lượng mà `VpnService` "bó tay":** Ứng dụng xài `VpnService` chỉ can thiệp được lưu lượng từ các ứng dụng (UID) mà Android cho phép. Magic V2Ray gắn nhãn (mark) gói tin ngay tại tầng Netfilter, nhờ đó định tuyến được cả các tiến trình hệ thống. Đặc biệt, nó không chiếm dụng ô VPN mặc định của máy — giúp bạn thoải mái chạy song song với một ứng dụng VPN khác mà không bị xung đột, đồng thời loại bỏ hoàn toàn biểu tượng chìa khóa VPN phiền phức trên thanh trạng thái.
-* **Hỗ trợ chia sẻ Hotspot / Tethering trực tiếp:** `VpnService` không thể định tuyến cho các thiết bị bắt Wi-Fi hotspot, vì Android chuyển tiếp dữ liệu của các thiết bị này bên ngoài không gian mạng của VPN. Magic V2Ray đánh chặn lưu lượng ngay tại chuỗi `PREROUTING` và định tuyến theo chính sách (policy-route) vào chung đường hầm tunnel. Nhờ vậy, mọi thiết bị kết nối vào hotspot của bạn đều tự động dùng proxy.
-* **Tự động kết nối lại siêu mượt:** Tự động phát hiện quá trình chuyển đổi giữa Wi-Fi ↔ 4G/5G trực tiếp từ các sự kiện định tuyến của Kernel (`ip monitor`) thay vì hỏi dồn (polling) liên tục, giúp áp dụng lại các quy tắc định tuyến ngay lập tức mà không cần chờ thời gian timeout.
-* **Hỗ trợ Root toàn diện:** Tương thích hoàn hảo trên mọi nền tảng Root phổ biến: Magisk, KernelSU và APatch.
+Đi kèm với ứng dụng là một giao diện Web UI tối giản, giúp bạn dễ dàng tổ chức các cấu hình proxy, quản lý liên kết đăng ký (subscription) và kiểm soát mạng chỉ với vài thao tác.
 
 ---
 
-## Cài đặt
+## Các chế độ hoạt động chính
 
-APK phát hành cũng là một file zip module có thể flash được, giống như APK của chính Magisk.
+### 1. Chế độ Root (Daemon Engine)
+Dành cho máy đã root (Magisk, KernelSU, APatch) với hiệu năng tối đa:
+* **Kết nối bền vững, không lo văng app:** Hoạt động như một tiến trình hệ thống (system daemon). Trình quản lý bộ nhớ RAM (Low Memory Killer) của Android sẽ không tự ý tắt ứng dụng khi thiếu RAM.
+* **Định tuyến toàn diện:** Đánh nhãn gói tin ngay tại tầng Netfilter, hỗ trợ định tuyến cho cả các ứng dụng/tiến trình hệ thống mà API VPN thông thường không thể can thiệp.
+* **Không chiếm dụng ô VPN mặc định:** Hoạt động độc lập mà không bật biểu tượng chìa khóa VPN trên thanh trạng thái, không lo xung đột khi dùng chung với ứng dụng VPN khác.
+* **Phát Hotspot / Tethering trực tiếp:** Đánh chặn lưu lượng tại chuỗi `PREROUTING`, tự động định tuyến toàn bộ các thiết bị bắt Wi-Fi Hotspot hoặc USB Tethering qua đường hầm proxy.
+* **Chuyển mạng siêu tốc:** Phát hiện sự kiện chuyển đổi giữa Wi-Fi ↔ 4G/5G trực tiếp từ kernel (`ip monitor`) để áp dụng ngay lập tức các quy tắc mạng.
 
-**Cách A: flash (cài module + app cùng lúc)**
-1. Đổi tên `magic_v2ray-*.apk` thành `magic_v2ray-*.zip`.
-2. Flash trong Magisk / KernelSU / APatch (Modules → Install from storage). Quá trình này cài module, sau đó tự cài luôn app bằng `pm install` (không làm được trong recovery; ở đó hãy cài file `.apk` thủ công).
-3. Khởi động lại máy, hoặc chỉ cần mở app.
+### 2. Chế độ Non-Root (VpnService)
+Từ phiên bản **v2.0**, các thiết bị chưa root có thể chạy Magic V2Ray dễ dàng thông qua API `VpnService` tích hợp sẵn của Android:
+* Chạy an toàn ở không gian người dùng (user-space).
+* Dễ dàng cài đặt và sử dụng ngay mà không cần quyền Root hay module kernel.
 
-**Cách B: cài APK như bình thường**
-1. Cài `magic_v2ray-*-arm64-v8a.apk` (hoặc `-x86_64.apk`) rồi mở app.
-2. Cấp quyền root. Mỗi lần mở, app kiểm tra root và cài / cập nhật module vào `/data/adb/modules/magic_v2ray` (cài đặt trong `/data/adb/magic_v2ray` được giữ nguyên). Engine chạy ngay sau lần cài đầu tiên; sau khi *cập nhật* module, hãy khởi động lại máy một lần để chạy các binary mới.
+---
 
-Nút **Action** của module (Magisk 27+ / KernelSU / APatch) sẽ mở app, và nếu app chưa được cài thì sẽ cài trước từ bản sao APK lưu trong module (`app.apk`).
+## Tính năng nổi bật khác
 
-### Build từ mã nguồn
+- **Phím tắt Quick Settings (Quick Settings Tile):** Bật/tắt nhanh proxy ngay từ thanh thông báo Quick Settings. Nhấn giữ phím tắt để mở nhanh ứng dụng.
+- **Cập nhật Module trực tiếp (Live Module Update):** Hỗ trợ cập nhật trực tiếp cho phiên bản 176 trở lên, giúp nâng cấp service mượt mà mà không cần khởi động lại thiết bị.
+- **Quản lý danh mục (Category Organizing):** Gom nhóm các proxy server vào các thư mục hoặc danh mục tùy chỉnh.
+- **Nhập liên kết thông minh (Smart Subscription Import):** Dán nhanh các URL đăng ký, chuỗi cấu hình thô hoặc đoạn mã hỗn hợp.
+- **Cập nhật 1-Click (Auto-Reload):** Lưu liên kết đăng ký để cập nhật lại toàn bộ server chỉ bằng một thao tác.
+- **Chia sẻ Hotspot Native:** Chia sẻ kết nối proxy cho máy tính, console hoặc điện thoại khác qua Wi-Fi Hotspot với đầy đủ hỗ trợ IPv4 và IPv6.
+
+---
+
+## Cài đặt & Sử dụng
+
+File APK phát hành của Magic V2Ray vừa là ứng dụng Android độc lập, vừa đóng vai trò là một file zip module có thể flash qua bộ quản lý Root.
+
+### Dành cho máy Chưa Root (Non-Root)
+1. Tải và cài đặt file `magic_v2ray-*-arm64-v8a.apk` (hoặc `-x86_64.apk`).
+2. Mở app, chọn **Chế độ Non-Root (VpnService)**, cấp quyền VPN và bắt đầu sử dụng.
+
+### Dành cho máy Đã Root (Magisk / KernelSU / APatch)
+**Cách A: Flash qua Root Manager (Cài cả Module + App)**
+1. Đổi tên file `magic_v2ray-*.apk` thành `magic_v2ray-*.zip`.
+2. Flash file zip trong Magisk / KernelSU / APatch (Modules → Install from storage). Hệ thống sẽ cài module nền và tự động gọi `pm install` để cài ứng dụng.
+3. Khởi động lại máy hoặc mở trực tiếp ứng dụng.
+
+**Cách B: Cài file APK thông thường**
+1. Cài đặt `magic_v2ray-*-arm64-v8a.apk` rồi mở app.
+2. Cấp quyền Root. Ứng dụng sẽ tự động kiểm tra và cài đặt/cập nhật module daemon tại `/data/adb/modules/magic_v2ray` (cài đặt cá nhân được giữ tại `/data/adb/magic_v2ray`).
+
+*Lưu ý: Nút **Action** của module (Magisk 27+ / KernelSU / APatch) cho phép mở nhanh ứng dụng và tự động cài `app.apk` nếu thiết bị chưa cài đặt.*
+
+---
+
+## Build từ mã nguồn
 
 ```sh
-./build.sh          # APK: arm64-v8a, x86_64, universal  ->  dist/
-                    # (mỗi APK đổi tên thành .zip là dùng được như bộ cài module)
+./build.sh          # Xuất các file APK (arm64-v8a, x86_64, universal) vào thư mục dist/
+                    # (Mỗi file APK có thể đổi đuôi sang .zip để làm bộ cài module)
+
 ```
 
-Build APK cần JDK 17+, Gradle 8.7+ (khuyến nghị 8.9), Android SDK (`ANDROID_HOME`, platform android-35) và NDK cho phần native helper. `build.sh` sẽ kiểm tra các thứ này trước và in hướng dẫn cài đặt cho phần còn thiếu.
+**Yêu cầu môi trường:**
 
-Giao diện WebUI nằm ở `app/src/main/assets/webroot`; app cung cấp một cầu nối tương thích `window.ksu` (`exec`, `listPackages`, `getPackagesInfo`) nên WebUI chạy không cần sửa.
+* JDK 17+
+* Gradle 8.7+ (Khuyến nghị 8.9)
+* Android SDK (`ANDROID_HOME`, platform `android-35`)
+* Android NDK (dành cho phần native helper)
 
----
-
-## Bạn không có root?
-
-> [!IMPORTANT]
-> Magic V2Ray cần **root** (Magisk / KernelSU / APatch). App Android là bảng điều khiển; còn engine (Xray-core, daemon iptables/định tuyến) được app cài vào dưới dạng một module root.
-
-Nếu thiết bị của bạn chưa được root, hoặc bạn đang tìm kiếm một ứng dụng giao diện thông thường chạy trên Android, Windows, macOS, hoặc iOS, vui lòng tham khảo danh sách các ứng dụng khách (GUI Clients) được hỗ trợ tại đây:
-👉 **[Xray-core GUI Clients](https://github.com/xtls/xray-core#gui-clients)**
-
----
-
-## Các tính năng chính
-
-- **Quản lý theo danh mục (Category Organizing):** Gom nhóm các proxy server của bạn vào các thư mục hoặc danh mục tùy chỉnh.
-- **Nhập liên kết thông minh (Smart Link Import):** Dễ dàng dán các URL đăng ký, các chuỗi cấu hình thô hoặc các đoạn mã văn bản hỗn hợp.
-- **Cập nhật tự động với 1-Click (One-Click Auto-Reload):** Lưu lại các liên kết đăng ký để bạn có thể cập nhật toàn bộ danh mục chỉ bằng một lần chạm.
-- **Không tốn pin (No Battery Drain):** Cơ chế xử lý gốc dưới nền đảm bảo thời lượng pin của bạn kéo dài hơn nhiều so với việc chạy các ứng dụng VPN độc lập nặng nề.
-- **Phát mạng Hotspot Native:** Chia sẻ kết nối proxy đã được bảo mật hoặc bypass cho các thiết bị khác qua Wi-Fi Hotspot với đầy đủ hỗ trợ định tuyến cho cả IPv4 và IPv6.
+Mã nguồn Web UI nằm tại `app/src/main/assets/webroot`. Ứng dụng cung cấp sẵn cầu nối tương thích với `window.ksu` (`exec`, `listPackages`, `getPackagesInfo`).
 
 ---
 
 ## Ghi nhận & Đóng góp
 
-Dự án này được xây dựng dựa trên thành quả của những người đi trước. **Magic V2Ray** có sử dụng các file thực thi (binary) được biên dịch sẵn từ các dự án mã nguồn mở sau:
-* **[Xray-core](https://github.com/XTLS/Xray-core):** Lõi hệ thống tối cao cho các mạng proxy thế hệ mới, xử lý các giao thức như VLESS, VMess, Trojan kết hợp với cơ chế giải mã gói tin (sniffing) linh hoạt.
-* **[openxtun](https://github.com/vincentng295/openxtun):** Một trình bao bọc nhỏ gọn giúp mở thiết bị TUN trên Linux và chuyển bộ mô tả tệp (file descriptor) của nó cho Xray.
-* **[curl-android](https://github.com/vvb2060/curl-android):** curl tool and libcurl static library prefab for android
+* **[Xray-core](https://github.com/XTLS/Xray-core):** Lõi xử lý proxy thế hệ mới (VLESS, VMess, Trojan, v.v.).
+* **[curl-android](https://github.com/vvb2060/curl-android):** Công cụ `curl` và thư viện tĩnh `libcurl` biên dịch cho Android.
+
+---
 
 ## Giấy phép (License)
 
-Dự án này được phát hành dưới giấy phép **GNU General Public License v3.0 (GPL-3.0)**.
-
-Bằng cách sử dụng dự án này, bạn đồng ý với các điều khoản và điều kiện được quy định trong giấy phép. Để biết thêm chi tiết, vui lòng xem tệp [LICENSE](LICENSE) trong kho lưu trữ này.
+Dự án này được phát hành dưới giấy phép **GNU General Public License v3.0 (GPL-3.0)**. Bằng cách sử dụng dự án này, bạn đồng ý với các điều khoản và điều kiện được quy định trong giấy phép. Để biết thêm chi tiết, vui lòng xem tệp [LICENSE](LICENSE) trong kho lưu trữ này.
 
 Về cơ bản, bạn được tự do sử dụng, sửa đổi và phân phối phần mềm này, miễn là bạn giữ nguyên giấy phép và công khai mã nguồn trong dự án của chính bạn.

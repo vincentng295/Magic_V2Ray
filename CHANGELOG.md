@@ -1,10 +1,6 @@
-# Magic V2Ray v1.29 Release Notes
+# Magic V2Ray v2.0 Release Notes
 
-This release shifts core functionality from legacy shell scripts (`service.sh`) to a native, statically linked C/C++ helper binary (`xhuskydg_helper`). The backend daemon and its sub-tools (`openxtun`, `dnsjson`, and `logservice`) are now built directly from source using the Android NDK, drastically improving execution speed, stability, and control over system calls.
-
-Network state management and firewall operations have been completely overhauled. Routing and iptables rules are now managed through a native xtables and netlink engine, allowing table updates to process atomically in memory with retry logic instead of executing slow, individual shell commands. Additionally, FakeDNS IP pool range has been updated to 198.19.0.0/16 to minimize conflicts.
-
-Background processes have been optimized for better system resource usage. The application now includes a built-in background subscription auto-updater that periodically syncs node lists, improved network interface monitoring with event debouncing, and refined logging daemons that prevent thread leaks and unresponsive sockets.
+Introduces a brand new standalone Android application. Along with this major addition, the project has added non-root mode powered by Android's `VpnService`, allowing users without root access to run the proxy engine safely. Quick Settings tile integration has also been added to let users easily toggle the core directly from the notification shade while long-pressing the tile opens the app. Furthermore, live module updates are now fully supported for version `v2.0` and newer to upgrade the service seamlessly without requiring a system reboot.
 
 ---
 
