@@ -41,14 +41,13 @@ The release APK is also a flashable module zip, like Magisk's own APK.
 1. Install `magic_v2ray-*-arm64-v8a.apk` (or `-x86_64.apk`) and open it.
 2. Grant root. On every launch the app checks root and installs / updates the module in `/data/adb/modules/magic_v2ray` (settings in `/data/adb/magic_v2ray` are kept). The engine starts right away after a first install; after a module *update*, reboot once to run the new binaries.
 
-The headless module zip (`magic_v2ray-*.zip` from `./build.sh`) is still built for manual installs; it has no UI, use the app to configure.
+The module's **Action** button (Magisk 27+ / KernelSU / APatch) opens the app, and installs it first from the copy kept in the module (`app.apk`) if it is not installed.
 
 ### Building
 
 ```sh
-./build.sh          # everything: module zips + APKs  ->  dist/
-./build.sh apk      # APKs only (arm64-v8a, x86_64, universal; each also works renamed to .zip)
-./build.sh arm64    # one headless module zip
+./build.sh          # APKs: arm64-v8a, x86_64, universal  ->  dist/
+                    # (each APK also works renamed to .zip as a module installer)
 ```
 
 APKs need JDK 17+, Gradle 8.7+ (8.9 recommended), an Android SDK (`ANDROID_HOME`, platform android-35) and the NDK for the native helper. `build.sh` checks these first and prints install instructions for whatever is missing.

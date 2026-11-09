@@ -105,6 +105,10 @@ done
 #    also (re)installs/updates it on first launch.
 # ---------------------------------------------------------------------------
 if unzip -l "$ZIPFILE" 2>/dev/null | grep -q "AndroidManifest.xml"; then
+    # Keep a copy of the APK inside the module: action.sh installs the app from
+    # it when the app is not installed yet (e.g. after uninstalling the app).
+    cp -f "$ZIPFILE" "$MODPATH/app.apk"
+    set_perm "$MODPATH/app.apk" 0 0 0644
     if command -v pm >/dev/null 2>&1; then
         ui_print "- Installing the Magic V2Ray app..."
         TMPAPK="/data/local/tmp/magic_v2ray_install.apk"

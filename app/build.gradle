@@ -103,7 +103,7 @@ tasks.register('stageModuleAssets', Sync) {
     }
 }
 
-// The native binaries are produced by ./build.sh apk (downloads Xray-core, builds
+// The native binaries are produced by ./build.sh (downloads Xray-core, builds
 // xhuskydg_helper with the NDK). Fail early with a clear message if they are absent.
 tasks.register('checkNativeLibs') {
     doFirst {
@@ -115,7 +115,7 @@ tasks.register('checkNativeLibs') {
         }
         if (missing) {
             throw new GradleException("Missing native binaries in app/src/main/jniLibs: ${missing.join(', ')}\n" +
-                    "Run ./build.sh apk first.")
+                    "Run ./build.sh first.")
         }
         ['geoip.dat', 'geosite.dat'].each { f ->
             if (!file("$rootDir/bin/$f").isFile()) throw new GradleException("Missing bin/$f")

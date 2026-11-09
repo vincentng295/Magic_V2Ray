@@ -1,5 +1,7 @@
 # Magic V2Ray
 
+[View English version](./README.md)
+
 ![screenshot_1](images/screenshot_1.jpg)
 
 Một công cụ quản lý proxy Internet mạnh mẽ và dễ sử dụng dành cho các thiết bị Android đã root. Dự án giúp bạn định tuyến toàn bộ lưu lượng mạng của thiết bị qua một proxy server để bảo mật kết nối, vượt tường lửa, đồng thời chia sẻ kết nối tốc độ cao này cho các thiết bị khác.
@@ -26,12 +28,40 @@ Nếu bạn đã quen thuộc với các ứng dụng V2Ray tiêu chuẩn (như 
 
 ---
 
+## Cài đặt
+
+APK phát hành cũng là một file zip module có thể flash được, giống như APK của chính Magisk.
+
+**Cách A: flash (cài module + app cùng lúc)**
+1. Đổi tên `magic_v2ray-*.apk` thành `magic_v2ray-*.zip`.
+2. Flash trong Magisk / KernelSU / APatch (Modules → Install from storage). Quá trình này cài module, sau đó tự cài luôn app bằng `pm install` (không làm được trong recovery; ở đó hãy cài file `.apk` thủ công).
+3. Khởi động lại máy, hoặc chỉ cần mở app.
+
+**Cách B: cài APK như bình thường**
+1. Cài `magic_v2ray-*-arm64-v8a.apk` (hoặc `-x86_64.apk`) rồi mở app.
+2. Cấp quyền root. Mỗi lần mở, app kiểm tra root và cài / cập nhật module vào `/data/adb/modules/magic_v2ray` (cài đặt trong `/data/adb/magic_v2ray` được giữ nguyên). Engine chạy ngay sau lần cài đầu tiên; sau khi *cập nhật* module, hãy khởi động lại máy một lần để chạy các binary mới.
+
+Nút **Action** của module (Magisk 27+ / KernelSU / APatch) sẽ mở app, và nếu app chưa được cài thì sẽ cài trước từ bản sao APK lưu trong module (`app.apk`).
+
+### Build từ mã nguồn
+
+```sh
+./build.sh          # APK: arm64-v8a, x86_64, universal  ->  dist/
+                    # (mỗi APK đổi tên thành .zip là dùng được như bộ cài module)
+```
+
+Build APK cần JDK 17+, Gradle 8.7+ (khuyến nghị 8.9), Android SDK (`ANDROID_HOME`, platform android-35) và NDK cho phần native helper. `build.sh` sẽ kiểm tra các thứ này trước và in hướng dẫn cài đặt cho phần còn thiếu.
+
+Giao diện WebUI nằm ở `app/src/main/assets/webroot`; app cung cấp một cầu nối tương thích `window.ksu` (`exec`, `listPackages`, `getPackagesInfo`) nên WebUI chạy không cần sửa.
+
+---
+
 ## Bạn không có root?
 
 > [!IMPORTANT]
-> Đây là một **module hệ thống** (dành cho Magisk / KernelSU / APatch), **KHÔNG PHẢI** là một ứng dụng (app) thông thường!
+> Magic V2Ray cần **root** (Magisk / KernelSU / APatch). App Android là bảng điều khiển; còn engine (Xray-core, daemon iptables/định tuyến) được app cài vào dưới dạng một module root.
 
-Nếu thiết bị của bạn chưa được root, hoặc bạn đang tìm kiếm một ứng dụng có giao diện trực quan độc lập chạy trên Android, Windows, macOS, hoặc iOS, vui lòng tham khảo danh sách các ứng dụng khách (GUI Clients) được hỗ trợ tại đây:
+Nếu thiết bị của bạn chưa được root, hoặc bạn đang tìm kiếm một ứng dụng giao diện thông thường chạy trên Android, Windows, macOS, hoặc iOS, vui lòng tham khảo danh sách các ứng dụng khách (GUI Clients) được hỗ trợ tại đây:
 👉 **[Xray-core GUI Clients](https://github.com/xtls/xray-core#gui-clients)**
 
 ---

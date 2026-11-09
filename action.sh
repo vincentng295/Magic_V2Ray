@@ -2,45 +2,48 @@
 #
 # Magic V2Ray — manager "Action" button.
 #
-# Toggles the proxy engine without opening the WebUI. Supported by KernelSU,
-# APatch and Magisk 27+; on older Magisk the button is simply not shown, so
-# this file is inert there rather than broken.
+# Opens the Magic V2Ray app. If the app is not installed yet, it is installed
+# first from the copy of the APK kept in the module ($MODDIR/app.apk).
+# Supported by KernelSU, APatch and Magisk 27+; on older Magisk the button is
+# simply not shown, so this file is inert there rather than broken.
 #
 # Output goes straight to the manager's action dialog, so keep it short.
 
 MODDIR=${0%/*}
-DATADIR="/data/adb/magic_v2ray"
-CONFIG_FILE="$DATADIR/config.v2.json"
+PKG="com.huskydg.magicv2ray"
+TMPAPK="/data/local/tmp/magic_v2ray_install.apk"
 
-STATUS="$(sh "$MODDIR/proxy_control.sh" status 2>/dev/null)"
+is_installed() {
+    pm path "$PKG" 2>/dev/null | grep -q '^package:'
+}
 
-case "$STATUS" in
-    running)
-        echo "Engine is running — stopping it."
-        sh "$MODDIR/proxy_control.sh" stop
-        ;;
-    crashed)
-        echo "Engine crashed. Clearing state and restarting."
-        sh "$MODDIR/proxy_control.sh" stop
-        sleep 1
-        if [ -s "$CONFIG_FILE" ]; then
-            sh "$MODDIR/proxy_control.sh" start
-        else
-            echo "No configuration saved. Open the WebUI and pick a node first."
+if ! is_installed; then
+    if [ ! -s "$MODDIR/app.apk" ]; then
+        echo "Magic V2Ray app is not installed and $MODDIR/app.apk is missing."
+        echo "Flash the .apk (renamed to .zip) again to restore it."
+        exit 1
+    fi
+    echo "Installing Magic V2Ray app..."
+    if ! cp -f "$MODDIR/app.apk" "$TMPAPK" || ! chmod 644 "$TMPAPK"; then
+        echo "Could not stage the APK for installation."
+        rm -f "$TMPAPK"
+        exit 1
+    fi
+    PMOUT="$(pm install -r "$TMPAPK" 2>&1)"
+    rm -f "$TMPAPK"
+    case "$PMOUT" in
+        *Success*) echo "App installed." ;;
+        *)
+            echo "App install failed: $PMOUT"
             exit 1
-        fi
-        ;;
-    *)
-        if [ ! -s "$CONFIG_FILE" ]; then
-            echo "No configuration saved."
-            echo "Open the WebUI, import a node and select it first."
-            exit 1
-        fi
-        echo "Engine is stopped — starting it."
-        sh "$MODDIR/proxy_control.sh" start
-        ;;
-esac
+            ;;
+    esac
+fi
 
-sleep 1
-echo "Now: $(sh "$MODDIR/proxy_control.sh" status 2>/dev/null)"
+echo "Starting Magic V2Ray..."
+if ! am start --user 0 -n "$PKG/.MainActivity" >/dev/null 2>&1; then
+    # Fallback: let the package manager resolve the launcher activity.
+    monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 \
+        || { echo "Could not start the app."; exit 1; }
+fi
 exit 0

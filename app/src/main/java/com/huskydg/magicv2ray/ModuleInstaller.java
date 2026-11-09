@@ -23,6 +23,9 @@ import java.util.regex.Pattern;
  *   lib/<abi>/{libxray.so, libxhuskydg_helper.so, libcurl.so}   (real executables,
  *       extracted to nativeLibraryDir at install; installed as bin/xray etc.)
  *
+ * Besides the payload, the app copies its own APK to $MODDIR/app.apk, so the
+ * module's Action button (action.sh) can reinstall the app if it gets removed.
+ *
  * The WebUI is not part of the module any more; it is the app itself.
  */
 final class ModuleInstaller {
@@ -84,7 +87,7 @@ final class ModuleInstaller {
                 "M=" + RootShell.sq(MODDIR) + "\n"
                         + "if [ -s \"$M/module.prop\" ] && [ -x \"$M/bin/xray\" ] && [ -x \"$M/bin/xhuskydg_helper\" ] \\\n"
                         + "   && [ -x \"$M/bin/curl\" ] && [ -s \"$M/bin/geoip.dat\" ] && [ -s \"$M/bin/geosite.dat\" ] \\\n"
-                        + "   && [ -x \"$M/service.sh\" ] && [ -x \"$M/proxy_control.sh\" ]; then\n"
+                        + "   && [ -x \"$M/service.sh\" ] && [ -x \"$M/proxy_control.sh\" ] && [ -s \"$M/app.apk\" ]; then\n"
                         + "  echo \"VC=$(sed -n 's/^versionCode=//p' \"$M/module.prop\" | head -n 1 | tr -d '\\r')\"\n"
                         + "  echo \"VER=$(sed -n 's/^version=//p' \"$M/module.prop\" | head -n 1 | tr -d '\\r')\"\n"
                         + "else echo MISSING; fi\n"
@@ -151,6 +154,7 @@ final class ModuleInstaller {
                 "STAGE=" + RootShell.sq(stage.getAbsolutePath()) + "\n"
                         + "MOD=" + RootShell.sq(MODDIR) + "\n"
                         + "DATA=" + RootShell.sq(DATADIR) + "\n"
+                        + "APK=" + RootShell.sq(ctx.getApplicationInfo().sourceDir) + "\n"
                         + "umask 022\n"
                         + "fail() { echo \"install failed at: $1\" >&2; exit 1; }\n"
                         + "mkdir -p \"$MOD/bin\" || fail mkdir-module\n"
@@ -158,7 +162,7 @@ final class ModuleInstaller {
                         // Copy to a temp name and rename: replacing a binary that is currently
                         // executing fails with ETXTBSY, a rename over it does not.
                         + "put() {\n"
-                        + "  cp \"$STAGE/$1\" \"$MOD/$1.new\" || return 1\n"
+                        + "  cp \"${3:-$STAGE/$1}\" \"$MOD/$1.new\" || return 1\n"
                         + "  chmod \"$2\" \"$MOD/$1.new\" && chown 0:0 \"$MOD/$1.new\" || return 1\n"
                         + "  chcon u:object_r:system_file:s0 \"$MOD/$1.new\" 2>/dev/null\n"
                         + "  mv -f \"$MOD/$1.new\" \"$MOD/$1\"\n"
@@ -172,6 +176,8 @@ final class ModuleInstaller {
                         + "put proxy_control.sh 0755 || fail proxy_control.sh\n"
                         + "put uninstall.sh 0755 || fail uninstall.sh\n"
                         + "put action.sh 0755 || fail action.sh\n"
+                        // The app's own APK, used by action.sh to (re)install the app.
+                        + "put app.apk 0644 \"$APK\" || fail app.apk\n"
                         // module.prop last: a half-written install never looks complete.
                         + "put module.prop 0644 || fail module.prop\n"
                         // Old zip installs shipped a webroot; the UI is the app now.
