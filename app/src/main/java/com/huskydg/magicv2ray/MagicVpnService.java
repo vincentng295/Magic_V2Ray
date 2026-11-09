@@ -180,8 +180,9 @@ public class MagicVpnService extends VpnService {
         b.setMtu(mtu >= 1280 && mtu <= 9000 ? mtu : 1350);
         boolean v6 = st.optBoolean("enableIPv6", false);
 
-        b.addAddress("172.19.0.1", 30);
-        b.addAddress("fdfe:dcba:9876::1", 126);
+        b.addAddress("198.18.0.1", 16); // Sync with root mode xraytun0
+        b.addAddress("fdfe:dcba:9876::1", 64); // Sync with root mode xraytun0
+        b.addAddress("2001:db8:7872:6179::1", 126); // Sync with root mode xraytun0
         if (routed) {
             b.addRoute("0.0.0.0", 0);
             b.addDnsServer("1.1.1.1");
