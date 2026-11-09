@@ -31,6 +31,8 @@ ip6tables="/system/bin/ip6tables"
 log() { echo "[magic_v2ray uninstall] $*"; }
 
 # --- 1. Stop our processes -------------------------------------------------
+# Let the native service tear itself down first (xray, monitors, ip rules, iptables, mounts).
+[ -x "$MODDIR/bin/xhuskydg_helper" ] && timeout 40 "$MODDIR/bin/xhuskydg_helper" service --stop 2>/dev/null
 # Matched by full binary path so we never touch an unrelated xray/curl.
 for proc in xray hev-socks5-tunnel curl; do
     pkill -9 -f "$MODDIR/bin/$proc" 2>/dev/null

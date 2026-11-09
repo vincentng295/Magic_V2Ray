@@ -34,6 +34,7 @@
 #define ENABLED_FLAG   DATADIR "/enabled"
 #define EXCLUDE_LIST_FILE DATADIR "/excludelist.txt"
 #define SETTINGS_FILE  DATADIR "/settings.base64"
+#define SUB_LOOP_PID_FILE DATADIR "/.sub_loop.pid"   /* service.sh subscription updater */
 
 #define PIDFILE        RUN_DIR "/xray.pid"
 #define TIME_RES_FILE  RUN_DIR "/time_res"

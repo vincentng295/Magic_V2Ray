@@ -81,7 +81,7 @@ int get_active_interface(char *out, size_t cap)
     return 0;
 }
 
-static void remove_mark_rule(void)
+void remove_mark_rule(void)
 {
     nl_rule r4 = NL_RULE(AF_INET), r6 = NL_RULE(AF_INET6);
     r4.has_mark = r6.has_mark = true; r4.mark = r6.mark = FWMARK;

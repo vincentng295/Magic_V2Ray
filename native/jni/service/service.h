@@ -18,6 +18,7 @@ int  read_table_index(const char *iface);             /* -1 if absent */
 int  apply_mark_rule(const char *iface);
 int  refresh_mark_rule(void);
 int  get_marked_interface(char *out, size_t cap);
+void remove_mark_rule(void);                           /* fwmark rule, v4 + v6 */
 void print_netinfo(void);
 void iface_monitor_start(void);
 void iface_monitor_stop(void);
@@ -59,4 +60,8 @@ void xray_helper_logservice(const char *verb, const char *extra_flag, const char
 int  control_run_prepare(void);        /* create + open the FIFO */
 int  control_run(void);                /* blocks: FIFO command loop */
 int  control_submit(const char *cmd);  /* write a command into the FIFO */
+
+/* service_main.c */
+void service_shutdown(void);           /* `stop_svc`: tear everything down; the caller then exits */
+int  service_stop_request(void);       /* `service --stop`: ask the running service to stop */
 #endif

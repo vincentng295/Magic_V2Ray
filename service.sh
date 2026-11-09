@@ -92,8 +92,15 @@ sub_loop() {
 }
 
 # Detach the loop completely (own session, no inherited fds), then become the engine.
+# The loop's pid is kept so that a stopped / upgraded service (xhuskydg_helper service --stop)
+# never leaves a second copy behind: the helper kills it on shutdown, and a fresh start
+# kills any leftover first.
+SUB_PID_FILE="$DATADIR/.sub_loop.pid"
+old=$(cat "$SUB_PID_FILE" 2>/dev/null)
+if [ -n "$old" ] && grep -q 'service\.sh' "/proc/$old/cmdline" 2>/dev/null; then kill -9 "$old" 2>/dev/null; fi
+rm -f "$SUB_PID_FILE"
 if [ -x "$MODDIR/bin/curl" ]; then
-    ( sub_loop </dev/null >/dev/null 2>&1 & )
+    ( sub_loop </dev/null >/dev/null 2>&1 & echo $! > "$SUB_PID_FILE" )
 fi
 
 exec "$MODDIR/bin/xhuskydg_helper" service -m "$MODDIR"

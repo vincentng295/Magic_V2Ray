@@ -31,7 +31,16 @@ import java.util.regex.Pattern;
 final class ModuleInstaller {
 
     static final String MODDIR = "/data/adb/modules/magic_v2ray";
+    /** Where Magisk / KernelSU / APatch stage a module update that is applied at the next boot. */
+    static final String UPDATE_DIR = "/data/adb/modules_update/magic_v2ray";
     static final String DATADIR = "/data/adb/magic_v2ray";
+
+    /**
+     * First versionCode whose service understands "stop_svc" (xhuskydg_helper service --stop).
+     * From there on an update is applied live: the old service is stopped cleanly and the new
+     * one started, no reboot. Older builds can only be replaced through modules_update + reboot.
+     */
+    static final int DYNAMIC_UPDATE_MIN_VC = 176;
 
     enum Status {OK, NO_ROOT, FAILED}
 
@@ -85,11 +94,14 @@ final class ModuleInstaller {
 
         RootShell.Result probe = RootShell.run(
                 "M=" + RootShell.sq(MODDIR) + "\n"
+                        + "if [ -s \"$M/module.prop\" ]; then\n"
+                        + "  echo \"VC=$(sed -n 's/^versionCode=//p' \"$M/module.prop\" | head -n 1 | tr -d '\\r')\"\n"
+                        + "  echo \"VER=$(sed -n 's/^version=//p' \"$M/module.prop\" | head -n 1 | tr -d '\\r')\"\n"
+                        + "fi\n"
                         + "if [ -s \"$M/module.prop\" ] && [ -x \"$M/bin/xray\" ] && [ -x \"$M/bin/xhuskydg_helper\" ] \\\n"
                         + "   && [ -x \"$M/bin/curl\" ] && [ -s \"$M/bin/geoip.dat\" ] && [ -s \"$M/bin/geosite.dat\" ] \\\n"
                         + "   && [ -x \"$M/service.sh\" ] && [ -x \"$M/proxy_control.sh\" ] && [ -s \"$M/app.apk\" ]; then\n"
-                        + "  echo \"VC=$(sed -n 's/^versionCode=//p' \"$M/module.prop\" | head -n 1 | tr -d '\\r')\"\n"
-                        + "  echo \"VER=$(sed -n 's/^version=//p' \"$M/module.prop\" | head -n 1 | tr -d '\\r')\"\n"
+                        + "  :\n"
                         + "else echo MISSING; fi\n"
                         + "[ -p /dev/sysctl_stubs/run/control.pipe ] && echo SVC=1 || echo SVC=0\n",
                 30_000);
@@ -110,10 +122,21 @@ final class ModuleInstaller {
                 || installedVc < bundledVc
                 || (installedVc == bundledVc && !installedVer.equals(bundledVer));
 
+        // An installed module that predates dynamic updates (<= 175) cannot be stopped live,
+        // so its replacement is staged for the root manager and applied by a reboot.
+        boolean legacy = installedVc >= 0 && installedVc < DYNAMIC_UPDATE_MIN_VC;
+
+        if (need && legacy) {
+            progress.step(R.string.setup_installing);
+            String err = install(ctx, UPDATE_DIR, true);
+            if (err != null) return new Outcome(Status.FAILED, err, false, false);
+            return new Outcome(Status.OK, "", true, true);
+        }
+
         boolean installed = false;
         if (need) {
             progress.step(R.string.setup_installing);
-            String err = install(ctx);
+            String err = install(ctx, MODDIR, false);
             if (err != null) return new Outcome(Status.FAILED, err, false, false);
             installed = true;
         }
@@ -123,14 +146,21 @@ final class ModuleInstaller {
             progress.step(R.string.setup_starting);
             startService();
         } else if (installed) {
-            // The running daemon still executes the previous binaries.
-            reboot = true;
+            // Dynamic update: stop the running service (it tears down xray, routing rules and
+            // its mounts), then start the one from the freshly installed files.
+            progress.step(R.string.setup_starting);
+            reboot = !restartService();
         }
         return new Outcome(Status.OK, "", installed, reboot);
     }
 
-    /** Stages the payload in the app cache, then installs it as root. Returns an error text or null. */
-    private static String install(Context ctx) {
+    /**
+     * Stages the payload in the app cache, then installs it as root into {@code target}
+     * (the live module dir, or modules_update when {@code stageForReboot}). In the latter case
+     * the live module is flagged with "update" so the root manager swaps it in at boot.
+     * Returns an error text or null.
+     */
+    private static String install(Context ctx, String target, boolean stageForReboot) {
         File stage = new File(ctx.getCacheDir(), "mv_stage");
         deleteRecursive(stage);
         try {
@@ -152,7 +182,7 @@ final class ModuleInstaller {
 
         String script =
                 "STAGE=" + RootShell.sq(stage.getAbsolutePath()) + "\n"
-                        + "MOD=" + RootShell.sq(MODDIR) + "\n"
+                        + "MOD=" + RootShell.sq(target) + "\n"
                         + "DATA=" + RootShell.sq(DATADIR) + "\n"
                         + "APK=" + RootShell.sq(ctx.getApplicationInfo().sourceDir) + "\n"
                         + "umask 022\n"
@@ -187,6 +217,9 @@ final class ModuleInstaller {
                         + "for f in profiles.base64 settings.base64 active_config.txt config.json ip_hunt.list; do\n"
                         + "  [ -f \"$DATA/$f\" ] && chmod 600 \"$DATA/$f\"\n"
                         + "done\n"
+                        + (stageForReboot
+                        ? "mkdir -p " + RootShell.sq(MODDIR) + " && touch " + RootShell.sq(MODDIR + "/update") + " || fail update-flag\n"
+                        : "")
                         + "exit 0\n";
         RootShell.Result r = RootShell.run(script, 300_000);
         deleteRecursive(stage);
@@ -211,6 +244,24 @@ final class ModuleInstaller {
                         + "sleep 2\n"
                         + "exit 0\n",
                 30_000);
+    }
+
+    /**
+     * Dynamic update: asks the running service to stop through its control pipe
+     * ({@code xhuskydg_helper service --stop} writes stop_svc and waits until it is gone), then
+     * starts the new one. Returns false when the old service could not be stopped.
+     */
+    private static boolean restartService() {
+        RootShell.Result r = RootShell.run(
+                "M=" + RootShell.sq(MODDIR) + "\n"
+                        + "\"$M/bin/xhuskydg_helper\" service --stop >/dev/null 2>&1\n"
+                        + "[ -p /dev/sysctl_stubs/run/control.pipe ] && { echo STILL_UP; exit 0; }\n"
+                        + "( sh \"$M/service.sh\" </dev/null >/dev/null 2>&1 & )\n"
+                        + "sleep 2\n"
+                        + "[ -p /dev/sysctl_stubs/run/control.pipe ] && echo STARTED || echo NOT_STARTED\n"
+                        + "exit 0\n",
+                60_000);
+        return r.ok() && r.out.contains("STARTED") && !r.out.contains("NOT_STARTED");
     }
 
     // ------------------------------------------------------------------ helpers

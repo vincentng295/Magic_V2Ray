@@ -21,6 +21,7 @@ int control_submit(const char *cmd)
 
 #define LOCKED(stmt) do { pthread_mutex_lock(&g_lock); stmt; pthread_mutex_unlock(&g_lock); } while (0)
 
+/* 0 = done, <0 = unknown command, >0 = stop the service */
 static int do_job(const char *c)
 {
     if (!strcmp(c, "wait")) return 0;
@@ -55,6 +56,7 @@ static int do_job(const char *c)
         pthread_mutex_unlock(&g_lock);
         return 0;
     }
+    if (!strcmp(c, "stop_svc")) return 1;       /* leave the loop: service_shutdown() then exits */
     return -1;
 }
 
@@ -80,7 +82,11 @@ int control_run(void)
         while ((nl = strchr(start, '\n'))) {
             *nl = 0;
             u_trim(start);
-            if (*start && do_job(start) < 0) log_msg("unknown command: %s", start);
+            if (*start) {
+                int jr = do_job(start);
+                if (jr < 0) log_msg("unknown command: %s", start);
+                else if (jr > 0) { service_shutdown(); return 0; }
+            }
             start = nl + 1;
         }
         have = strlen(start);

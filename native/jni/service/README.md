@@ -21,6 +21,15 @@ Only your own helper `bin/xhuskydg_helper` is still used (the `logservice` verbs
 The runtime contract with the WebUI is unchanged: same paths under `/dev/sysctl_stubs`
 (`run/control.pipe`, `proc/<name>/exe`, `time_res`, `addr_info`, ...), same commands, same log format.
 
+## Stopping and live upgrade
+`xhuskydg_helper service --stop` writes `stop_svc` into `run/control.pipe` and waits for the service to exit.
+On `stop_svc` the service stops its monitors, kills xray, removes the iptables chains / ip rules / ULA / fwmark
+rule / traffic hold, stops the log daemon and the subscription loop, detaches every mount under
+`/dev/sysctl_stubs` (and the legacy `ip_forward` stub), then exits. The "xray was running" flag is kept,
+so a freshly started service resumes xray by itself. The app uses this for updates from versionCode 176 on
+(no reboot); older installs get the new module staged in `/data/adb/modules_update/magic_v2ray`, plus
+`touch /data/adb/modules/magic_v2ray/update`, and need a reboot.
+
 ## Build
 ```
 ANDROID_NDK_HOME=/path/to/ndk ./build_android.sh arm64-v8a   # -> build/arm64-v8a/magic_v2ray_service
