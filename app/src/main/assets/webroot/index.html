@@ -96,10 +96,11 @@
                     <div class="import-add-menu-container">
                         <button class="btn btn-add-node" onclick="toggleImportAddMenu(event)" title="More import options">+</button>
                         <div id="import-add-dropdown" class="import-add-dropdown">
-                            <!-- Hide these button for now as it's not working on KSU Webui currently
+                            <!-- These work in the Magic V2Ray app: the clipboard goes through the ksu bridge
+                                 (native-shim.js) and the file picker through MainActivity's WebChromeClient. -->
                             <button onclick="importFromClipboard(); closeImportAddMenu();" data-i18n="import_from_clipboard">Import from Clipboard</button>
                             <button onclick="importFromFile(); closeImportAddMenu();" data-i18n="import_from_file">Import from File</button>
-                            <div class="import-add-divider"></div>-->
+                            <div class="import-add-divider"></div>
                             <button onclick="openAddCategoryModal(); closeImportAddMenu();" data-i18n="add_category">Add category</button>
                             <button onclick="openPolicyGroupModal(); closeImportAddMenu();" data-i18n="add_policy_group">Add policy group</button>
                             <button onclick="openProxyChainModal(); closeImportAddMenu();" data-i18n="add_proxy_chain">Add Proxy Chain</button>
