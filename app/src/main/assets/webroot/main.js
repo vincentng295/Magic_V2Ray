@@ -215,6 +215,23 @@ function resolveXrayConfigChecked(rawUri) {
 // Regenerates config.json for the currently active node and restarts the
 // engine only if it is already running. Used by every "settings changed"
 // path so the write/validate/restart sequence exists in exactly one place.
+// Full restart for `force`. With `onlyIfRunning` (saving settings) a stopped core stays
+// stopped: the new config is already on disk and is used on the next start.
+function _forceRestart(options, onDone) {
+    const done = () => {
+        hideLoading();
+        if (onDone) onDone(true);
+    };
+    if (!options.onlyIfRunning) {
+        execShell(`sh ${MODDIR}/proxy_control.sh restart`, done);
+        return;
+    }
+    execShell(`sh ${MODDIR}/proxy_control.sh status`, (status) => {
+        if (status === 'running') execShell(`sh ${MODDIR}/proxy_control.sh restart`, done);
+        else done();
+    });
+}
+
 function applyActiveConfig(options = {}) {
     const { force = false, onDone } = options;
     // Professional mode owns config.json outright — never regenerate it from
@@ -250,10 +267,7 @@ function applyActiveConfig(options = {}) {
 
     writeFileB64(CONFIG_JSON, res.config, () => {
         if (force) {
-            execShell(`sh ${MODDIR}/proxy_control.sh restart`, () => {
-                hideLoading();
-                if (onDone) onDone(true);
-            });
+            _forceRestart(options, onDone);
             return;
         }
         execShell(`sh ${MODDIR}/proxy_control.sh status`, (status) => {
@@ -413,10 +427,7 @@ function writeProConfigAndReload(text, options = {}) {
     showLoading(t("toast_reload_xray"));
     writeFileB64(CONFIG_JSON, res.config, () => {
         if (force) {
-            execShell(`sh ${MODDIR}/proxy_control.sh restart`, () => {
-                hideLoading();
-                if (onDone) onDone(true);
-            });
+            _forceRestart(options, onDone);
             return;
         }
         execShell(`sh ${MODDIR}/proxy_control.sh status`, (status) => {
@@ -3792,7 +3803,7 @@ function saveNetworkSettingsForm() {
     writeFileB64(SETTINGS_FILE, utoa(JSON.stringify(advSettings)), () => {
         applyBypassIfaceForm(() => {
             showToast(t('toast_settings_saved'), "success");
-            applyActiveConfig({ force: true });
+            applyActiveConfig({ force: true, onlyIfRunning: true });
         });
     });
 }

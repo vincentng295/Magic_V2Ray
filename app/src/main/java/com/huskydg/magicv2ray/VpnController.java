@@ -119,7 +119,8 @@ final class VpnController {
 
     private static RootShell.Result reload(Context ctx, Activity host) {
         MagicVpnService s = svc;
-        if (s == null || state != RUNNING) return start(ctx, host);
+        // reload only swaps a live xray: when the core is stopped it must stay stopped
+        if (s == null || state != RUNNING) return new RootShell.Result(0, "stopped\n", "");
         try {
             s.reloadXray();
             return new RootShell.Result(0, "reloaded\n", "");
