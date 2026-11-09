@@ -8,7 +8,13 @@ import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.net.ConnectivityManager;
+import android.net.LinkAddress;
+import android.net.LinkProperties;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.Uri;
+import android.system.OsConstants;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import android.widget.Toast;
@@ -152,6 +158,54 @@ final class KsuBridge {
     @JavascriptInterface
     public String stubdir() {
         return NonRootEnv.stubdir(activity).getPath();
+    }
+
+    /**
+     * Underlying (non-VPN) network as an `ip addr show` style dump, which is what the WebUI's
+     * parseAddrInfo() reads. This app is excluded from its own VPN, so it sees the physical network.
+     */
+    @JavascriptInterface
+    public String networkInfo() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) activity.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return "";
+            Network pick = null;
+            Network act = cm.getActiveNetwork();
+            if (act != null && isPhysical(cm, act)) pick = act;
+            if (pick == null) {
+                for (Network n : cm.getAllNetworks()) {
+                    if (isPhysical(cm, n)) {
+                        pick = n;
+                        break;
+                    }
+                }
+            }
+            if (pick == null) return "";
+            LinkProperties lp = cm.getLinkProperties(pick);
+            if (lp == null || lp.getInterfaceName() == null) return "";
+            StringBuilder sb = new StringBuilder("1: ").append(lp.getInterfaceName()).append(": <UP>\n");
+            for (LinkAddress la : lp.getLinkAddresses()) {
+                java.net.InetAddress a = la.getAddress();
+                if (a.isLoopbackAddress() || a.isLinkLocalAddress()) continue;
+                String host = a.getHostAddress();
+                int pct = host.indexOf('%');
+                if (pct >= 0) host = host.substring(0, pct);
+                if (a instanceof java.net.Inet4Address) {
+                    sb.append("    inet ").append(host).append('/').append(la.getPrefixLength()).append('\n');
+                } else if (la.getScope() == OsConstants.RT_SCOPE_UNIVERSE) {
+                    sb.append("    inet6 ").append(host).append('/').append(la.getPrefixLength()).append(" scope global\n");
+                }
+            }
+            return sb.toString();
+        } catch (RuntimeException e) {
+            return "";
+        }
+    }
+
+    private static boolean isPhysical(ConnectivityManager cm, Network n) {
+        NetworkCapabilities c = cm.getNetworkCapabilities(n);
+        return c != null && !c.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+                && c.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
     }
 
     @JavascriptInterface

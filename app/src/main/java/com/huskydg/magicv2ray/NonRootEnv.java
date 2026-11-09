@@ -65,6 +65,11 @@ final class NonRootEnv {
         return new File(moddir(c), "bin/" + name);
     }
 
+    /** Xray's stdout/stderr (written by MagicVpnService, tailed by the WebUI's Log tab). */
+    static File logFile(Context c) {
+        return new File(stubdir(c), "logs/xray.log");
+    }
+
     static File config(Context c) {
         return new File(datadir(c), "config.v2.json");
     }

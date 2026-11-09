@@ -82,6 +82,9 @@ const LOG_DIR = `${STUB_DIR}/logs`;
 const LATENCY_HB_FILE = `${STUB_DIR}/run/latency.hb`;
 // Logging pipe control
 const LOG_CTRL = `${LOG_DIR}/control.pipe`;
+// Non-root mode has no logservice daemon: the VpnService appends xray's output to this plain
+// file in the app's own directory and the Log tab tails it directly.
+const LOG_FILE = `${LOG_DIR}/xray.log`;
  
 let profiles = {};
 // Raw text of CONFIG_JSON, kept in memory while professional mode is on so

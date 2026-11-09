@@ -24,7 +24,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
 import java.net.InetAddress;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -96,7 +95,7 @@ public class MagicVpnService extends VpnService {
                 NonRootEnv.ensure(this);
                 JSONObject st = NonRootEnv.settings(this);
                 openTun(st);
-                startLogDaemon();
+                resetLog();
                 startXray();
                 VpnController.setRunning();
             } catch (Exception e) {
@@ -179,39 +178,34 @@ public class MagicVpnService extends VpnService {
 
     // --------------------------------------------------------------------- xray
 
-    private File logPipe(String name) {
-        return new File(NonRootEnv.stubdir(this), "logs/" + name);
-    }
+    /** Xray's output lives in a plain file under the app's own directory (stubs/logs/xray.log). */
+    private static final long LOG_MAX_BYTES = 1024 * 1024;
+    private static final long LOG_KEEP_BYTES = 256 * 1024;
 
-    private void runHelper(String... args) {
-        List<String> cmd = new ArrayList<>();
-        cmd.add(NonRootEnv.bin(this, "xhuskydg_helper").getPath());
-        for (String a : args) cmd.add(a);
+    /** New session: start with an empty log. The file is kept after stop so the Log tab can still show it. */
+    private void resetLog() {
         try {
-            Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
-            p.getOutputStream().close();
-            InputStream in = p.getInputStream();
-            byte[] buf = new byte[1024];
-            while (in.read(buf) > 0) { /* drain */ }
-            p.waitFor(10, TimeUnit.SECONDS);
-        } catch (IOException | InterruptedException ignored) {
+            new FileOutputStream(NonRootEnv.logFile(this), false).close();    // truncate
+        } catch (IOException ignored) {
         }
     }
 
-    /** The WebUI's log tab reads xray's output through the logservice applet. */
-    private void startLogDaemon() {
-        String ctl = logPipe("control.pipe").getPath();
-        runHelper("logservice", "stop", "-c", ctl);                    // leftover of a killed session
-        runHelper("logservice", "create", "-c", ctl, "-i", logPipe("input.pipe").getPath(), "--daemonize");
-        runHelper("logservice", "flush", "-c", ctl);
-    }
-
-    private void stopLogDaemon() {
-        String ctl = logPipe("control.pipe").getPath();
-        if (!new File(ctl).exists()) return;
-        // keep the last run's output for the UI, like the root service does
-        runHelper("logservice", "read", "-c", ctl, "-o", new File(NonRootEnv.datadir(this), "xray.log").getPath());
-        runHelper("logservice", "stop", "-c", ctl);
+    /** Cuts the file down to its newest LOG_KEEP_BYTES, starting at a line boundary. */
+    private static void trimLog(File f) {
+        try (RandomAccessFile raf = new RandomAccessFile(f, "rw")) {
+            long len = raf.length();
+            if (len <= LOG_KEEP_BYTES) return;
+            byte[] tail = new byte[(int) LOG_KEEP_BYTES];
+            raf.seek(len - LOG_KEEP_BYTES);
+            raf.readFully(tail);
+            int off = 0;
+            while (off < tail.length && tail[off] != '\n') off++;
+            off = off < tail.length ? off + 1 : 0;
+            raf.seek(0);
+            raf.write(tail, off, tail.length - off);
+            raf.setLength(tail.length - off);
+        } catch (IOException ignored) {
+        }
     }
 
     private void startXray() throws IOException {
@@ -290,34 +284,23 @@ public class MagicVpnService extends VpnService {
         }
     }
 
-    /** Copies xray's stdout/stderr into the log pipe (or xray.log when logservice is not up). */
+    /** Appends xray's stdout/stderr to the log file (O_APPEND, so the UI may truncate it any time). */
     private void pump(final Process p) {
         new Thread(() -> {
-            RandomAccessFile fifo = null;
-            FileOutputStream file = null;
-            try {
-                File pipe = logPipe("input.pipe");
-                if (pipe.exists()) {
-                    try {
-                        fifo = new RandomAccessFile(pipe, "rw");        // O_RDWR: never blocks on a FIFO
-                    } catch (IOException ignored) {
-                    }
-                }
-                if (fifo == null) file = new FileOutputStream(new File(NonRootEnv.datadir(this), "xray.log"), true);
-                InputStream in = p.getInputStream();
+            File f = NonRootEnv.logFile(this);
+            try (InputStream in = p.getInputStream(); FileOutputStream out = new FileOutputStream(f, true)) {
                 byte[] b = new byte[4096];
                 int n;
+                long size = f.length();
                 while ((n = in.read(b)) > 0) {
-                    if (fifo != null) fifo.write(b, 0, n);
-                    else file.write(b, 0, n);
+                    out.write(b, 0, n);
+                    size += n;
+                    if (size > LOG_MAX_BYTES) {
+                        trimLog(f);
+                        size = f.length();
+                    }
                 }
             } catch (IOException ignored) {
-            } finally {
-                try {
-                    if (fifo != null) fifo.close();
-                    if (file != null) file.close();
-                } catch (IOException ignored) {
-                }
             }
         }, "mv-vpn-log").start();
     }
@@ -351,7 +334,6 @@ public class MagicVpnService extends VpnService {
             }
             tun = null;
         }
-        stopLogDaemon();
         stopForeground(true);
     }
 

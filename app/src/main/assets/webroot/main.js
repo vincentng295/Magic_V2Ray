@@ -4836,8 +4836,14 @@ function refreshLog() {
 
     const dot = document.getElementById('log-status-dot');
 
+    const nLines = Math.max(1, Math.min(5000, parseInt(tailLines, 10) || 200));
+    // Root: the logservice ring buffer. Non-root: tail the log file the VpnService writes
+    // inside the app's own directory.
+    const readCmd = MV_NONROOT
+        ? `tail -n ${nLines} ${shQuote(LOG_FILE)} 2>/dev/null`
+        : `${MODDIR}/bin/xhuskydg_helper logservice read -c '${LOG_CTRL}' -n ${nLines}`;
     execShell(
-        `${MODDIR}/bin/xhuskydg_helper logservice read -c '${LOG_CTRL}' -n ${tailLines}`,
+        readCmd,
         (output) => {
             btn && btn.classList.remove('spinning');
 
@@ -4967,7 +4973,10 @@ function setLogFilter(level) {
 }
 
 function clearLogView() {
-    execShell(`${MODDIR}/bin/xhuskydg_helper logservice flush -c '${LOG_CTRL}'`, () => {
+    const flushCmd = MV_NONROOT
+        ? `: > ${shQuote(LOG_FILE)}`
+        : `${MODDIR}/bin/xhuskydg_helper logservice flush -c '${LOG_CTRL}'`;
+    execShell(flushCmd, () => {
         _logAllLines = [];
         _logLineBase = 0;
         document.getElementById('log-output')?.querySelectorAll('.log-line')
@@ -5025,6 +5034,12 @@ function stopLatencyMonitor() {
 // open: keep the running probe (and its chart) if the backend is still alive,
 // restart it if it timed out on the stale heartbeat while we were away.
 function syncLatencyMonitorState() {
+    if (MV_NONROOT) {           // no backend probe to keep alive: just resume polling
+        if (!_isLatencyTabActive() || document.hidden) return;
+        renderLatencyChart();
+        startLatencyPolling();
+        return;
+    }
     execShell(`[ -f '${TIME_RES_FILE}' ] && echo 1 || echo 0`, (output) => {
         if (!_isLatencyTabActive() || document.hidden) return;
         if (output.trim() === '1') {
@@ -5051,7 +5066,37 @@ function stopLatencyPolling() {
 
 const _LATENCY_ADDR_SPLIT_MARKER = '___ADDR_INFO_SPLIT___';
 
+// Non-root has no backend probe loop (no service.sh / latency.c), so the UI probes xray's SOCKS
+// inbound itself on every tick. A probe can take up to --max-time, longer than the tick, hence
+// the in-flight guard.
+let _latencyBusy = false;
+
+function pollLatencyNonRoot() {
+    if (_latencyBusy) return;
+    _latencyBusy = true;
+    execShell(
+        `${shQuote(MODDIR + '/bin/curl')} --socks5-hostname ${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT} ` +
+        `-s -o /dev/null -w '%{time_starttransfer}' --max-time 3 http://gstatic.com/generate_204 2>/dev/null`,
+        (output) => {
+            _latencyBusy = false;
+            if (!_isLatencyTabActive() || document.hidden) return;   // left the tab meanwhile
+            const num = parseFloat(output);
+            const ms = (!isNaN(num) && num > 0) ? Math.round(num * 1000) : null;
+            _latencySamples.push({ ms });
+            if (_latencySamples.length > LATENCY_MAX_SAMPLES) _latencySamples.shift();
+            const dot = document.getElementById('latency-status-dot');
+            dot && dot.classList.add('live');
+            updateLatencyStats();
+            renderLatencyChart();
+            let addr = '';              // underlying network from ConnectivityManager (no netlink without root)
+            try { addr = String(ksu.networkInfo() || ''); } catch (e) { /* older bridge */ }
+            renderNetworkInterfaceInfo(addr);
+        }
+    );
+}
+
 function pollLatency() {
+    if (MV_NONROOT) { pollLatencyNonRoot(); return; }
     // One exec does all three jobs: refresh the liveness heartbeat, read the
     // latest probe result, and read the interface address dump. Sending the
     // heartbeat separately would have doubled the wakeup cost of polling.
@@ -5144,6 +5189,7 @@ function sanitizeIpHunterPrefixes(raw) {
 // same approach as syncLatencyMonitorState, so the toggle and field stay
 // correct across tab switches / page reloads.
 function syncIpHunterState() {
+    if (MV_NONROOT) return;     // IP hunter drives the root engine only
     execShell(
         `if [ -f '${IP_HUNT_FILE}' ]; then echo 1; cat '${IP_HUNT_FILE}'; else echo 0; fi`,
         (output) => {
@@ -6034,3 +6080,14 @@ function importPendingSublist() {
         }
     });
 }
+
+// IP hunter needs the root engine (netlink / ip rules): hide its panel in non-root mode.
+(function () {
+    if (!MV_NONROOT) return;
+    const hide = () => {
+        const p = document.getElementById('ip-hunter-panel');
+        if (p) p.style.display = 'none';
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', hide);
+    else hide();
+})();

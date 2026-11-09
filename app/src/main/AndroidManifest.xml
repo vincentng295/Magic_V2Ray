@@ -7,6 +7,7 @@
     <!-- Non-root mode: the xray process runs under this app's uid and needs sockets. The WebView
          still blocks every http(s) request (see MainActivity), only the engine uses the network. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
