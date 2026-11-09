@@ -10,4 +10,9 @@
     <string name="reboot_hint">Module đã được cập nhật. Khởi động lại máy để chạy engine mới.</string>
     <string name="retry">Thử lại</string>
     <string name="exit">Thoát</string>
+    <string name="tile_label">Magic V2Ray</string>
+    <string name="tile_on">Bật</string>
+    <string name="tile_off">Tắt</string>
+    <string name="tile_busy">Đang xử lý…</string>
+    <string name="tile_unavailable">Không khả dụng</string>
 </resources>

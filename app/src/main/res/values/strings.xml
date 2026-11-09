@@ -10,4 +10,9 @@
     <string name="reboot_hint">Module updated. Reboot to run the new engine.</string>
     <string name="retry">Retry</string>
     <string name="exit">Exit</string>
+    <string name="tile_label">Magic V2Ray</string>
+    <string name="tile_on">On</string>
+    <string name="tile_off">Off</string>
+    <string name="tile_busy">Working…</string>
+    <string name="tile_unavailable">Unavailable</string>
 </resources>
