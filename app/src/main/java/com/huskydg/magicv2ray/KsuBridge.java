@@ -73,8 +73,10 @@ final class KsuBridge {
         });
     }
 
-    private static String buildScript(String command, String options) {
+    private String buildScript(String command, String options) {
         StringBuilder sb = new StringBuilder();
+        // busybox applets (<moddir>/bin, root or non-root) come after the system tools in PATH
+        sb.append("export PATH=\"$PATH:").append(NonRootEnv.activeModdir(activity)).append("/bin\"\n");
         try {
             JSONObject o = new JSONObject(options == null || options.isEmpty() ? "{}" : options);
             JSONObject env = o.optJSONObject("env");

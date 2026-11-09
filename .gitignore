@@ -3,6 +3,7 @@
 /bin/*/xray.version
 /bin/*/xhuskydg_helper
 /bin/*/xhuskydg_helper.version
+/bin/*/busybox
 
 # Android app
 /app/src/main/jniLibs/

@@ -106,6 +106,7 @@ final class NonRootEnv {
                 throw new IOException("symlink " + link + ": " + e.getMessage());
             }
         }
+        installBusybox(c, lib);
         try (ZipFile zf = new ZipFile(c.getApplicationInfo().sourceDir)) {
             for (String g : new String[]{"geoip.dat", "geosite.dat"}) {
                 ZipEntry e = zf.getEntry("bin/" + g);
@@ -120,6 +121,112 @@ final class NonRootEnv {
                 }
                 if (!tmp.renameTo(dst)) throw new IOException("cannot replace " + dst);
             }
+        }
+    }
+
+    /** Module dir the WebUI shell works against: the app's own in non-root mode, the root module otherwise. */
+    static String activeModdir(Context c) {
+        return RunMode.isNonRoot(c) ? moddir(c).getPath() : ModuleInstaller.MODDIR;
+    }
+
+    /**
+     * BusyBox ships as libbusybox.so. Its applets are symlinked into the module's bin dir next to
+     * xray and curl (files/module/bin in non-root mode, /data/adb/modules/magic_v2ray/bin in root
+     * mode); the WebUI appends that directory to PATH (see KsuBridge), so Android's own tools
+     * win and busybox only fills the gaps. An applet is invoked through its symlink, which is how
+     * busybox picks the applet from argv[0]. Best effort: a failure here never blocks the VPN.
+     */
+    static void installBusybox(Context c, File lib) {
+        if (RunMode.isNonRoot(c)) installBusyboxNonRoot(c, lib);
+        else installBusyboxRoot(c, lib);
+    }
+
+    /**
+     * Root mode: the module dir belongs to root, so the work is done by an su script. busybox is
+     * copied into the module (like xray/curl, so it survives the app being removed) and the
+     * applets are symlinked to that copy. Idempotent, stamped like the non-root variant.
+     */
+    private static void installBusyboxRoot(Context c, File lib) {
+        File src = new File(lib, "libbusybox.so");
+        if (!src.isFile() || src.length() == 0) return;
+        String want = src.getPath() + "|" + src.length() + "|" + src.lastModified();
+        String script =
+                "SRC=" + RootShell.sq(src.getPath()) + "\n"
+                        + "WANT=" + RootShell.sq(want) + "\n"
+                        + "B=" + RootShell.sq(ModuleInstaller.MODDIR + "/bin") + "\n"
+                        + "[ -d \"$B\" ] || exit 0\n"
+                        + "umask 022\n"
+                        + "if [ -x \"$B/busybox\" ] && [ \"$(cat \"$B/.busybox.stamp\" 2>/dev/null)\" = \"$WANT\" ]; then exit 0; fi\n"
+                        // copy + rename: replacing a running binary fails with ETXTBSY, a rename does not
+                        + "cp \"$SRC\" \"$B/busybox.new\" || exit 1\n"
+                        + "chmod 0755 \"$B/busybox.new\" && chown 0:0 \"$B/busybox.new\" || exit 1\n"
+                        + "chcon u:object_r:system_file:s0 \"$B/busybox.new\" 2>/dev/null\n"
+                        + "mv -f \"$B/busybox.new\" \"$B/busybox\" || exit 1\n"
+                        + "LIST=$(\"$B/busybox\" --list) || exit 1\n"
+                        + "for a in $LIST; do\n"
+                        // plain names only; never replace our own binaries
+                        + "  case \"$a\" in busybox|xray|curl|xhuskydg_helper|'') continue ;; esac\n"
+                        + "  case \"$a\" in *[!A-Za-z0-9._-]*) continue ;; esac\n"
+                        + "  if [ -L \"$B/$a\" ]; then\n"
+                        + "    [ \"$(readlink \"$B/$a\")\" = \"$B/busybox\" ] && continue\n"
+                        + "    rm -f \"$B/$a\"\n"
+                        + "  elif [ -e \"$B/$a\" ]; then continue; fi\n"      // a real file that is not ours
+                        + "  ln -s \"$B/busybox\" \"$B/$a\" 2>/dev/null\n"
+                        + "done\n"
+                        + "printf '%s' \"$WANT\" > \"$B/.busybox.stamp\"\n"
+                        + "exit 0\n";
+        RootShell.run(script, 120_000);     // best effort: the result is ignored
+    }
+
+    /** Non-root mode: symlinks straight to libbusybox.so in the app's native lib dir. */
+    private static void installBusyboxNonRoot(Context c, File lib) {
+        File target = new File(lib, "libbusybox.so");
+        if (!target.isFile()) return;
+        File bin = new File(moddir(c), "bin");
+        File stamp = new File(bin, ".busybox.stamp");
+        String want = target.getPath() + "|" + target.length() + "|" + target.lastModified();
+        try {
+            if (stamp.isFile() && want.equals(new String(java.nio.file.Files.readAllBytes(stamp.toPath()),
+                    StandardCharsets.UTF_8)) && new File(bin, "busybox").exists()) return;
+        } catch (IOException ignored) {
+        }
+        try {
+            Process p = new ProcessBuilder(target.getPath(), "--list").redirectErrorStream(true).start();
+            p.getOutputStream().close();
+            ByteArrayOutputStream bo = new ByteArrayOutputStream();
+            byte[] b = new byte[4096];
+            int n;
+            try (InputStream in = p.getInputStream()) {
+                while ((n = in.read(b)) > 0) bo.write(b, 0, n);
+            }
+            if (p.waitFor() != 0) return;
+            List<String> names = new ArrayList<>();
+            names.add("busybox");
+            for (String a : bo.toString("UTF-8").split("\\s+")) {
+                // plain names only; never replace our own binaries or shell metacharacter lookalikes
+                if (a.matches("[A-Za-z0-9._-]+") && !a.equals("xray") && !a.equals("curl")
+                        && !a.equals("xhuskydg_helper")) names.add(a);
+            }
+            for (String name : names) {
+                File link = new File(bin, name);
+                String cur = null;
+                try {
+                    cur = Os.readlink(link.getPath());
+                } catch (ErrnoException ignored) {
+                }
+                if (target.getPath().equals(cur)) continue;
+                if (cur == null && link.exists()) continue;     // a real file that is not ours: leave it
+                //noinspection ResultOfMethodCallIgnored
+                link.delete();
+                try {
+                    Os.symlink(target.getPath(), link.getPath());
+                } catch (ErrnoException ignored) {
+                }
+            }
+            try (FileOutputStream out = new FileOutputStream(stamp)) {
+                out.write(want.getBytes(StandardCharsets.UTF_8));
+            }
+        } catch (IOException | InterruptedException ignored) {
         }
     }
 

@@ -109,7 +109,7 @@ tasks.register('checkNativeLibs') {
     doFirst {
         def missing = []
         ['arm64-v8a', 'x86_64'].each { abi ->
-            ['libxray.so', 'libxhuskydg_helper.so', 'libcurl.so'].each { lib ->
+            ['libxray.so', 'libxhuskydg_helper.so', 'libcurl.so', 'libbusybox.so'].each { lib ->
                 if (!file("src/main/jniLibs/$abi/$lib").isFile()) missing << "$abi/$lib"
             }
         }

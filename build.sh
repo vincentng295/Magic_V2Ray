@@ -152,17 +152,35 @@ build_helper() {
     echo "    built ${dest}/xhuskydg_helper ($(du -h "${dest}/xhuskydg_helper" | cut -f1))"
 }
 
-# Stages the three executables as fake JNI libs so the APK can carry them per
+# BusyBox (osm0sis busybox-ndk, static, GPLv2) for the non-root app: its applets are symlinked
+# into files/module/bin at runtime (NonRootEnv). Committed like curl; fetched only if missing.
+fetch_busybox() {
+    local arch="$1" name
+    [[ -x "bin/${arch}/busybox" ]] && return
+    case "$arch" in
+        arm64-v8a) name=busybox-arm64-selinux ;;
+        x86_64)    name=busybox-x86_64-selinux ;;
+        *) echo "unknown arch: $arch" >&2; exit 1 ;;
+    esac
+    echo "==> fetching busybox (${arch})"
+    mkdir -p "bin/${arch}"
+    curl -fsSL -o "bin/${arch}/busybox" \
+        "https://github.com/Magisk-Modules-Repo/busybox-ndk/raw/refs/heads/master/${name}"
+    chmod 0755 "bin/${arch}/busybox"
+}
+
+# Stages the executables as fake JNI libs so the APK can carry them per
 # ABI. The package manager extracts lib*.so to nativeLibraryDir; the app then
 # copies them to /data/adb/modules/magic_v2ray/bin/ as root.
 stage_jnilibs() {
     local arch="$1"
     local dst="app/src/main/jniLibs/${arch}"
-    need "bin/${arch}/xray" "bin/${arch}/xhuskydg_helper" "bin/${arch}/curl"
+    need "bin/${arch}/xray" "bin/${arch}/xhuskydg_helper" "bin/${arch}/curl" "bin/${arch}/busybox"
     mkdir -p "$dst"
     install -m 0755 "bin/${arch}/xray"             "$dst/libxray.so"
     install -m 0755 "bin/${arch}/xhuskydg_helper"  "$dst/libxhuskydg_helper.so"
     install -m 0755 "bin/${arch}/curl"             "$dst/libcurl.so"
+    install -m 0755 "bin/${arch}/busybox"          "$dst/libbusybox.so"
     echo "    staged $dst"
 }
 
@@ -237,7 +255,7 @@ verify_flashable() {
         *)           abis="arm64-v8a x86_64" ;;
     esac
     for abi in $abis; do
-        for lib in libxray.so libxhuskydg_helper.so libcurl.so; do
+        for lib in libxray.so libxhuskydg_helper.so libcurl.so libbusybox.so; do
             grep -q " lib/${abi}/${lib}\$" <<<"$list" || { echo "!! $f is missing lib/${abi}/${lib}" >&2; exit 1; }
         done
     done
@@ -246,7 +264,7 @@ verify_flashable() {
 build_apk() {
     local a f name
     for a in arm64-v8a x86_64; do
-        fetch_xray "$a"; build_helper "$a"; stage_jnilibs "$a"
+        fetch_xray "$a"; build_helper "$a"; fetch_busybox "$a"; stage_jnilibs "$a"
     done
     echo "==> ${GRADLE_CMD} assembleRelease"
     rm -f app/build/outputs/apk/release/*.apk

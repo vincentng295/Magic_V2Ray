@@ -141,6 +141,10 @@ final class ModuleInstaller {
             installed = true;
         }
 
+        // busybox applets for the WebUI shell (idempotent; skipped when already current)
+        progress.step(R.string.setup_installing);
+        NonRootEnv.installBusybox(ctx, new File(ctx.getApplicationInfo().nativeLibraryDir));
+
         boolean reboot = false;
         if (!serviceUp) {
             progress.step(R.string.setup_starting);
