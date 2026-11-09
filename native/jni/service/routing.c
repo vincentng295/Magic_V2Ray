@@ -142,15 +142,15 @@ int configure_tun_iface(void)
     /* openxtun only does TUNSETIFF: the MTU must be set here */
     NOP(link_set_mtu(TUN_NAME, 8500));
     struct in_addr a4; inet_pton(AF_INET, "198.18.0.1", &a4);
-    NOP(nl_addr_add(AF_INET, TUN_NAME, &a4, 15, 0, false));
+    NOP(nl_addr_add(AF_INET, TUN_NAME, &a4, 16, 0, false)); // 198.18.0.1/16
     NOP(link_set_up(TUN_NAME, true));
     NOP(nl_route_replace_dev(AF_INET, 100, TUN_NAME, NULL, 0));
     if (v6) {
         struct in6_addr a, b;
         inet_pton(AF_INET6, "fdfe:dcba:9876::1", &a);
         inet_pton(AF_INET6, "2001:db8:7872:6179::1", &b);        /* VirtualAP IPv6 routed mode */
-        NOP(nl_addr_add(AF_INET6, TUN_NAME, &a, 64, 0, false));
-        NOP(nl_addr_add(AF_INET6, TUN_NAME, &b, 64, 0, false));
+        NOP(nl_addr_add(AF_INET6, TUN_NAME, &a, 64, 0, false)); // fdfe:dcba:9876::1/64
+        NOP(nl_addr_add(AF_INET6, TUN_NAME, &b, 64, 0, false)); // 2001:db8:7872:6179::1/64
         NOP(nl_route_replace_dev(AF_INET6, 100, TUN_NAME, NULL, 0));
     }
     return 0;

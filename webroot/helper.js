@@ -265,7 +265,7 @@ const LEGACY_DNS = [
 // access devices on your local network" prompt the way an fc00::/7-based
 // pool did. Neither range needs (or gets) a LAN-bypass carve-out in
 // service.sh, since neither is in LAN_BYPASS_V4/V6 to begin with.
-const FAKEDNS_POOL_V4 = "198.18.0.0/15";
+const FAKEDNS_POOL_V4 = "198.19.0.0/16";
 const FAKEDNS_POOL_V6 = "2001:2::/48";
 
 // dns.fakedns entries for the current settings.
@@ -1797,7 +1797,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
         ? settings.fakeDnsLocal
         : false;
 
-    // Sniffing destOverride. With Fake DNS on, apps connect to 198.18.0.0/15
+    // Sniffing destOverride. With Fake DNS on, apps connect to 198.19.0.0/16
     // addresses; "fakedns" lets the sniffer map such an IP back to the domain
     // it was allocated for, so routing rules and the proxy see the real name.
     // Only added when the FakeDNS pool exists (Xray refuses it otherwise).
@@ -1815,7 +1815,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
         // Xray only recognises the literal address "fakedns" for this; any
         // other string (e.g. "fakeip", the sing-box spelling) is treated as
         // a hostname and turned into a UDP DNS client for "<name>:53".
-        // No expectIPs here: FakeDNS answers come from 198.18.0.0/15, which
+        // No expectIPs here: FakeDNS answers come from 198.19.0.0/16, which
         // is inside geoip:private, so "geoip:!private" would discard every
         // fake answer and silently fall through to the real resolvers.
         if (useFakeIp) {
