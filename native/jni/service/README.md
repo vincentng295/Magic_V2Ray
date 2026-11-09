@@ -53,3 +53,12 @@ gcc -Wno-override-init -o live_ipt tests/live_ipt.c src/ipt.c -lpthread && unsha
   (no TLS stack), so the number excludes the TLS handshake `curl` used to include.
 * Timestamps/`addr_info`: `addr_info` is rendered like `ip addr show`, but check the WebUI's parser.
 * 32-bit userland on a 64-bit kernel relies on the kernel's xtables compat layer; prefer arm64 builds.
+
+## Non-root mode (VpnService)
+Without root the app drives `MagicVpnService` instead of this daemon: `VpnService.establish()` gives a tun fd,
+`xhuskydg_helper vpnrun <socket> xray run -c ...` receives it over `SCM_RIGHTS` and execs xray with `XRAY_TUN_FD`
+(same contract as the root engine). The app itself is excluded from the VPN, so xray's sockets need no fwmark
+(`sockopt.mark` is stripped from the runtime config). Exclude Apps maps to `addDisallowedApplication`, Bypass LAN to
+`excludeRoute` (Android 13+). Interface / tethering / apply-on / other-VPN options need iptables and are greyed out.
+
+With *Enable IPv6* off, IPv6 is still routed into the tunnel and dropped by a leading `::/0 -> block` rule (like the root engine's ip6tables drop), so it cannot leak out of the physical interface.

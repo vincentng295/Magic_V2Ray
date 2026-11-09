@@ -296,6 +296,20 @@
                 <h3 data-i18n="network_settings_title">Network Settings</h3>
                 <p class="restart-notice" data-i18n="network_restart_notice">Saving on this tab fully restarts the engine, because these options change how traffic is routed at the OS level.</p>
 
+                <p class="restart-notice" id="nonroot-notice" style="display:none;" data-i18n="nonroot_notice">Non-root mode: traffic is captured by Android's VpnService. Options that need root are greyed out.</p>
+
+                <!-- Only shown inside the APK (window.ksu.setMode); see applyRunModeUi() in main.js -->
+                <div class="settings-group-box" id="runmode-box" style="display:none;">
+                    <h4 data-i18n="group_runmode">Run mode</h4>
+                    <div class="setting-item-row">
+                        <label for="set-runmode"><span data-i18n="lbl_runmode">Engine mode</span><small data-i18n="desc_runmode">Root uses iptables and policy routing. Non-root uses Android's VpnService and needs no root. Switching stops the running engine.</small></label>
+                        <select id="set-runmode" onchange="changeRunMode(this.value)">
+                            <option value="root" data-i18n="runmode_root">Root</option>
+                            <option value="nonroot" data-i18n="runmode_nonroot">Non-root (VpnService)</option>
+                        </select>
+                    </div>
+                </div>
+
                 <div class="settings-group-box">
                     <h4 data-i18n="group_network_os">Interfaces &amp; tethering</h4>
                     <div class="setting-item-row">

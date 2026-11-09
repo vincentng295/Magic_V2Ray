@@ -2521,3 +2521,6 @@ textarea.pro-config-input {
     opacity: .6;
     text-decoration: line-through;
 }
+
+/* Non-root mode: settings implemented with iptables / ip rules stay visible but cannot be used. */
+.root-only-disabled { opacity: 0.45; pointer-events: none; }

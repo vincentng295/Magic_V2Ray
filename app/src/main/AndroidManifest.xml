@@ -4,6 +4,13 @@
     <!-- Needed by the Exclude apps tab to list every installed app. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
+    <!-- Non-root mode: the xray process runs under this app's uid and needs sockets. The WebView
+         still blocks every http(s) request (see MainActivity), only the engine uses the network. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
         android:allowBackup="false"
         android:extractNativeLibs="true"
@@ -26,6 +33,20 @@
                 <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
             </intent-filter>
         </activity>
+
+        <!-- Non-root engine: a VpnService that hands its tun fd to xray. -->
+        <service
+            android:name=".MagicVpnService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:permission="android.permission.BIND_VPN_SERVICE">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="vpn" />
+        </service>
 
         <!-- Quick Settings tile: tap toggles the core, long-press opens the app. -->
         <service

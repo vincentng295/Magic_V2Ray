@@ -41,6 +41,7 @@ final class RootShell {
     private static Context appContext;
     private static String[] suPrefix;       // e.g. {"su","-M"}; null until detected
     private static boolean suChecked;
+    private static volatile boolean nonRoot;    // non-root mode: scripts run as the app's own user
 
     private RootShell() {
     }
@@ -59,7 +60,12 @@ final class RootShell {
      * supported by Magisk and KernelSU) and falls back to plain su. Blocks while
      * the root manager shows its grant prompt, hence the generous timeout.
      */
+    static void setNonRoot(boolean v) {
+        nonRoot = v;
+    }
+
     static synchronized boolean hasRoot() {
+        if (nonRoot) return true;
         if (suPrefix != null) return true;
         if (suChecked) {
             // A previous attempt failed; probe again (the user may have granted since).
@@ -82,7 +88,7 @@ final class RootShell {
     static Result run(String script, long timeoutMs) {
         String[] prefix;
         synchronized (RootShell.class) {
-            prefix = suPrefix;
+            prefix = nonRoot ? new String[]{"sh"} : suPrefix;
         }
         if (prefix == null) {
             if (!hasRoot()) return new Result(1, "", "root access unavailable");

@@ -47,8 +47,9 @@ public class CoreTileService extends TileService {
         new Thread(() -> {
             try {
                 RootShell.init(getApplicationContext());
-                RootShell.Result r = RootShell.run(
-                        "sh " + RootShell.sq(CTL) + (turnOff ? " stop" : " start") + " 2>&1", 60_000);
+                RootShell.Result r = RunMode.isNonRoot(this)
+                        ? VpnController.handle(getApplicationContext(), null, turnOff ? "stop" : "start")
+                        : RootShell.run("sh " + RootShell.sq(CTL) + (turnOff ? " stop" : " start") + " 2>&1", 60_000);
                 // "no config": nothing selected yet, let the user pick a node in the app.
                 boolean needApp = !turnOff && !r.ok();
                 State s = query();
@@ -74,7 +75,11 @@ public class CoreTileService extends TileService {
     }
 
     /** proxy_control.sh status prints exactly one word: running / crashed / stopped. */
-    private static State query() {
+    private State query() {
+        if (RunMode.isNonRoot(this)) {
+            if (VpnController.isRunning()) return State.ON;
+            return NonRootEnv.configReady(this) ? State.OFF : State.UNAVAILABLE;
+        }
         RootShell.Result r = RootShell.run(
                 "[ -p /dev/sysctl_stubs/run/control.pipe ] || { echo none; exit 0; }\n"
                         + "sh " + RootShell.sq(CTL) + " status 2>/dev/null; exit 0", 15_000);

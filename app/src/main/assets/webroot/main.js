@@ -335,12 +335,14 @@ function validateCustomConfig(text) {
     // Every outbound that actually dials a socket must carry fwmark 255,
     // otherwise its own packets are caught by the tun redirect rules and
     // loop back into Xray instead of leaving via the real interface.
+    // (Non-root mode has no fwmark rules: the app is excluded from the VPN instead, and the
+    // marks are stripped before xray starts, so they are not required.)
     const dialing = outbounds.filter(o => o && o.protocol !== 'blackhole' && o.protocol !== 'dns');
     const marked = dialing.filter(o => o.streamSettings?.sockopt?.mark === 255);
-    if (dialing.length && !marked.length) {
+    if (!MV_NONROOT && dialing.length && !marked.length) {
         return { ok: false, error: t('pro_err_no_mark'), warnings };
     }
-    dialing.forEach(o => {
+    if (!MV_NONROOT) dialing.forEach(o => {
         if (o.streamSettings?.sockopt?.mark !== 255) {
             warnings.push(t('pro_warn_mark', { tag: o.tag || o.protocol || '?' }));
         }
@@ -348,7 +350,7 @@ function validateCustomConfig(text) {
 
     const socksIn = inbounds.find(i => i && i.protocol === 'socks' && i.tag === 'socks-test-in');
     if (!socksIn) warnings.push(t('pro_warn_no_socks'));
-    else if (String(socksIn.port) !== '808' || socksIn.listen !== '127.17.1.3') {
+    else if (String(socksIn.port) !== String(SOCKS_TEST_PORT) || socksIn.listen !== SOCKS_TEST_ADDR) {
         warnings.push(t('pro_warn_socks_addr'));
     }
 
@@ -528,6 +530,7 @@ function loadState(callback) {
 document.addEventListener('DOMContentLoaded', () => {
     loadState(() => {
         applyI18n();
+        applyRunModeUi();
         updateStatusDisplay();
         _migrateNodeIds();
         renderProfiles();
@@ -536,6 +539,53 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
  
+// Run mode (root / non-root). The mode box only exists in the APK host. In non-root mode the
+// engine is a VpnService, so everything that is implemented with iptables / ip rules / netlink
+// is greyed out (the values are still saved, they just have no effect).
+function applyRunModeUi() {
+    const k = window.ksu;
+    const box = document.getElementById('runmode-box');
+    if (box && k && typeof k.setMode === 'function') {
+        box.style.display = '';
+        const sel = document.getElementById('set-runmode');
+        if (sel) sel.value = MV_NONROOT ? 'nonroot' : 'root';
+    }
+    if (!MV_NONROOT) return;
+    const notice = document.getElementById('nonroot-notice');
+    if (notice) notice.style.display = '';
+    const hint = t('hint_root_only');
+    const grey = (el) => {
+        if (!el) return;
+        el.classList.add('root-only-disabled');
+        el.title = hint;
+        el.querySelectorAll('input, select, button').forEach(c => { c.disabled = true; });
+    };
+    ['set-networkmode', 'set-upstreamiface', 'set-enableipv6ula', 'set-allowtether',
+     'set-bypassvpn', 'set-bypassiface', 'set-bypassiface-list'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.disabled = true;
+        grey(el.closest('.setting-item-row'));
+    });
+    grey(document.getElementById('bypassiface-sub-fields'));
+    // Bypass LAN uses VpnService.Builder.excludeRoute(), Android 13+
+    if (!(k && typeof k.sdk === 'function' && k.sdk() >= 33)) {
+        const list = document.getElementById('lan-bypass-list');
+        grey(list ? list.closest('.settings-group-box') : null);
+    }
+}
+
+function changeRunMode(mode) {
+    const k = window.ksu;
+    if (!k || typeof k.setMode !== 'function') return;
+    if (!confirm(t('runmode_switch_confirm'))) {
+        const sel = document.getElementById('set-runmode');
+        if (sel) sel.value = MV_NONROOT ? 'nonroot' : 'root';
+        return;
+    }
+    k.setMode(mode);
+}
+
 // Name of the node the service is (or will be) running with, for the status
 // chip. Mirrors the resolution order used when the config is generated:
 // professional mode > built-in direct node > selected profile node.
@@ -618,7 +668,7 @@ async function showCurrentIp() {
     el.textContent = t('status_ip_checking');
     try {
         const out = await execShellAsync(
-            `${MODDIR}/bin/curl --socks5-hostname 127.17.1.3:808 -s ` +
+            `${MODDIR}/bin/curl --socks5-hostname ${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT} -s ` +
             `--max-time 6 https://icanhazip.com 2>/dev/null`
         );
         const ip = out.trim();
@@ -744,7 +794,7 @@ function processImport() {
 
 async function fetchSubscription(category, url, isReload = false) {
     const status = await execShellAsync(`sh ${MODDIR}/proxy_control.sh status`);
-    const viaProxy = (status === 'running') ? "--socks5-hostname 127.17.1.3:808" : "";
+    const viaProxy = (status === 'running') ? `--socks5-hostname ${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT}` : "";
 
     // Certificate validation is ON by default. It used to be disabled
     // unconditionally (-k), which let any on-path attacker substitute the
@@ -1198,9 +1248,9 @@ function _resolveXrayConfig(rawUri) {
         const u = new URL(fakeRawUri);
         const hop1Uri = u.searchParams.get('hop1') || '';
         const hop2Uri = u.searchParams.get('hop2') || '';
-        config_json = convert_chain_uris_to_xray_json(hop1Uri, hop2Uri, genSettings);
+        config_json = convert_chain_uris_to_xray_json(hop1Uri, hop2Uri, genSettings, MV_NONROOT);
     } else {
-        config_json = convert_uri_to_xray_json(rawUri, genSettings);
+        config_json = convert_uri_to_xray_json(rawUri, genSettings, MV_NONROOT);
     }
     return config_json;
 }
@@ -4299,7 +4349,7 @@ async function fetchRoutingPresetFromUrl() {
     }
 
     const status = await execShellAsync(`sh ${MODDIR}/proxy_control.sh status`);
-    const viaProxy = (status === 'running') ? "--socks5-hostname 127.17.1.3:808" : "";
+    const viaProxy = (status === 'running') ? `--socks5-hostname ${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT}` : "";
 
     // Certificate validation is ON by default, matching fetchSubscription().
     // Routing presets reach a root shell just like subscription bodies do,
@@ -4467,6 +4517,15 @@ function _releaseTestSlot(slot) {
     if (slot >= 0 && slot < NODE_TEST_SLOTS) _nodeTestSlotBusy[slot] = false;
 }
 
+// Non-root: a process without CAP_NET_ADMIN cannot set SO_MARK (EPERM on every dial), and the
+// marks are meaningless there anyway (the app is outside the VPN), so probes drop them.
+function _stripSockoptMarks(o) {
+    if (Array.isArray(o)) { o.forEach(_stripSockoptMarks); return; }
+    if (!o || typeof o !== 'object') return;
+    if (o.sockopt && typeof o.sockopt === 'object') delete o.sockopt.mark;
+    Object.keys(o).forEach(k => _stripSockoptMarks(o[k]));
+}
+
 function _buildXrayTestInbound(node, slot) {
     const testIp = `127.17.1.${10 + slot}`;
     const testPort = 21000 + slot;
@@ -4492,6 +4551,7 @@ function _buildXrayTestInbound(node, slot) {
         protocol: "socks",
         settings: { auth: "noauth", udp: true }
     }, ...plainTunnels];
+    if (MV_NONROOT) _stripSockoptMarks(xrayConfigObj);
     return { testIp, testPort, tmpFile, configB64: utoa(JSON.stringify(xrayConfigObj)) };
 }
 
@@ -4508,6 +4568,7 @@ function _buildProbeScript(tmpFile, configB64, innerCmd) {
         cleanup() { [ -n "$XPID" ] && kill -9 "$XPID" 2>/dev/null; rm -f ${shQuote(tmpFile)}; }
         trap cleanup EXIT HUP INT TERM
         printf '%s' ${shQuote(configB64)} | base64 -d > ${shQuote(tmpFile)}
+        ${MV_NONROOT ? `export XRAY_LOCATION_ASSET=${shQuote(MODDIR + '/bin')}` : ''}
         ${MODDIR}/bin/xray run -c ${shQuote(tmpFile)} >/dev/null 2>&1 &
         XPID=$!
         sleep 1

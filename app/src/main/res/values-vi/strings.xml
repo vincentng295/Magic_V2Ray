@@ -15,4 +15,7 @@
     <string name="tile_off">Tắt</string>
     <string name="tile_busy">Đang xử lý…</string>
     <string name="tile_unavailable">Không khả dụng</string>
+    <string name="use_nonroot">Dùng chế độ non-root (VpnService)</string>
+    <string name="vpn_channel">Trạng thái VPN</string>
+    <string name="vpn_notif_text">Xray đang chạy (VpnService)</string>
 </resources>

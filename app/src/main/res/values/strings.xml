@@ -15,4 +15,7 @@
     <string name="tile_off">Off</string>
     <string name="tile_busy">Working…</string>
     <string name="tile_unavailable">Unavailable</string>
+    <string name="use_nonroot">Use non-root mode (VpnService)</string>
+    <string name="vpn_channel">VPN status</string>
+    <string name="vpn_notif_text">Xray is running (VpnService)</string>
 </resources>

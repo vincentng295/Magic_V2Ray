@@ -287,6 +287,14 @@ const i18n = {
         // Import dropdown
         import_from_clipboard: "Import from clipboard",
         import_from_file: "Import from file",
+        group_runmode: "Run mode",
+        lbl_runmode: "Engine mode",
+        desc_runmode: "Root uses iptables and policy routing. Non-root uses Android's VpnService and needs no root. Switching stops the running engine.",
+        runmode_root: "Root",
+        runmode_nonroot: "Non-root (VpnService)",
+        nonroot_notice: "Non-root mode: traffic is captured by Android's VpnService. Options that need root are greyed out.",
+        hint_root_only: "Needs root mode",
+        runmode_switch_confirm: "Switch the run mode? The running engine is stopped and the app reloads.",
         add_proxy_chain: "Add proxy chain",
 
         // Proxy Chain Modal
@@ -814,6 +822,14 @@ const i18n = {
         // Import dropdown
         import_from_clipboard: "从剪贴板导入",
         import_from_file: "从文件导入",
+        group_runmode: "运行模式",
+        lbl_runmode: "引擎模式",
+        desc_runmode: "Root 模式使用 iptables 和策略路由;非 Root 模式使用 Android 的 VpnService,无需 root。切换会停止正在运行的引擎。",
+        runmode_root: "Root",
+        runmode_nonroot: "非 Root(VpnService)",
+        nonroot_notice: "非 Root 模式:流量由 Android 的 VpnService 接管,需要 root 的选项已置灰。",
+        hint_root_only: "需要 Root 模式",
+        runmode_switch_confirm: "切换运行模式?正在运行的引擎将被停止,应用会重新加载。",
         add_proxy_chain: "添加代理链",
 
         // Proxy Chain Modal
@@ -1341,6 +1357,14 @@ const i18n = {
         // Import dropdown
         import_from_clipboard: "從剪貼簿匯入",
         import_from_file: "從檔案匯入",
+        group_runmode: "執行模式",
+        lbl_runmode: "引擎模式",
+        desc_runmode: "Root 模式使用 iptables 與策略路由;非 Root 模式使用 Android 的 VpnService,不需要 root。切換會停止正在執行的引擎。",
+        runmode_root: "Root",
+        runmode_nonroot: "非 Root(VpnService)",
+        nonroot_notice: "非 Root 模式:流量由 Android 的 VpnService 接管,需要 root 的選項已灰階顯示。",
+        hint_root_only: "需要 Root 模式",
+        runmode_switch_confirm: "切換執行模式?正在執行的引擎將被停止,應用程式會重新載入。",
         add_proxy_chain: "新增代理鏈",
 
         // Proxy Chain Modal
@@ -1868,6 +1892,14 @@ const i18n = {
         // Import dropdown
         import_from_clipboard: "Nhập từ clipboard",
         import_from_file: "Nhập từ file",
+        group_runmode: "Chế độ chạy",
+        lbl_runmode: "Chế độ lõi",
+        desc_runmode: "Root dùng iptables và policy routing. Non-root dùng VpnService của Android, không cần root. Chuyển chế độ sẽ dừng lõi đang chạy.",
+        runmode_root: "Root",
+        runmode_nonroot: "Non-root (VpnService)",
+        nonroot_notice: "Chế độ non-root: lưu lượng được VpnService của Android bắt. Các tuỳ chọn cần root bị làm mờ.",
+        hint_root_only: "Cần chế độ root",
+        runmode_switch_confirm: "Chuyển chế độ chạy? Lõi đang chạy sẽ bị dừng và ứng dụng sẽ tải lại.",
         add_proxy_chain: "Thêm proxy chain",
 
         // Proxy Chain Modal
@@ -2375,6 +2407,14 @@ const i18n = {
         toast_fetch_sub: "Загрузка подписки для ",
         import_from_clipboard: "Импорт из буфера обмена",
         import_from_file: "Импорт из файла",
+        group_runmode: "Режим работы",
+        lbl_runmode: "Режим ядра",
+        desc_runmode: "Root использует iptables и политики маршрутизации. Без root используется VpnService Android. Переключение остановит работающее ядро.",
+        runmode_root: "Root",
+        runmode_nonroot: "Без root (VpnService)",
+        nonroot_notice: "Режим без root: трафик перехватывает VpnService Android. Опции, требующие root, недоступны.",
+        hint_root_only: "Требуется режим root",
+        runmode_switch_confirm: "Переключить режим? Работающее ядро будет остановлено, приложение перезагрузится.",
         add_proxy_chain: "Добавить цепочку прокси",
         modal_proxy_chain_title: "Добавить цепочку прокси",
         proxy_chain_desc: "Поток трафика: Клиент → Hop 1 → Hop 2 → Интернет.<br>Payload Hop 2 инкапсулируется внутри туннеля Hop 1.",

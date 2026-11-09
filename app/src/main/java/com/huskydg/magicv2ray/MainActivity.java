@@ -63,6 +63,7 @@ public class MainActivity extends Activity {
     private TextView status;
     private Button retryBtn;
     private Button exitBtn;
+    private Button nonRootBtn;
     private WebView web;
     private ValueCallback<Uri[]> filePathCallback;
 
@@ -109,6 +110,16 @@ public class MainActivity extends Activity {
         bp.topMargin = dp(24);
         setupView.addView(retryBtn, bp);
 
+        nonRootBtn = new Button(this);
+        nonRootBtn.setText(R.string.use_nonroot);
+        nonRootBtn.setVisibility(View.GONE);
+        nonRootBtn.setOnClickListener(v -> {
+            RunMode.set(this, RunMode.NONROOT);
+            startSetup();
+        });
+        setupView.addView(nonRootBtn, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
         exitBtn = new Button(this);
         exitBtn.setText(R.string.exit);
         exitBtn.setVisibility(View.GONE);
@@ -124,6 +135,7 @@ public class MainActivity extends Activity {
     private void showBusy(int msgRes) {
         progress.setVisibility(View.VISIBLE);
         retryBtn.setVisibility(View.GONE);
+        nonRootBtn.setVisibility(View.GONE);
         exitBtn.setVisibility(View.GONE);
         status.setText(msgRes);
     }
@@ -136,6 +148,11 @@ public class MainActivity extends Activity {
     }
 
     private void startSetup() {
+        if (RunMode.isNonRoot(this)) {
+            startNonRootSetup();
+            return;
+        }
+        RootShell.setNonRoot(false);
         showBusy(R.string.setup_checking_root);
         new Thread(() -> {
             final ModuleInstaller.Outcome o = ModuleInstaller.ensureInstalled(
@@ -144,6 +161,7 @@ public class MainActivity extends Activity {
                 if (isFinishing()) return;
                 switch (o.status) {
                     case OK:
+                        if (RunMode.get(this) == null) RunMode.set(this, RunMode.ROOT);
                         if (o.rebootRecommended) {
                             Toast.makeText(this, R.string.reboot_hint, Toast.LENGTH_LONG).show();
                         }
@@ -151,6 +169,7 @@ public class MainActivity extends Activity {
                         break;
                     case NO_ROOT:
                         showError(getString(R.string.err_no_root));
+                        nonRootBtn.setVisibility(View.VISIBLE);     // no root: offer the VpnService mode
                         break;
                     default:
                         showError(getString(R.string.err_install) + "\n\n" + o.detail);
@@ -158,6 +177,27 @@ public class MainActivity extends Activity {
                 }
             });
         }, "mv-setup").start();
+    }
+
+    /** Non-root mode: no su, no module; the engine is xray driven by MagicVpnService. */
+    private void startNonRootSetup() {
+        showBusy(R.string.setup_starting);
+        RootShell.setNonRoot(true);
+        RootShell.init(getApplicationContext());
+        new Thread(() -> {
+            String err = null;
+            try {
+                NonRootEnv.ensure(getApplicationContext());
+            } catch (java.io.IOException e) {
+                err = String.valueOf(e.getMessage());
+            }
+            final String e = err;
+            runOnUiThread(() -> {
+                if (isFinishing()) return;
+                if (e == null) showWebUi();
+                else showError(getString(R.string.err_install) + "\n\n" + e);
+            });
+        }, "mv-setup-nonroot").start();
     }
 
     // ------------------------------------------------------------------ WebUI
@@ -279,6 +319,10 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == VpnController.REQ_VPN) {
+            VpnController.onPermissionResult(resultCode == RESULT_OK);
+            return;
+        }
         if (requestCode == REQ_FILE && filePathCallback != null) {
             filePathCallback.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, data));
             filePathCallback = null;

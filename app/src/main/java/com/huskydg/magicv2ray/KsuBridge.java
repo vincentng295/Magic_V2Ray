@@ -56,7 +56,11 @@ final class KsuBridge {
         if (callback == null || !CB_RE.matcher(callback).matches()) return;
         final String script = buildScript(command == null ? "" : command, options);
         POOL.execute(() -> {
-            RootShell.Result r = RootShell.run(script, 0);
+            RootShell.Result r = null;
+            if (RunMode.isNonRoot(activity)) {          // no proxy_control.sh without root: drive the VpnService
+                r = VpnController.intercept(activity.getApplicationContext(), activity, command);
+            }
+            if (r == null) r = RootShell.run(script, 0);
             final String js = "window['" + callback + "']&&window['" + callback + "']("
                     + r.code + "," + JSONObject.quote(r.out) + "," + JSONObject.quote(r.err) + ")";
             web.post(() -> web.evaluateJavascript(js, null));
@@ -127,6 +131,48 @@ final class KsuBridge {
         } catch (JSONException ignored) {
         }
         return out.toString();
+    }
+
+    /** "root" or "nonroot": decides which base paths and engine the WebUI uses. */
+    @JavascriptInterface
+    public String mode() {
+        return RunMode.isNonRoot(activity) ? RunMode.NONROOT : RunMode.ROOT;
+    }
+
+    @JavascriptInterface
+    public String moddir() {
+        return NonRootEnv.moddir(activity).getPath();
+    }
+
+    @JavascriptInterface
+    public String datadir() {
+        return NonRootEnv.datadir(activity).getPath();
+    }
+
+    @JavascriptInterface
+    public String stubdir() {
+        return NonRootEnv.stubdir(activity).getPath();
+    }
+
+    @JavascriptInterface
+    public int sdk() {
+        return android.os.Build.VERSION.SDK_INT;
+    }
+
+    /** Switches between root and non-root mode; the old engine is stopped first. */
+    @JavascriptInterface
+    public void setMode(final String mode) {
+        if (!RunMode.ROOT.equals(mode) && !RunMode.NONROOT.equals(mode)) return;
+        if (mode.equals(mode())) return;
+        POOL.execute(() -> {
+            if (RunMode.isNonRoot(activity)) {
+                VpnController.stop();
+            } else {
+                RootShell.run("sh " + RootShell.sq(ModuleInstaller.MODDIR + "/proxy_control.sh") + " stop", 30_000);
+            }
+            RunMode.set(activity, mode);
+            activity.runOnUiThread(activity::recreate);
+        });
     }
 
     @JavascriptInterface

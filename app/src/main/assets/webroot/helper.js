@@ -399,6 +399,9 @@ function normalizeUriIPv6Host(uri) {
 // ===========================================================================
 const PLAIN_POOL_PREFIX = "127.18";
 const PLAIN_POOL_PORT = 80;
+// Non-root mode cannot bind ports below 1024, so every local listener moves up by this offset
+// (socks-test-in 808 -> 50808, plain-VLESS pool 80 -> 50080).
+const NONROOT_PORT_OFFSET = 50000;
 const PLAIN_TUN_TAG_PREFIX = "plain-tun-";
 const PLAIN_EGRESS_TAG_PREFIX = "plain-egress-";
 // "tunnel" is the new name; Xray keeps "dokodemo-door" as an alias, so the
@@ -474,8 +477,9 @@ function isPlainVlessUri(uri) {
 // dedicated freedom outbound when the original outbound dialed through
 // another proxy (dialerProxy chain hop), and the routing rules that send each
 // tunnel inbound to its egress.
-function applyPlainVlessLoopback(cfg, block) {
+function applyPlainVlessLoopback(cfg, block, is_nonroot) {
     block = block | 0;
+    const poolPort = PLAIN_POOL_PORT + (is_nonroot ? NONROOT_PORT_OFFSET : 0);
     if (!cfg || !Array.isArray(cfg.outbounds)) return cfg;
 
     const inbounds = [], extraOuts = [], rules = [];
@@ -519,7 +523,7 @@ function applyPlainVlessLoopback(cfg, block) {
             inbounds.push({
                 tag: tunTag,
                 listen: addr,
-                port: PLAIN_POOL_PORT,
+                port: poolPort,
                 protocol: PLAIN_TUN_PROTOCOL,
                 settings: { address: host, port: port, network: 'tcp' }
             });
@@ -528,7 +532,7 @@ function applyPlainVlessLoopback(cfg, block) {
 
         _pinPlainTransportHost(ss, host, port);
         vn.address = addr;
-        vn.port = PLAIN_POOL_PORT;
+        vn.port = poolPort;
         // The outbound now only talks to loopback, so it always dials via
         // "direct"; fragment targets the TLS hello and means nothing here.
         const sock = Object.assign({}, orig, { dialerProxy: 'direct' });
@@ -578,15 +582,15 @@ function relocatePlainVlessPool(cfg, block) {
  * The routing rule sends all traffic to "proxy" (hop2), which in turn
  * dials through hop1 automatically.
  */
-function convert_chain_uris_to_xray_json(hop1Uri, hop2Uri, optional_settings) {
+function convert_chain_uris_to_xray_json(hop1Uri, hop2Uri, optional_settings, is_nonroot = false) {
     // Parse each hop individually — reuse existing single-URI logic
     // Defer the plaintext-VLESS pool pass: it runs once below, on the merged
     // config, after the hop sockopts (dialerProxy) are final.
     let hop1ConfigStr, hop2ConfigStr;
     _plainVlessDefer++;
     try {
-        hop1ConfigStr = convert_uri_to_xray_json(hop1Uri, optional_settings);
-        hop2ConfigStr = convert_uri_to_xray_json(hop2Uri, optional_settings);
+        hop1ConfigStr = convert_uri_to_xray_json(hop1Uri, optional_settings, is_nonroot);
+        hop2ConfigStr = convert_uri_to_xray_json(hop2Uri, optional_settings, is_nonroot);
     } finally {
         _plainVlessDefer--;
     }
@@ -627,7 +631,7 @@ function convert_chain_uris_to_xray_json(hop1Uri, hop2Uri, optional_settings) {
     finalConfig.outbounds = [hop2Out, hop1Out, ...hop2Config.outbounds.slice(1)];
 
     if (_plainVlessDefer === 0 && !(optional_settings && optional_settings.plainVlessTunnel === false)) {
-        applyPlainVlessLoopback(finalConfig);
+        applyPlainVlessLoopback(finalConfig, 0, is_nonroot);
     }
 
     return JSON.stringify(finalConfig, null, 2);
@@ -1022,7 +1026,9 @@ function _buildDnsUpstreamRoutingRules(settings) {
     return rules;
 }
 
-function convert_uri_to_xray_json(uri, optional_settings) {
+// is_nonroot: the config is for the VpnService engine. An unprivileged process cannot bind ports
+// below 1024, so the local listeners (socks-test-in 808, plain-VLESS pool 80) get +50000.
+function convert_uri_to_xray_json(uri, optional_settings, is_nonroot = false) {
     const settings = optional_settings || {
         loglevel: "none",
         sniffing: true,
@@ -1901,7 +1907,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
         inbounds: [
             {
                 "tag": "socks-test-in",
-                "port": 808,
+                "port": 808 + (is_nonroot ? NONROOT_PORT_OFFSET : 0),
                 "listen": "127.17.1.3",
                 "protocol": "socks",
                 "settings": {
@@ -2059,7 +2065,7 @@ function convert_uri_to_xray_json(uri, optional_settings) {
     if (policyGroups.burstObservatory) fullConfig.burstObservatory = policyGroups.burstObservatory;
 
     if (_plainVlessDefer === 0 && settings.plainVlessTunnel !== false) {
-        applyPlainVlessLoopback(fullConfig);
+        applyPlainVlessLoopback(fullConfig, 0, is_nonroot);
     }
 
     return JSON.stringify(fullConfig, null, 2);

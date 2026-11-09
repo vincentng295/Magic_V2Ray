@@ -1,5 +1,8 @@
-const MODDIR = "/data/adb/modules/magic_v2ray";
-const DATADIR = "/data/adb/magic_v2ray";
+// Run mode, answered by the APK host (KsuBridge): "root" = the iptables engine, "nonroot" = the
+// VpnService engine, whose files live in the app's private storage instead of /data/adb.
+const MV_NONROOT = !!(window.ksu && typeof ksu.mode === 'function' && ksu.mode() === 'nonroot');
+const MODDIR = MV_NONROOT ? ksu.moddir() : "/data/adb/modules/magic_v2ray";
+const DATADIR = MV_NONROOT ? ksu.datadir() : "/data/adb/magic_v2ray";
 const PROFILES_FILE = `${DATADIR}/profiles.base64`;
 const SETTINGS_FILE = `${DATADIR}/settings.base64`;
 const ACTIVE_FILE = `${DATADIR}/active_config.txt`;
@@ -62,7 +65,11 @@ const EXCLUDE_LIST_FILE = `${DATADIR}/excludelist.txt`;
 // gate content on the client (e.g. v2rayNG-only subs) still respond.
 // Per-subscription override lives in profiles[category].useragent.
 const DEFAULT_SUB_USERAGENT = "v2rayNG/2.2.3";
-const STUB_DIR = "/dev/sysctl_stubs";
+// Xray's local SOCKS inbound (latency / IP tests, subscription fetch through the proxy).
+// +50000 in non-root mode, see convert_uri_to_xray_json(..., is_nonroot).
+const SOCKS_TEST_ADDR = "127.17.1.3";
+const SOCKS_TEST_PORT = 808 + (MV_NONROOT ? NONROOT_PORT_OFFSET : 0);
+const STUB_DIR = MV_NONROOT ? ksu.stubdir() : "/dev/sysctl_stubs";
 // Must match TUN_NAME in service.sh; only used to hide it from the
 // upstream-interface list.
 const TUN_NAME_UI = "xraytun0";
@@ -355,7 +362,7 @@ const CUSTOM_CONFIG_TEMPLATE = `{
   "inbounds": [
     {
       "tag": "socks-test-in",
-      "port": 808,
+      "port": ${SOCKS_TEST_PORT},
       "listen": "127.17.1.3",
       "protocol": "socks",
       "settings": { "auth": "noauth", "udp": true },
