@@ -18,4 +18,5 @@
     <string name="use_nonroot">Use non-root mode (VpnService)</string>
     <string name="vpn_channel">VPN status</string>
     <string name="vpn_notif_text">Xray is running (VpnService)</string>
+    <string name="vpn_notif_paused">VPN connected, proxy paused on this network</string>
 </resources>

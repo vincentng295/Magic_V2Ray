@@ -7,9 +7,12 @@ import android.app.PendingIntent;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
+import android.net.ConnectivityManager;
 import android.net.IpPrefix;
 import android.net.LocalServerSocket;
 import android.net.LocalSocket;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
@@ -26,6 +29,10 @@ import java.io.RandomAccessFile;
 import java.net.InetAddress;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -38,6 +45,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * never enter the tunnel because this app is excluded from it, which replaces the fwmark /
  * ip rule machinery of the root engine. Per-app exclusion, LAN bypass and the MTU come from
  * the same settings the WebUI saves.
+ *
+ * "Apply proxy on" (networkMode 1 = WiFi/Ethernet only, 2 = mobile data only) is honoured by
+ * watching the default network: on the unselected network the tunnel is re-established
+ * without any route and xray is stopped, so the VPN key stays in the status bar while every
+ * packet goes straight out of the physical interface. Coming back to the selected network
+ * re-establishes the tunnel with its routes and starts xray again.
  */
 public class MagicVpnService extends VpnService {
 
@@ -50,9 +63,24 @@ public class MagicVpnService extends VpnService {
     private Process xray;
     private volatile boolean closing;
 
+    // ---- "Apply proxy on" (networkMode) ----
+    private static final int NET_UNKNOWN = -1, NET_OTHER = 0, NET_MOBILE = 1;
+    private static final long NET_DEBOUNCE_MS = 1500;
+    private volatile int netMode;                 // 0 all, 1 WiFi/Ethernet only, 2 mobile only
+    private volatile int netKind = NET_UNKNOWN;   // kind of the current default network
+    private volatile boolean standby;             // VPN up, no routes, xray stopped
+    private ConnectivityManager.NetworkCallback netCb;
+    private volatile ScheduledExecutorService netExec;
+    private volatile ScheduledFuture<?> netPending;
+
     boolean xrayAlive() {
         Process p = xray;
         return p != null && p.isAlive();
+    }
+
+    /** The engine is healthy: xray is alive, or it is deliberately idle on an unselected network. */
+    boolean engineUp() {
+        return standby || xrayAlive();
     }
 
     // ----------------------------------------------------------------- lifecycle
@@ -92,12 +120,24 @@ public class MagicVpnService extends VpnService {
         synchronized (lock) {
             try {
                 closing = false;
+                standby = false;
                 NonRootEnv.ensure(this);
                 JSONObject st = NonRootEnv.settings(this);
-                openTun(st);
+                int mode = st.optInt("networkMode", 0);
+                netMode = mode >= 1 && mode <= 2 ? mode : 0;
+                // this app is excluded from the VPN, so it sees the physical default network
+                netKind = netMode == 0 ? NET_UNKNOWN : currentKind();
+                boolean routed = wantRouted(netMode, netKind, true);
+                openTun(st, routed);
                 resetLog();
-                startXray();
+                if (routed) {
+                    startXray();
+                } else {
+                    standby = true;
+                    refreshNotification();
+                }
                 VpnController.setRunning();
+                watchNetwork();
             } catch (Exception e) {
                 VpnController.setFailed(String.valueOf(e.getMessage()));
                 teardownLocked();
@@ -119,6 +159,7 @@ public class MagicVpnService extends VpnService {
     void reloadXray() throws IOException {
         synchronized (lock) {
             if (tun == null) throw new IOException("VPN is not established");
+            if (standby) return;        // idle on this network: the new config is read when it comes back
             killXray();
             startXray();
         }
@@ -126,7 +167,12 @@ public class MagicVpnService extends VpnService {
 
     // ------------------------------------------------------------------- tunnel
 
-    private void openTun(JSONObject st) throws IOException {
+    /**
+     * (Re)establishes the interface. {@code routed == false} builds it without routes and DNS
+     * servers: the VPN stays connected (status-bar key, per-app exclusion) but captures nothing.
+     * A second establish() atomically replaces the previous interface, so the old fd is closed.
+     */
+    private void openTun(JSONObject st, boolean routed) throws IOException {
         Builder b = new Builder();
         b.setSession("Magic V2Ray");
         int mtu = st.optInt("mtu", 1350);
@@ -134,18 +180,20 @@ public class MagicVpnService extends VpnService {
         boolean v6 = st.optBoolean("enableIPv6", false);
 
         b.addAddress("172.19.0.1", 30);
-        b.addRoute("0.0.0.0", 0);
-        b.addDnsServer("1.1.1.1");
-        b.addDnsServer("1.0.0.1");
-        // IPv6 always enters the tunnel: with "Enable IPv6" off it must not leak out of the
-        // physical interface, so it is captured here and dropped by xray (see runtimeConfig).
         b.addAddress("fdfe:dcba:9876::1", 126);
-        b.addRoute("::", 0);
-        if (v6) b.addDnsServer("2606:4700:4700::1111");
+        if (routed) {
+            b.addRoute("0.0.0.0", 0);
+            b.addDnsServer("1.1.1.1");
+            b.addDnsServer("1.0.0.1");
+            // IPv6 always enters the tunnel: with "Enable IPv6" off it must not leak out of the
+            // physical interface, so it is captured here and dropped by xray (see runtimeConfig).
+            b.addRoute("::", 0);
+            if (v6) b.addDnsServer("2606:4700:4700::1111");
+        }
         if (Build.VERSION.SDK_INT >= 29) b.setMetered(false);
 
         // LAN / special-use ranges skip the tunnel (Bypass LAN). Needs API 33.
-        if (Build.VERSION.SDK_INT >= 33) {
+        if (routed && Build.VERSION.SDK_INT >= 33) {
             for (String cidr : NonRootEnv.lanBypass(st)) {
                 try {
                     int slash = cidr.indexOf('/');
@@ -172,8 +220,127 @@ public class MagicVpnService extends VpnService {
             }
         }
 
-        tun = b.establish();
-        if (tun == null) throw new IOException("VPN permission not granted");
+        ParcelFileDescriptor nt = b.establish();
+        if (nt == null) throw new IOException("VPN permission not granted");
+        ParcelFileDescriptor old = tun;
+        tun = nt;
+        if (old != null) {
+            try {
+                old.close();
+            } catch (IOException ignored) {
+            }
+        }
+    }
+
+    // ------------------------------------------------------- apply proxy on ...
+
+    /** Should traffic be routed through xray? {@code keep} is the answer when the network is unknown. */
+    private static boolean wantRouted(int mode, int kind, boolean keep) {
+        if (mode == 0 || kind == NET_UNKNOWN) return keep;
+        return mode == 1 ? kind != NET_MOBILE : kind == NET_MOBILE;
+    }
+
+    private static int kindOf(NetworkCapabilities c) {
+        if (c == null) return NET_UNKNOWN;
+        if (c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                || c.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) return NET_OTHER;
+        if (c.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) return NET_MOBILE;
+        if (c.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return NET_UNKNOWN;
+        return NET_OTHER;                 // bluetooth / USB / other non-cellular links
+    }
+
+    private int currentKind() {
+        try {
+            ConnectivityManager cm = getSystemService(ConnectivityManager.class);
+            Network n = cm.getActiveNetwork();
+            return n == null ? NET_UNKNOWN : kindOf(cm.getNetworkCapabilities(n));
+        } catch (RuntimeException e) {
+            return NET_UNKNOWN;
+        }
+    }
+
+    private void watchNetwork() {
+        if (netMode == 0 || netCb != null) return;
+        try {
+            ConnectivityManager cm = getSystemService(ConnectivityManager.class);
+            netExec = Executors.newSingleThreadScheduledExecutor(r -> new Thread(r, "mv-vpn-net"));
+            netCb = new ConnectivityManager.NetworkCallback() {
+                @Override
+                public void onCapabilitiesChanged(Network n, NetworkCapabilities c) {
+                    onNetKind(kindOf(c));
+                }
+
+                @Override
+                public void onLost(Network n) {
+                    netKind = NET_UNKNOWN;      // keep the current state until a new network shows up
+                }
+            };
+            cm.registerDefaultNetworkCallback(netCb);
+        } catch (RuntimeException e) {
+            stopNetWatch();
+        }
+    }
+
+    private void stopNetWatch() {
+        ConnectivityManager.NetworkCallback cb = netCb;
+        netCb = null;
+        if (cb != null) {
+            try {
+                getSystemService(ConnectivityManager.class).unregisterNetworkCallback(cb);
+            } catch (RuntimeException ignored) {
+            }
+        }
+        ScheduledExecutorService ex = netExec;
+        netExec = null;
+        netPending = null;
+        if (ex != null) ex.shutdownNow();
+    }
+
+    /** Default network changed. Debounced: WiFi <-> mobile hand-overs flap for a moment. */
+    private void onNetKind(int kind) {
+        if (kind == NET_UNKNOWN) return;
+        netKind = kind;
+        ScheduledFuture<?> f = netPending;
+        if (f != null) f.cancel(false);
+        ScheduledExecutorService ex = netExec;
+        if (ex == null) return;
+        if (wantRouted(netMode, kind, !standby) == !standby) return;    // already in the right state
+        try {
+            netPending = ex.schedule(this::applyNetwork, NET_DEBOUNCE_MS, TimeUnit.MILLISECONDS);
+        } catch (RejectedExecutionException ignored) {
+        }
+    }
+
+    private void applyNetwork() {
+        synchronized (lock) {
+            if (tun == null || closing) return;
+            boolean want = wantRouted(netMode, netKind, !standby);
+            if (want == !standby) return;
+            try {
+                if (want) {
+                    // back on the selected network: routes first, then xray gets the new fd
+                    openTun(NonRootEnv.settings(this), true);
+                    startXray();
+                    standby = false;
+                } else {
+                    // leaving it: the interface is replaced by a route-less one (traffic goes
+                    // straight out), then xray, whose old tun fd just died, is stopped quietly
+                    closing = true;
+                    try {
+                        openTun(NonRootEnv.settings(this), false);
+                        killXray();
+                    } finally {
+                        closing = false;
+                    }
+                    standby = true;
+                }
+                refreshNotification();
+            } catch (Exception e) {
+                VpnController.setFailed(String.valueOf(e.getMessage()));
+                teardownLocked();
+                stopSelf();
+            }
+        }
     }
 
     // --------------------------------------------------------------------- xray
@@ -334,7 +501,9 @@ public class MagicVpnService extends VpnService {
             }
             tun = null;
         }
+        standby = false;
         stopForeground(true);
+        stopNetWatch();
     }
 
     // ------------------------------------------------------------- notification
@@ -345,21 +514,31 @@ public class MagicVpnService extends VpnService {
             nm.createNotificationChannel(new NotificationChannel(
                     CHANNEL, getString(R.string.vpn_channel), NotificationManager.IMPORTANCE_LOW));
         }
-        PendingIntent open = PendingIntent.getActivity(this, 0,
-                new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                PendingIntent.FLAG_IMMUTABLE);
-        Notification.Builder nb = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, CHANNEL)
-                : new Notification.Builder(this);
-        Notification n = nb.setContentTitle(getString(R.string.app_name))
-                .setContentText(getString(R.string.vpn_notif_text))
-                .setSmallIcon(R.drawable.ic_tile)
-                .setContentIntent(open)
-                .setOngoing(true)
-                .build();
+        Notification n = buildNotification();
         if (Build.VERSION.SDK_INT >= 34) {
             startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
         } else {
             startForeground(NOTIF_ID, n);
         }
+    }
+
+    /** Swaps the notification text when the proxy pauses / resumes with the network. */
+    private void refreshNotification() {
+        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (nm != null) nm.notify(NOTIF_ID, buildNotification());
+    }
+
+    private Notification buildNotification() {
+        PendingIntent open = PendingIntent.getActivity(this, 0,
+                new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                PendingIntent.FLAG_IMMUTABLE);
+        Notification.Builder nb = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, CHANNEL)
+                : new Notification.Builder(this);
+        return nb.setContentTitle(getString(R.string.app_name))
+                .setContentText(getString(standby ? R.string.vpn_notif_paused : R.string.vpn_notif_text))
+                .setSmallIcon(R.drawable.ic_tile)
+                .setContentIntent(open)
+                .setOngoing(true)
+                .build();
     }
 }

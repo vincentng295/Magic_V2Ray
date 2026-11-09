@@ -53,7 +53,7 @@ final class VpnController {
 
     static boolean isRunning() {
         MagicVpnService s = svc;
-        return s != null && state == RUNNING && s.xrayAlive();
+        return s != null && state == RUNNING && s.engineUp();
     }
 
     /** Returns the result for a proxy_control.sh command line, or null when it is something else. */

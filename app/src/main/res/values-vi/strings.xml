@@ -18,4 +18,5 @@
     <string name="use_nonroot">Dùng chế độ non-root (VpnService)</string>
     <string name="vpn_channel">Trạng thái VPN</string>
     <string name="vpn_notif_text">Xray đang chạy (VpnService)</string>
+    <string name="vpn_notif_paused">VPN vẫn kết nối, proxy tạm nghỉ trên mạng này</string>
 </resources>

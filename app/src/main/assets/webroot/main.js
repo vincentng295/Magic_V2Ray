@@ -580,7 +580,14 @@ function applyRunModeUi() {
             el.insertAdjacentElement('afterend', note);
         }
     };
-    ['set-networkmode', 'set-upstreamiface', 'set-enableipv6ula', 'set-allowtether',
+    // "Apply proxy on" is NOT greyed out: the VpnService keeps the VPN up but leaves it idle
+    // (no routes, xray stopped) on the network that is not selected. Only its hint differs.
+    const nmDesc = document.querySelector('[data-i18n="desc_networkmode"]');
+    if (nmDesc) {
+        nmDesc.setAttribute('data-i18n', 'desc_networkmode_nonroot');
+        nmDesc.textContent = t('desc_networkmode_nonroot');
+    }
+    ['set-upstreamiface', 'set-enableipv6ula', 'set-allowtether',
      'set-bypassvpn', 'set-bypassiface', 'set-bypassiface-list'].forEach(id => {
         const el = document.getElementById(id);
         if (!el) return;
