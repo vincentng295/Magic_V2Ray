@@ -3,3 +3,12 @@
 /bin/*/xray.version
 /bin/*/xhuskydg_helper
 /bin/*/xhuskydg_helper.version
+
+# Android app
+/app/src/main/jniLibs/
+/app/build/
+/build/
+.gradle/
+local.properties
+*.jks
+*.keystore

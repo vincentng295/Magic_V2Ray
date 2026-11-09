@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
 #
-# Magic V2Ray — release packager.
+# Magic V2Ray — release builder.
 #
-# Produces one zip per CPU architecture instead of a single universal zip.
-# The universal zip carried both arm64-v8a and x86_64 payloads (~118 MB) and
-# then discarded one of them at install time, so every arm64 user downloaded
-# ~45 MB of x86_64 binaries they could never run.
+# Builds the APKs only. There is no separate zip packaging step any more: each
+# APK is also a flashable module zip (rename .apk -> .zip), because it carries
+# the installer files (META-INF, customize.sh, ...) at its root next to the
+# executables for its ABI(s). Flashing it installs the module, then the app.
 #
-#   ./build.sh                    -> per-arch zips + a universal zip
-#   ./build.sh arm64              -> just arm64-v8a
-#   ./build.sh universal          -> just the combined zip (for update.json fallback)
-#   ./build.sh --update-xray      -> force re-download of xray even if cached
-#   ./build.sh --update-helper    -> force rebuild of xhuskydg_helper even if up to date
-#   ./build.sh arm64 --update-xray -> combine with a target
+#   ./build.sh                     -> APKs: arm64-v8a, x86_64 and universal
+#   ./build.sh --update-xray       -> force re-download of xray even if cached
+#   ./build.sh --update-helper     -> force rebuild of xhuskydg_helper even if up to date
+#
+# Needs JDK 17, Gradle 8.7+ and an Android SDK (see check_apk_tools below).
 #
 # The downloaded xray binary's version is cached in bin/<arch>/xray.version.
 # On each run, fetch_xray re-downloads whenever that cache is missing, stale
@@ -24,6 +23,11 @@
 # is cached per-arch in bin/<arch>/xhuskydg_helper, stamped in
 # bin/<arch>/xhuskydg_helper.version with a hash of native/ + build settings, and
 # rebuilt whenever the sources change or --update-helper is passed.
+#
+# APK: build_apk stages xray/helper/curl as app/src/main/jniLibs/<abi>/lib*.so and runs
+# `gradle assembleRelease` (or ./gradlew if present). Output: dist/<id>-<version>-<abi>.apk.
+# Set MV_KEYSTORE, MV_KEYSTORE_PASSWORD, MV_KEY_ALIAS, MV_KEY_PASSWORD to sign with your
+# own key; otherwise the debug key is used.
 # NDK: $ANDROID_NDK_HOME (or ANDROID_NDK_LATEST_HOME / ANDROID_NDK_ROOT),
 # else ./android-ndk-r23b. Override the netd xtables lock with MV_XTABLES_LOCK.
 #
@@ -32,7 +36,6 @@ set -euo pipefail
 cd "$(dirname "$0")"
 OUT="dist"
 mkdir -p "$OUT"
-rm -f "$OUT"/*.zip
 
 VERSION=$(sed -n 's/^version=//p' module.prop | head -n 1 | tr ' /&' '_' | tr -d '\r')
 MODID=$(sed -n 's/^id=//p' module.prop | head -n 1 | tr -d '\r')
@@ -43,6 +46,12 @@ XRAY_VERSION=$(sed -n 's/^version=//p' module.prop | head -n 1 | tr -d '\r' | se
 [[ -n "$XRAY_VERSION" ]] || { echo "could not parse Xray-core version from module.prop" >&2; exit 1; }
 
 XRAY_BASE_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}"
+
+need() {
+    for f in "$@"; do
+        [[ -e $f ]] || { echo "missing required path: $f" >&2; exit 1; }
+    done
+}
 
 # Maps our arch dir names to the asset name Xray-core publishes under.
 xray_asset_for() {
@@ -143,64 +152,139 @@ build_helper() {
     echo "    built ${dest}/xhuskydg_helper ($(du -h "${dest}/xhuskydg_helper" | cut -f1))"
 }
 
-# Files every build contains, regardless of architecture.
-COMMON=(
-    META-INF
-    webroot
-    bin/geoip.dat
-    bin/geosite.dat
-    customize.sh
-    service.sh
-    proxy_control.sh
-    uninstall.sh
-    action.sh
-    module.prop
-    LICENSE
-)
+# Stages the three executables as fake JNI libs so the APK can carry them per
+# ABI. The package manager extracts lib*.so to nativeLibraryDir; the app then
+# copies them to /data/adb/modules/magic_v2ray/bin/ as root.
+stage_jnilibs() {
+    local arch="$1"
+    local dst="app/src/main/jniLibs/${arch}"
+    need "bin/${arch}/xray" "bin/${arch}/xhuskydg_helper" "bin/${arch}/curl"
+    mkdir -p "$dst"
+    install -m 0755 "bin/${arch}/xray"             "$dst/libxray.so"
+    install -m 0755 "bin/${arch}/xhuskydg_helper"  "$dst/libxhuskydg_helper.so"
+    install -m 0755 "bin/${arch}/curl"             "$dst/libcurl.so"
+    echo "    staged $dst"
+}
 
-need() {
-    for f in "$@"; do
-        [[ -e $f ]] || { echo "missing required path: $f" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# APK
+# ---------------------------------------------------------------------------
+GRADLE_CMD=""
+
+# Verifies JDK / Gradle / Android SDK up front, before the slow downloads and
+# native builds, and says how to install whatever is missing.
+check_apk_tools() {
+    local problems=() jv gv gmaj gmin
+    if ! command -v java >/dev/null 2>&1; then
+        problems+=("JDK 17 is not installed.
+      Debian/Ubuntu: sudo apt install openjdk-17-jdk
+      macOS:         brew install openjdk@17
+      Other:         https://adoptium.net")
+    else
+        jv=$(java -version 2>&1 | sed -n '1s/.*version "\([0-9]*\).*/\1/p')
+        [[ "${jv:-0}" -ge 17 ]] || problems+=("JDK ${jv:-?} found, but JDK 17+ is required (java -version).")
+    fi
+
+    if [[ -x ./gradlew ]]; then
+        GRADLE_CMD="./gradlew"
+    elif command -v gradle >/dev/null 2>&1; then
+        GRADLE_CMD="gradle"
+        read -r gmaj gmin < <(gradle --version 2>/dev/null | sed -n 's/^Gradle \([0-9]*\)\.\([0-9]*\).*/\1 \2/p' | head -n 1)
+        if [[ -z "${gmaj:-}" ]] || (( gmaj < 8 || (gmaj == 8 && gmin < 7) )); then
+            problems+=("Gradle ${gmaj:-?}.${gmin:-?} is too old; the Android Gradle Plugin here needs Gradle 8.7+ (8.9 recommended).
+      Install a newer one, e.g.: curl -s https://get.sdkman.io | bash && sdk install gradle 8.9
+      (distro packages such as apt's gradle are usually too old)")
+        fi
+    else
+        problems+=("Gradle is not installed. Install Gradle 8.9 (needs JDK 17):
+      SDKMAN (Linux/macOS):  curl -s https://get.sdkman.io | bash && sdk install gradle 8.9
+      Homebrew:              brew install gradle
+      Manual:                https://gradle.org/install/   (apt's gradle package is too old)
+      Then re-run ./build.sh. (Optional: 'gradle wrapper --gradle-version 8.9' once, to get ./gradlew.)")
+    fi
+
+    if [[ -z "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}" ]] && ! grep -qs '^sdk.dir=' local.properties; then
+        problems+=("Android SDK not found. Set ANDROID_HOME (or sdk.dir in local.properties) to an SDK that has
+      platform android-35 and build-tools:
+      sdkmanager \"platforms;android-35\" \"build-tools;35.0.0\"
+      (the SDK comes with Android Studio, or as the standalone command-line tools:
+       https://developer.android.com/studio#command-tools)")
+    fi
+
+    if (( ${#problems[@]} )); then
+        echo "Cannot build the APK:" >&2
+        local p
+        for p in "${problems[@]}"; do echo "  - $p" >&2; done
+        exit 1
+    fi
+}
+
+# An APK is also a module zip (rename .apk -> .zip), so it must carry the installer
+# files at its root and the executables for its ABI(s). Fail the build otherwise.
+verify_flashable() {
+    local f="$1" abis need lib abi list
+    command -v unzip >/dev/null 2>&1 || { echo "    (unzip missing, skipped zip-layout check)"; return; }
+    list=$(unzip -l "$f")
+    for need in META-INF/com/google/android/update-binary META-INF/com/google/android/updater-script \
+                customize.sh module.prop service.sh proxy_control.sh uninstall.sh action.sh \
+                bin/geoip.dat bin/geosite.dat AndroidManifest.xml; do
+        grep -q " ${need}\$" <<<"$list" || { echo "!! $f is missing ${need}" >&2; exit 1; }
+    done
+    case "$f" in
+        *arm64-v8a*) abis="arm64-v8a" ;;
+        *x86_64*)    abis="x86_64" ;;
+        *)           abis="arm64-v8a x86_64" ;;
+    esac
+    for abi in $abis; do
+        for lib in libxray.so libxhuskydg_helper.so libcurl.so; do
+            grep -q " lib/${abi}/${lib}\$" <<<"$list" || { echo "!! $f is missing lib/${abi}/${lib}" >&2; exit 1; }
+        done
     done
 }
 
-pack() {
-    local arch="$1"; shift
-    local zipname="$OUT/${MODID}-${VERSION}-${arch}.zip"
-    echo "==> $zipname"
-    need "${COMMON[@]}" "$@"
-    # -r recurses into webroot/META-INF/bin/<arch>; -x drops our internal
-    # version-cache marker (not part of the module payload).
-    zip -q -r -X "$zipname" "${COMMON[@]}" "$@" -x '*/*.version'
-    echo "    $(du -h "$zipname" | cut -f1)"
+build_apk() {
+    local a f name
+    for a in arm64-v8a x86_64; do
+        fetch_xray "$a"; build_helper "$a"; stage_jnilibs "$a"
+    done
+    echo "==> ${GRADLE_CMD} assembleRelease"
+    rm -f app/build/outputs/apk/release/*.apk
+    "$GRADLE_CMD" --no-daemon assembleRelease
+    for f in app/build/outputs/apk/release/*.apk; do
+        [[ -e "$f" ]] || { echo "gradle produced no APK" >&2; exit 1; }
+        name=$(basename "$f" .apk); name=${name#app-}; name=${name%-release}
+        cp -f "$f" "$OUT/${MODID}-${VERSION}-${name}.apk"
+        verify_flashable "$OUT/${MODID}-${VERSION}-${name}.apk"
+        echo "    $OUT/${MODID}-${VERSION}-${name}.apk ($(du -h "$f" | cut -f1))"
+    done
 }
 
 FORCE_UPDATE_XRAY=0
 FORCE_UPDATE_HELPER=0
 # xtables lock file netd uses (compiled into the service daemon); differs per ROM.
 MV_XTABLES_LOCK="${MV_XTABLES_LOCK:-/system/etc/xtables.lock}"
-args=()
+
 for a in "$@"; do
     case "$a" in
         --update-xray)     FORCE_UPDATE_XRAY=1 ;;
         --update-helper)   FORCE_UPDATE_HELPER=1 ;;
-        *) args+=("$a") ;;
+        *) echo "usage: $0 [--update-xray] [--update-helper]" >&2; exit 2 ;;
     esac
 done
 
-target="${args[0]:-all}"
+# Fail fast (before downloads / NDK builds) if the APK toolchain is missing.
+check_apk_tools
 
-case "$target" in
-    arm64|all)     fetch_xray arm64-v8a; build_helper arm64-v8a; pack arm64-v8a bin/arm64-v8a ;;&
-    x64|x86_64|all) fetch_xray x86_64;    build_helper x86_64;    pack x86_64    bin/x86_64 ;;&
-    universal|all) fetch_xray arm64-v8a; fetch_xray x86_64; build_helper arm64-v8a; build_helper x86_64; pack universal bin/arm64-v8a bin/x86_64 ;;&
-    arm64|x64|x86_64|universal|all) ;;
-    *) echo "usage: $0 [arm64|x64|universal|all]" >&2; exit 2 ;;
-esac
+# Drop stale outputs, including zips left over from older versions of this script.
+rm -f "$OUT"/*.apk "$OUT"/*.zip
+
+build_apk
 
 echo
 echo "Built into $OUT/:"
 ls -la "$OUT"
 echo
-echo "Reminder: point update.json's zipUrl at the universal zip unless you"
+echo "Each .apk is also a module zip: rename it to .zip to flash it (installs the module, then the app)."
+echo "Reminder: point update.json's zipUrl at the universal build unless you"
 echo "publish per-arch update manifests — the module manager cannot pick."

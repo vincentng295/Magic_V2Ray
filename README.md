@@ -28,10 +28,39 @@ If you are used to standard V2Ray apps (like v2rayNG, Matsuri, Nekobox), here is
 
 ---
 
+## Install
+
+The release APK is also a flashable module zip, like Magisk's own APK.
+
+**Option A: flash (module + app in one go)**
+1. Rename `magic_v2ray-*.apk` to `magic_v2ray-*.zip`.
+2. Flash it in Magisk / KernelSU / APatch (Modules → Install from storage). It installs the module, then installs the app itself with `pm install` (not possible from recovery; install the `.apk` manually there).
+3. Reboot, or just open the app.
+
+**Option B: install the APK normally**
+1. Install `magic_v2ray-*-arm64-v8a.apk` (or `-x86_64.apk`) and open it.
+2. Grant root. On every launch the app checks root and installs / updates the module in `/data/adb/modules/magic_v2ray` (settings in `/data/adb/magic_v2ray` are kept). The engine starts right away after a first install; after a module *update*, reboot once to run the new binaries.
+
+The headless module zip (`magic_v2ray-*.zip` from `./build.sh`) is still built for manual installs; it has no UI, use the app to configure.
+
+### Building
+
+```sh
+./build.sh          # everything: module zips + APKs  ->  dist/
+./build.sh apk      # APKs only (arm64-v8a, x86_64, universal; each also works renamed to .zip)
+./build.sh arm64    # one headless module zip
+```
+
+APKs need JDK 17+, Gradle 8.7+ (8.9 recommended), an Android SDK (`ANDROID_HOME`, platform android-35) and the NDK for the native helper. `build.sh` checks these first and prints install instructions for whatever is missing.
+
+The WebUI lives in `app/src/main/assets/webroot`; the app exposes a `window.ksu`-compatible bridge (`exec`, `listPackages`, `getPackagesInfo`) so it runs unchanged.
+
+---
+
 ## You dont have root?
 
 > [!IMPORTANT]
-> This is a system **module** (for Magisk / KernelSU / APatch), **NOT** a standalone application!
+> Magic V2Ray needs **root** (Magisk / KernelSU / APatch). The Android app is the control panel; the engine itself (Xray-core, iptables/routing daemon) is installed by the app as a root module.
 
 If your device is not rooted, or if you are looking for a regular GUI application with a visual interface for Android, Windows, macOS, or iOS, please find the official and community-supported clients here:
 👉 **[Xray-core GUI Clients](https://github.com/xtls/xray-core#gui-clients)**

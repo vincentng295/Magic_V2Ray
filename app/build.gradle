@@ -1,0 +1,131 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Version comes from the module's own module.prop so the APK and the module
+// payload it installs can never disagree.
+def modProp = { String key ->
+    def m = file("$rootDir/module.prop").text =~ /(?m)^${key}=(.*)$/
+    return m.find() ? m.group(1).trim() : null
+}
+
+def genRes = layout.buildDirectory.dir("generated/module-res").get().asFile
+
+android {
+    namespace 'com.huskydg.magicv2ray'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.huskydg.magicv2ray'
+        minSdk 26
+        targetSdk 34
+        versionCode modProp('versionCode').toInteger()
+        versionName modProp('version').split(' & ')[0]
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // xray / xhuskydg_helper / curl ship as libxray.so etc. in jniLibs. They are
+    // real executables, not JNI libraries: keep them byte-for-byte (no strip) and
+    // have the package manager extract them so root can copy them out.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+            keepDebugSymbols += ['**/*.so']
+        }
+    }
+
+    splits {
+        abi {
+            enable true
+            reset()
+            include 'arm64-v8a', 'x86_64'
+            universalApk true
+        }
+    }
+
+    signingConfigs {
+        release {
+            def ks = System.getenv('MV_KEYSTORE')
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv('MV_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('MV_KEY_ALIAS')
+                keyPassword System.getenv('MV_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            // Without a release keystore, sign with the debug key so the APK installs.
+            signingConfig System.getenv('MV_KEYSTORE') ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    sourceSets {
+        main {
+            // Java resources land at the root of the APK. That is where the module
+            // installer files live, which is what lets the APK be flashed as a zip.
+            resources.srcDir genRes
+        }
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+}
+
+// The APK doubles as a flashable module zip (rename .apk -> .zip). Magisk,
+// KernelSU and APatch look for these at the zip root, so they are packaged as Java
+// resources, straight from the repo root (single source of truth for the module):
+//   META-INF/com/google/android/{update-binary,updater-script}, customize.sh,
+//   module.prop, service.sh, proxy_control.sh, uninstall.sh, action.sh,
+//   bin/geoip.dat, bin/geosite.dat
+// The executables are the lib/<abi>/lib*.so entries (see jniLibs below).
+tasks.register('stageModuleAssets', Sync) {
+    into genRes
+    from(rootDir) {
+        include 'customize.sh', 'service.sh', 'proxy_control.sh', 'uninstall.sh', 'action.sh', 'module.prop'
+    }
+    from("$rootDir/META-INF") {
+        include 'com/google/android/update-binary', 'com/google/android/updater-script'
+        into 'META-INF'
+    }
+    from("$rootDir/bin") {
+        include 'geoip.dat', 'geosite.dat'
+        into 'bin'
+    }
+}
+
+// The native binaries are produced by ./build.sh apk (downloads Xray-core, builds
+// xhuskydg_helper with the NDK). Fail early with a clear message if they are absent.
+tasks.register('checkNativeLibs') {
+    doFirst {
+        def missing = []
+        ['arm64-v8a', 'x86_64'].each { abi ->
+            ['libxray.so', 'libxhuskydg_helper.so', 'libcurl.so'].each { lib ->
+                if (!file("src/main/jniLibs/$abi/$lib").isFile()) missing << "$abi/$lib"
+            }
+        }
+        if (missing) {
+            throw new GradleException("Missing native binaries in app/src/main/jniLibs: ${missing.join(', ')}\n" +
+                    "Run ./build.sh apk first.")
+        }
+        ['geoip.dat', 'geosite.dat'].each { f ->
+            if (!file("$rootDir/bin/$f").isFile()) throw new GradleException("Missing bin/$f")
+        }
+    }
+}
+
+tasks.matching { it.name == 'preBuild' }.configureEach {
+    dependsOn 'stageModuleAssets', 'checkNativeLibs'
+}
+tasks.matching { (it.name.startsWith('merge') && (it.name.endsWith('Assets') || it.name.endsWith('JavaResource'))) || (it.name.startsWith('process') && it.name.endsWith('JavaRes')) }.configureEach {
+    dependsOn 'stageModuleAssets'
+}

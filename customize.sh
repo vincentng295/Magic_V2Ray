@@ -13,31 +13,42 @@ ui_print "- Detected Architecture: $ARCH"
 #    block is the module's complete file manifest.
 # ---------------------------------------------------------------------------
 mkdir -p "$MODPATH/bin"
-mkdir -p "$MODPATH/webroot"
 
 case "$ARCH" in
-    arm64)
-        ui_print "- Extracting Xray-core for arm64-v8a..."
-        unzip -j -o "$ZIPFILE" "bin/arm64-v8a/*" -d "$MODPATH/bin" >&2 || abort "! Failed to extract arm64 binaries"
-        ;;
-    x64)
-        ui_print "- Extracting Xray-core for Android-x86_64..."
-        unzip -j -o "$ZIPFILE" "bin/x86_64/*" -d "$MODPATH/bin" >&2 || abort "! Failed to extract x86_64 binaries"
-        ;;
+    arm64) ABI=arm64-v8a ;;
+    x64)   ABI=x86_64 ;;
     *)
         ui_print "! Unsupported CPU architecture: $ARCH"
         abort "! This module supports arm64-v8a and x86_64 only."
         ;;
 esac
 
+# This file is shipped in two layouts:
+#   * the Magic V2Ray APK (flash it renamed to .zip): executables are the app's
+#     native libs, lib/<abi>/lib{xray,xhuskydg_helper,curl}.so
+#   * the headless module zip from build.sh: bin/<abi>/{xray,xhuskydg_helper,curl}
+if unzip -l "$ZIPFILE" 2>/dev/null | grep -q "lib/$ABI/libxray.so"; then
+    ui_print "- Extracting Xray-core for $ABI (from APK)..."
+    LIBTMP="${TMPDIR:-/data/local/tmp}/mv_lib"
+    rm -rf "$LIBTMP"; mkdir -p "$LIBTMP"
+    unzip -j -o "$ZIPFILE" "lib/$ABI/libxray.so" "lib/$ABI/libxhuskydg_helper.so" "lib/$ABI/libcurl.so" \
+        -d "$LIBTMP" >&2 || abort "! Failed to extract $ABI binaries"
+    mv -f "$LIBTMP/libxray.so"            "$MODPATH/bin/xray"
+    mv -f "$LIBTMP/libxhuskydg_helper.so" "$MODPATH/bin/xhuskydg_helper"
+    mv -f "$LIBTMP/libcurl.so"            "$MODPATH/bin/curl"
+    rm -rf "$LIBTMP"
+else
+    ui_print "- Extracting Xray-core for $ABI..."
+    unzip -j -o "$ZIPFILE" "bin/$ABI/*" -d "$MODPATH/bin" >&2 || abort "! Failed to extract $ABI binaries"
+fi
+
 # ---------------------------------------------------------------------------
-# 2. Extract scripts, Web UI and routing databases.
+# 2. Extract scripts and routing databases. (The Web UI is the Magic V2Ray app.)
 #    uninstall.sh MUST be in this list — it was previously omitted, so the
 #    root solution never found it and user credentials in $DATADIR survived
 #    module removal indefinitely.
 # ---------------------------------------------------------------------------
-ui_print "- Extracting management scripts and Webroot components..."
-unzip -o  "$ZIPFILE" "webroot/*"      -d "$MODPATH/"   >&2 || abort "! Failed to extract webroot"
+ui_print "- Extracting management scripts..."
 unzip -j -o "$ZIPFILE" "proxy_control.sh" -d "$MODPATH" >&2 || abort "! Failed to extract proxy_control.sh"
 unzip -j -o "$ZIPFILE" "service.sh"       -d "$MODPATH" >&2 || abort "! Failed to extract service.sh"
 unzip -j -o "$ZIPFILE" "uninstall.sh"     -d "$MODPATH" >&2 || abort "! Failed to extract uninstall.sh"
@@ -53,7 +64,7 @@ unzip -j -o "$ZIPFILE" "module.prop"      -d "$MODPATH" >&2 || abort "! Failed t
 # ---------------------------------------------------------------------------
 ui_print "- Verifying payload..."
 for f in bin/xray bin/xhuskydg_helper bin/curl bin/geoip.dat bin/geosite.dat \
-         service.sh proxy_control.sh uninstall.sh action.sh webroot/index.html; do
+         service.sh proxy_control.sh uninstall.sh action.sh; do
     [ -s "$MODPATH/$f" ] || abort "! Missing or empty after extraction: $f"
 done
 
@@ -88,8 +99,32 @@ for f in profiles.base64 settings.base64 active_config.txt config.json ip_hunt.l
     [ -f "$DATADIR/$f" ] && set_perm "$DATADIR/$f" 0 0 0600
 done
 
+# ---------------------------------------------------------------------------
+# 6. Install the app too, when this zip is the APK itself (magic_v2ray.apk
+#    renamed to .zip). Best effort: the module is already installed, and the app
+#    also (re)installs/updates it on first launch.
+# ---------------------------------------------------------------------------
+if unzip -l "$ZIPFILE" 2>/dev/null | grep -q "AndroidManifest.xml"; then
+    if command -v pm >/dev/null 2>&1; then
+        ui_print "- Installing the Magic V2Ray app..."
+        TMPAPK="/data/local/tmp/magic_v2ray_install.apk"
+        if cp -f "$ZIPFILE" "$TMPAPK" && chmod 644 "$TMPAPK"; then
+            PMOUT="$(pm install -r "$TMPAPK" 2>&1)"
+            case "$PMOUT" in
+                *Success*) ui_print "  App installed." ;;
+                *) ui_print "! App install failed: $PMOUT"
+                   ui_print "  Install the .apk manually (rename back to .apk)." ;;
+            esac
+        else
+            ui_print "! Could not stage the APK for installation."
+        fi
+        rm -f "$TMPAPK"
+    else
+        ui_print "! 'pm' not available here (recovery?). Install the .apk manually."
+    fi
+fi
+
 ui_print " "
 ui_print "  Magic V2Ray installed."
-ui_print "  Open the module's WebUI to configure."
-ui_print "  Magisk users need KsuWebUIStandalone to open it."
+ui_print "  Open the Magic V2Ray app to configure."
 ui_print " "

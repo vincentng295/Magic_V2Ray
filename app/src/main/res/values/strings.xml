@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Magic V2Ray</string>
+    <string name="setup_checking_root">Checking root access…</string>
+    <string name="setup_checking_module">Checking the Magic V2Ray module…</string>
+    <string name="setup_installing">Installing the module to /data/adb/modules/magic_v2ray…</string>
+    <string name="setup_starting">Starting the service…</string>
+    <string name="err_no_root">Root access is required.\n\nGrant superuser permission to Magic V2Ray in Magisk, KernelSU or APatch, then tap Retry.</string>
+    <string name="err_install">Could not install the module.</string>
+    <string name="reboot_hint">Module updated. Reboot to run the new engine.</string>
+    <string name="retry">Retry</string>
+    <string name="exit">Exit</string>
+</resources>

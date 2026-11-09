@@ -76,7 +76,7 @@ jobs:
 
       - name: Syntax check
         run: |
-          for f in webroot/*.js; do
+          for f in app/src/main/assets/webroot/*.js; do
             echo "== $f"
             node --check "$f"
           done
@@ -97,20 +97,20 @@ jobs:
         run: |
           set -e
           fail=0
-          if grep -nE "execShell\(\`[^\`]*\\\$\{(xrayConfig|config_json|newUri|rawUri|url|category|escapedUrl)\}" webroot/*.js; then
+          if grep -nE "execShell\(\`[^\`]*\\\$\{(xrayConfig|config_json|newUri|rawUri|url|category|escapedUrl)\}" app/src/main/assets/webroot/*.js; then
             echo "::error::untrusted value interpolated into a shell command"
             fail=1
           fi
-          if grep -nE "^\s*execShell\(\`echo '" webroot/*.js; then
+          if grep -nE "^\s*execShell\(\`echo '" app/src/main/assets/webroot/*.js; then
             echo "::error::use writeFileB64() instead of echo '...' > file"
             fail=1
           fi
           # Match calls/definitions, not prose that mentions the old helper.
-          if grep -nE "escapeAttr[[:space:]]*\(" webroot/*.js | grep -vE ":[[:space:]]*(//|\*)"; then
+          if grep -nE "escapeAttr[[:space:]]*\(" app/src/main/assets/webroot/*.js | grep -vE ":[[:space:]]*(//|\*)"; then
             echo "::error::escapeAttr was removed; do not build event handlers as strings"
             fail=1
           fi
-          if grep -nE "curl[^\"'\`]*[[:space:]]-[a-zA-Z]*k" webroot/*.js | grep -v "allowInsecure"; then
+          if grep -nE "curl[^\"'\`]*[[:space:]]-[a-zA-Z]*k" app/src/main/assets/webroot/*.js | grep -v "allowInsecure"; then
             echo "::error::unconditional 'curl -k' reintroduced"
             fail=1
           fi
@@ -145,7 +145,7 @@ jobs:
           set -e
           fail=0
           for f in $(grep -oE '"[a-zA-Z0-9_./*-]+"' customize.sh \
-                     | tr -d '"' | grep -E '^(webroot|bin|[a-z_]+\.sh|module\.prop)' \
+                     | tr -d '"' | grep -E '^(bin|[a-z_]+\.sh|module\.prop)' \
                      | sed 's|/\*$||' | sort -u); do
             if [ ! -e "$f" ]; then echo "::error::customize.sh extracts '$f' which is not in the repo"; fail=1; fi
           done
@@ -166,14 +166,17 @@ jobs:
             || { echo "::error::updateJson must use https"; exit 1; }
 
   build:
-    name: Build & Upload Module Zips
+    name: Build & Upload APKs
     runs-on: ubuntu-latest
     needs: [shell, native, webui, python-tests, manifest]
     steps:
       - uses: actions/checkout@v4
 
+      # build.sh needs bash, curl and unzip (fetching xray, verifying the APKs).
+      # All ship on ubuntu-latest; installed explicitly so a runner image
+      # change can't silently break the build.
       - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y zip bash
+        run: sudo apt-get update && sudo apt-get install -y unzip curl bash
 
       # build.sh compiles native/ with the Android NDK. GitHub's ubuntu image
       # ships one and exports ANDROID_NDK_HOME; fail early if that ever changes.
@@ -185,7 +188,7 @@ jobs:
           echo "ANDROID_NDK_HOME=$ndk" >> "$GITHUB_ENV"
 
       # Prerelease builds get "x-alpha-build-<8-char commit hash> & Xray-core@vX"
-      # so the zip filename and the module.prop shipped inside it identify the
+      # so the APK filename and the module.prop shipped inside it identify the
       # exact commit. The Xray-core part is kept from module.prop (build.sh
       # parses it to decide which xray binary to download). Stable builds
       # keep module.prop's version untouched.
@@ -199,30 +202,87 @@ jobs:
           sed -i "s|^version=.*|version=x-alpha-build-${GITHUB_SHA::8} \& ${xray}|" module.prop
           grep '^version=' module.prop
 
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # setup-gradle caches ~/.gradle (dependencies, wrapper, build cache).
+      # By default only the default branch writes the cache; main and alpha
+      # both write it here, PRs and other branches only read it.
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+          cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/alpha' }}
+
+      # build.sh already skips the xray download and the helper build when the
+      # binaries in bin/<arch>/ match their .version stamps, so restoring those
+      # files is all that is needed. The key uses the Xray-core version and the
+      # native/ sources, not module.prop as a whole: alpha builds stamp the
+      # version= line with the commit hash, which would change the key every run.
+      - name: Get Xray-core version
+        id: xrayver
+        run: |
+          v=$(sed -n 's/^version=.*Xray-core@\(v[0-9.]*\).*/\1/p' module.prop | head -n 1)
+          [ -n "$v" ] || { echo "::error::could not parse Xray-core version from module.prop"; exit 1; }
+          echo "v=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Cache xray + helper binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            bin/*/xray
+            bin/*/xray.version
+            bin/*/xhuskydg_helper
+            bin/*/xhuskydg_helper.version
+          key: bins-${{ steps.xrayver.outputs.v }}-${{ hashFiles('native/**') }}
+          restore-keys: |
+            bins-${{ steps.xrayver.outputs.v }}-
+
+      # GitHub secrets only hold text, so the keystore is stored base64-encoded
+      # in MV_KEYSTORE_BASE64 and decoded to a temp file for build.sh.
+      - name: Decode keystore
+        env:
+          MV_KEYSTORE_BASE64: ${{ secrets.MV_KEYSTORE_BASE64 }}
+        run: |
+          set -e
+          [ -n "$MV_KEYSTORE_BASE64" ] || { echo "::error::secret MV_KEYSTORE_BASE64 is not set"; exit 1; }
+          echo "$MV_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+      # APKs only (build.sh checks each one doubles as a flashable module zip).
       - name: Run release packager
+        env:
+          MV_KEYSTORE: ${{ runner.temp }}/release.jks
+          MV_KEYSTORE_PASSWORD: ${{ secrets.MV_KEYSTORE_PASSWORD }}
+          MV_KEY_ALIAS: ${{ secrets.MV_KEY_ALIAS }}
+          MV_KEY_PASSWORD: ${{ secrets.MV_KEY_PASSWORD }}
         run: |
           chmod +x build.sh
           ./build.sh
+
+      - name: Remove keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks"
 
       - name: Upload arm64-v8a artifact
         uses: actions/upload-artifact@v4
         with:
           name: magic_v2ray-arm64-v8a
-          path: dist/*-arm64-v8a.zip
+          path: dist/*-arm64-v8a.apk
           if-no-files-found: error
 
       - name: Upload x86_64 artifact
         uses: actions/upload-artifact@v4
         with:
           name: magic_v2ray-x86_64
-          path: dist/*-x86_64.zip
+          path: dist/*-x86_64.apk
           if-no-files-found: error
 
       - name: Upload universal artifact
         uses: actions/upload-artifact@v4
         with:
           name: magic_v2ray-universal
-          path: dist/*-universal.zip
+          path: dist/*-universal.apk
           if-no-files-found: error
 
   release:
@@ -237,12 +297,22 @@ jobs:
       steps:
         - uses: actions/checkout@v4
 
-        - name: Download all module zips
+        - name: Download all APKs
           uses: actions/download-artifact@v4
           with:
             path: dist
             pattern: magic_v2ray-*
             merge-multiple: true
+
+        # An APK is also a module zip. Publish a .zip copy next to each APK so
+        # the root manager / update.json can flash it without renaming.
+        - name: Add flashable .zip copies
+          run: |
+            set -e
+            for f in dist/*.apk; do
+              cp -f "$f" "${f%.apk}.zip"
+            done
+            ls -la dist
 
         - name: Derive tag and release name from module.prop
           id: ver
@@ -264,7 +334,9 @@ jobs:
             tag_name: ${{ steps.ver.outputs.tag }}
             name: ${{ steps.ver.outputs.release_name }}
             body_path: CHANGELOG.md
-            files: dist/*.zip
+            fail_on_unmatched_files: true
+            files: |
+              dist/*.apk
 
   release_alpha:
       name: Publish Alpha Pre-release
@@ -280,12 +352,22 @@ jobs:
             # below — a shallow clone wouldn't contain main's commits.
             fetch-depth: 0
 
-        - name: Download all module zips
+        - name: Download all APKs
           uses: actions/download-artifact@v4
           with:
             path: dist
             pattern: magic_v2ray-*
             merge-multiple: true
+
+        # An APK is also a module zip. Publish a .zip copy next to each APK so
+        # the root manager can flash it without renaming.
+        - name: Add flashable .zip copies
+          run: |
+            set -e
+            for f in dist/*.apk; do
+              cp -f "$f" "${f%.apk}.zip"
+            done
+            ls -la dist
 
         - name: Derive prerelease name
           id: ver
@@ -327,4 +409,6 @@ jobs:
             target_commitish: ${{ github.sha }}
             body: ${{ steps.log.outputs.notes }}
             prerelease: true
-            files: dist/*.zip
+            fail_on_unmatched_files: true
+            files: |
+              dist/*.apk

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Magic V2Ray</string>
+    <string name="setup_checking_root">Đang kiểm tra quyền root…</string>
+    <string name="setup_checking_module">Đang kiểm tra module Magic V2Ray…</string>
+    <string name="setup_installing">Đang cài module vào /data/adb/modules/magic_v2ray…</string>
+    <string name="setup_starting">Đang khởi động dịch vụ…</string>
+    <string name="err_no_root">Cần quyền root.\n\nHãy cấp quyền superuser cho Magic V2Ray trong Magisk, KernelSU hoặc APatch rồi nhấn Thử lại.</string>
+    <string name="err_install">Không cài được module.</string>
+    <string name="reboot_hint">Module đã được cập nhật. Khởi động lại máy để chạy engine mới.</string>
+    <string name="retry">Thử lại</string>
+    <string name="exit">Thoát</string>
+</resources>
