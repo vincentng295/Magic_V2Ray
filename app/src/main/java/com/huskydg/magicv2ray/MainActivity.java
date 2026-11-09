@@ -13,7 +13,7 @@ import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.util.LruCache;
-import android.view.Gravity;
+import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.JsPromptResult;
@@ -28,7 +28,7 @@ import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
-import android.widget.LinearLayout;
+import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -58,9 +58,14 @@ public class MainActivity extends Activity {
     private final LruCache<String, byte[]> icons = new LruCache<>(400);
 
     private FrameLayout root;
-    private LinearLayout setupView;
+    private View welcomeView;
+    private View setupView;
     private ProgressBar progress;
     private TextView status;
+    private TextView title;
+    private View logo;
+    private View errorIcon;
+    private View actions;
     private Button retryBtn;
     private Button exitBtn;
     private Button nonRootBtn;
@@ -72,78 +77,103 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
-        buildSetupView();
-        startSetup();
+        buildSetupViews();
+        if (RunMode.get(this) == null) {
+            showWelcome();          // first launch: let the user pick root / VPN
+        } else {
+            startSetup();
+        }
     }
 
-    // ------------------------------------------------------------ setup screen
+    // ------------------------------------------------------------ setup screens
 
-    private void buildSetupView() {
+    private void buildSetupViews() {
         root = new FrameLayout(this);
         root.setBackgroundColor(BG);
+        LayoutInflater inflater = LayoutInflater.from(this);
 
-        setupView = new LinearLayout(this);
-        setupView.setOrientation(LinearLayout.VERTICAL);
-        setupView.setGravity(Gravity.CENTER);
-        int pad = dp(32);
-        setupView.setPadding(pad, pad, pad, pad);
+        // Welcome page: two cards, root and VPN (layout after AdAway's welcome page).
+        welcomeView = inflater.inflate(R.layout.view_welcome, root, false);
+        fillFeatures(welcomeView.findViewById(R.id.features_root), inflater,
+                new int[]{R.string.feat_faster, R.string.feat_battery, R.string.feat_needs_root},
+                new boolean[]{true, true, false});
+        fillFeatures(welcomeView.findViewById(R.id.features_vpn), inflater,
+                new int[]{R.string.feat_slower, R.string.feat_background, R.string.feat_compatible},
+                new boolean[]{false, false, true});
+        welcomeView.findViewById(R.id.card_root).setOnClickListener(v -> {
+            // The mode is stored once root is confirmed (see startSetup), so a failed
+            // root check never leaves the app locked to a mode that cannot run.
+            startSetup();
+        });
+        welcomeView.findViewById(R.id.card_vpn).setOnClickListener(v -> {
+            RunMode.set(this, RunMode.NONROOT);
+            startSetup();
+        });
+        welcomeView.setVisibility(View.GONE);
+        root.addView(welcomeView, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        progress = new ProgressBar(this);
-        progress.setIndeterminate(true);
-        setupView.addView(progress, new LinearLayout.LayoutParams(dp(48), dp(48)));
-
-        status = new TextView(this);
-        status.setTextColor(FG);
-        status.setTextSize(16);
-        status.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        tp.topMargin = dp(24);
-        setupView.addView(status, tp);
-
-        retryBtn = new Button(this);
-        retryBtn.setText(R.string.retry);
-        retryBtn.setVisibility(View.GONE);
+        // Progress / error page.
+        setupView = inflater.inflate(R.layout.view_setup, root, false);
+        logo = setupView.findViewById(R.id.setup_logo);
+        errorIcon = setupView.findViewById(R.id.setup_error_icon);
+        title = setupView.findViewById(R.id.setup_title);
+        progress = setupView.findViewById(R.id.setup_progress);
+        status = setupView.findViewById(R.id.setup_status);
+        actions = setupView.findViewById(R.id.setup_actions);
+        retryBtn = setupView.findViewById(R.id.btn_retry);
+        nonRootBtn = setupView.findViewById(R.id.btn_nonroot);
+        exitBtn = setupView.findViewById(R.id.btn_exit);
         retryBtn.setOnClickListener(v -> startSetup());
-        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        bp.topMargin = dp(24);
-        setupView.addView(retryBtn, bp);
-
-        nonRootBtn = new Button(this);
-        nonRootBtn.setText(R.string.use_nonroot);
-        nonRootBtn.setVisibility(View.GONE);
         nonRootBtn.setOnClickListener(v -> {
             RunMode.set(this, RunMode.NONROOT);
             startSetup();
         });
-        setupView.addView(nonRootBtn, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        exitBtn = new Button(this);
-        exitBtn.setText(R.string.exit);
-        exitBtn.setVisibility(View.GONE);
         exitBtn.setOnClickListener(v -> finish());
-        setupView.addView(exitBtn, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
+        setupView.setVisibility(View.GONE);
         root.addView(setupView, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
         setContentView(root);
     }
 
+    /** Adds one "+ / -" row per entry to a mode card. */
+    private static void fillFeatures(ViewGroup parent, LayoutInflater inflater, int[] texts, boolean[] positive) {
+        for (int i = 0; i < texts.length; i++) {
+            View row = inflater.inflate(R.layout.item_feature, parent, false);
+            ((ImageView) row.findViewById(R.id.feature_icon))
+                    .setImageResource(positive[i] ? R.drawable.ic_feat_plus : R.drawable.ic_feat_minus);
+            ((TextView) row.findViewById(R.id.feature_text)).setText(texts[i]);
+            parent.addView(row);
+        }
+    }
+
+    private void showWelcome() {
+        setupView.setVisibility(View.GONE);
+        welcomeView.setVisibility(View.VISIBLE);
+    }
+
     private void showBusy(int msgRes) {
+        welcomeView.setVisibility(View.GONE);
+        setupView.setVisibility(View.VISIBLE);
+        logo.setVisibility(View.VISIBLE);
+        errorIcon.setVisibility(View.GONE);
+        title.setVisibility(View.GONE);
         progress.setVisibility(View.VISIBLE);
-        retryBtn.setVisibility(View.GONE);
+        actions.setVisibility(View.GONE);
         nonRootBtn.setVisibility(View.GONE);
-        exitBtn.setVisibility(View.GONE);
         status.setText(msgRes);
     }
 
-    private void showError(CharSequence msg) {
+    private void showError(int titleRes, CharSequence msg) {
+        welcomeView.setVisibility(View.GONE);
+        setupView.setVisibility(View.VISIBLE);
+        logo.setVisibility(View.GONE);
+        errorIcon.setVisibility(View.VISIBLE);
+        title.setText(titleRes);
+        title.setVisibility(View.VISIBLE);
         progress.setVisibility(View.GONE);
-        retryBtn.setVisibility(View.VISIBLE);
-        exitBtn.setVisibility(View.VISIBLE);
+        actions.setVisibility(View.VISIBLE);
         status.setText(msg);
     }
 
@@ -168,11 +198,11 @@ public class MainActivity extends Activity {
                         showWebUi();
                         break;
                     case NO_ROOT:
-                        showError(getString(R.string.err_no_root));
+                        showError(R.string.err_no_root_title, getString(R.string.err_no_root_body));
                         nonRootBtn.setVisibility(View.VISIBLE);     // no root: offer the VpnService mode
                         break;
                     default:
-                        showError(getString(R.string.err_install) + "\n\n" + o.detail);
+                        showError(R.string.err_install_title, getString(R.string.err_install) + "\n\n" + o.detail);
                         break;
                 }
             });
@@ -195,7 +225,7 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 if (isFinishing()) return;
                 if (e == null) showWebUi();
-                else showError(getString(R.string.err_install) + "\n\n" + e);
+                else showError(R.string.err_install_title, getString(R.string.err_install) + "\n\n" + e);
             });
         }, "mv-setup-nonroot").start();
     }
@@ -212,6 +242,7 @@ public class MainActivity extends Activity {
             web.loadUrl(START_URL);
         }
         setupView.setVisibility(View.GONE);
+        welcomeView.setVisibility(View.GONE);
     }
 
     private void configureWebView(WebView w) {

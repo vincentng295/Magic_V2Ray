@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Material 3 dark tokens, same as the WebUI (assets/webroot/style.css). -->
+    <color name="mv_bg">#141218</color>
+    <color name="mv_surface_container">#2B2930</color>
+    <color name="mv_surface_container_high">#36343B</color>
+    <color name="mv_on_surface">#E6E0E9</color>
+    <color name="mv_on_surface_variant">#CAC4D0</color>
+    <color name="mv_primary">#D0BCFF</color>
+    <color name="mv_on_primary">#381E72</color>
+    <color name="mv_primary_container">#4F378B</color>
+    <color name="mv_on_primary_container">#EADDFF</color>
+    <color name="mv_secondary_container">#4A4458</color>
+    <color name="mv_on_secondary_container">#E8DEF8</color>
+    <color name="mv_positive">#A8DAB5</color>
+    <color name="mv_negative">#F2B8B5</color>
+    <color name="mv_error">#F2B8B5</color>
+    <color name="mv_error_container">#8C1D18</color>
+    <color name="mv_ripple">#33D0BCFF</color>
+</resources>

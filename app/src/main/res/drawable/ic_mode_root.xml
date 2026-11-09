@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- "#" : superuser prompt -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="56dp"
+    android:height="56dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:strokeColor="@color/mv_primary"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:pathData="M9.5,3.5 L7.5,20.5 M16.5,3.5 L14.5,20.5 M4.5,8.5 L20,8.5 M4,15.5 L19.5,15.5" />
+</vector>
