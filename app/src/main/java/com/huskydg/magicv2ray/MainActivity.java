@@ -192,6 +192,7 @@ public class MainActivity extends Activity {
                 switch (o.status) {
                     case OK:
                         if (RunMode.get(this) == null) RunMode.set(this, RunMode.ROOT);
+                        OomGuard.start(getApplicationContext());
                         if (o.rebootRecommended) {
                             Toast.makeText(this, R.string.reboot_hint, Toast.LENGTH_LONG).show();
                         }

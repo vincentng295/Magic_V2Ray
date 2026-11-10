@@ -95,6 +95,7 @@ final class ProxyNotifier {
     static void showRoot(Context c, boolean running) {
         NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm == null) return;
+        OomGuard.start(c);          // root mode: keep this process (and its notification) alive
         try {
             if (running) {
                 ensureChannel(c);
