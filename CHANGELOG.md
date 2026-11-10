@@ -1,3 +1,7 @@
+# Magic V2Ray v2.0.2 Release Notes
+
+Ask users to disable battery optimization
+
 # Magic V2Ray v2.0.1 Release Notes
 
 Introduces system notifications and direct proxy controls to keep users informed and in control of their connection. A persistent notification now displays the active proxy status along with the currently selected node name, allowing users to stop the proxy engine with a single tap directly from the notification bar.
