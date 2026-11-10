@@ -53,6 +53,7 @@ public class CoreTileService extends TileService {
                 // "no config": nothing selected yet, let the user pick a node in the app.
                 boolean needApp = !turnOff && !r.ok();
                 State s = query();
+                notifyRoot(s);
                 main.post(() -> {
                     show(s, null);
                     if (needApp && s != State.ON) openApp();
@@ -63,11 +64,18 @@ public class CoreTileService extends TileService {
         }, "mv-tile").start();
     }
 
+    /** Root mode has no service of its own: keep the status notification in step with the tile. */
+    private void notifyRoot(State s) {
+        if (RunMode.isNonRoot(this) || s == State.UNAVAILABLE) return;
+        ProxyNotifier.showRoot(getApplicationContext(), s == State.ON);
+    }
+
     private void refresh() {
         if (busy.get()) return;
         new Thread(() -> {
             RootShell.init(getApplicationContext());
             State s = query();
+            notifyRoot(s);
             main.post(() -> {
                 if (!busy.get()) show(s, null);
             });

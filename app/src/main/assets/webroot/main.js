@@ -664,6 +664,12 @@ function updateStatusDisplay() {
             errno === 0 ? getActiveNodeLabel() : ''
         );
         badge.className = `status-badge ${errno === 0 ? 'active' : 'inactive'}`;
+        // Tell the APK host, which shows the "proxy active" notification with the node name.
+        try {
+            if (window.ksu && typeof window.ksu.syncStatus === 'function') {
+                window.ksu.syncStatus(errno === 0, getActiveNodeLabel());
+            }
+        } catch (e) { /* not running inside the APK */ }
         // A previously fetched IP may no longer be valid after a
         // start/stop/node switch.
         _clearStatusIp();

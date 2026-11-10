@@ -30,7 +30,11 @@
     <string name="err_no_root_title">Cần quyền root</string>
     <string name="err_no_root_body">Hãy cấp quyền superuser cho Magic V2Ray trong Magisk, KernelSU hoặc APatch rồi nhấn Thử lại.</string>
     <string name="err_install_title">Cài đặt thất bại</string>
-    <string name="vpn_channel">Trạng thái VPN</string>
+    <string name="vpn_channel">Trạng thái proxy</string>
+    <string name="notif_title_on">Proxy đang hoạt động</string>
+    <string name="notif_title_paused">Proxy tạm nghỉ</string>
+    <string name="notif_node">Node: %1$s</string>
+    <string name="notif_stop">Tắt proxy</string>
     <string name="vpn_notif_text">Xray đang chạy (VpnService)</string>
     <string name="vpn_notif_paused">VPN vẫn kết nối, proxy tạm nghỉ trên mạng này</string>
 </resources>

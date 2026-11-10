@@ -49,6 +49,11 @@
                 android:value="vpn" />
         </service>
 
+        <!-- "Turn off proxy" button of the status notification. -->
+        <receiver
+            android:name=".StopProxyReceiver"
+            android:exported="false" />
+
         <!-- Quick Settings tile: tap toggles the core, long-press opens the app. -->
         <service
             android:name=".CoreTileService"

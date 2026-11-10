@@ -30,7 +30,11 @@
     <string name="err_no_root_title">Root access required</string>
     <string name="err_no_root_body">Grant superuser permission to Magic V2Ray in Magisk, KernelSU or APatch, then tap Retry.</string>
     <string name="err_install_title">Setup failed</string>
-    <string name="vpn_channel">VPN status</string>
+    <string name="vpn_channel">Proxy status</string>
+    <string name="notif_title_on">Proxy is active</string>
+    <string name="notif_title_paused">Proxy paused</string>
+    <string name="notif_node">Node: %1$s</string>
+    <string name="notif_stop">Turn off proxy</string>
     <string name="vpn_notif_text">Xray is running (VpnService)</string>
     <string name="vpn_notif_paused">VPN connected, proxy paused on this network</string>
 </resources>

@@ -55,8 +55,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class MagicVpnService extends VpnService {
 
     static final String ACTION_START = "com.huskydg.magicv2ray.VPN_START";
-    private static final String CHANNEL = "mv_vpn";
-    private static final int NOTIF_ID = 1;
 
     private final Object lock = new Object();
     private ParcelFileDescriptor tun;
@@ -522,36 +520,23 @@ public class MagicVpnService extends VpnService {
     // ------------------------------------------------------------- notification
 
     private void showForeground() {
-        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-        if (Build.VERSION.SDK_INT >= 26 && nm != null) {
-            nm.createNotificationChannel(new NotificationChannel(
-                    CHANNEL, getString(R.string.vpn_channel), NotificationManager.IMPORTANCE_LOW));
-        }
-        Notification n = buildNotification();
+        ProxyNotifier.ensureChannel(this);
+        Notification n = ProxyNotifier.build(this, standby);
         if (Build.VERSION.SDK_INT >= 34) {
-            startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+            startForeground(ProxyNotifier.NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
         } else {
-            startForeground(NOTIF_ID, n);
+            startForeground(ProxyNotifier.NOTIF_ID, n);
         }
     }
 
     /** Swaps the notification text when the proxy pauses / resumes with the network. */
     private void refreshNotification() {
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-        if (nm != null) nm.notify(NOTIF_ID, buildNotification());
+        if (nm != null) nm.notify(ProxyNotifier.NOTIF_ID, ProxyNotifier.build(this, standby));
     }
 
-    private Notification buildNotification() {
-        PendingIntent open = PendingIntent.getActivity(this, 0,
-                new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                PendingIntent.FLAG_IMMUTABLE);
-        Notification.Builder nb = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, CHANNEL)
-                : new Notification.Builder(this);
-        return nb.setContentTitle(getString(R.string.app_name))
-                .setContentText(getString(standby ? R.string.vpn_notif_paused : R.string.vpn_notif_text))
-                .setSmallIcon(R.drawable.ic_tile)
-                .setContentIntent(open)
-                .setOngoing(true)
-                .build();
+    /** The WebUI selected another node: show its name (only while the engine is up). */
+    void updateNode() {
+        if (VpnController.svc == this && !closing && engineUp()) refreshNotification();
     }
 }

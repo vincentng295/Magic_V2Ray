@@ -263,4 +263,20 @@ final class KsuBridge {
             }
         });
     }
+
+    /**
+     * The WebUI reports the proxy status and the selected node's name after every status check.
+     * The name goes into the notification; in root mode this also posts / removes it.
+     */
+    @JavascriptInterface
+    public void syncStatus(final boolean running, final String nodeName) {
+        final Context app = activity.getApplicationContext();
+        ProxyNotifier.setNode(app, nodeName);
+        if (RunMode.isNonRoot(activity)) {
+            MagicVpnService s = VpnController.svc;
+            if (s != null) s.updateNode();
+        } else {
+            ProxyNotifier.showRoot(app, running);
+        }
+    }
 }

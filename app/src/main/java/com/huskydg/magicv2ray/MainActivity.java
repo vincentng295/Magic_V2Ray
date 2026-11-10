@@ -243,6 +243,7 @@ public class MainActivity extends Activity {
         }
         setupView.setVisibility(View.GONE);
         welcomeView.setVisibility(View.GONE);
+        ProxyNotifier.askPermissionOnce(this);
     }
 
     private void configureWebView(WebView w) {
