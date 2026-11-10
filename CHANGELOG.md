@@ -1,6 +1,10 @@
-# Magic V2Ray v2.0 Release Notes
+# Magic V2Ray v2.0.1 Release Notes
 
-Introduces a brand new standalone Android application. Along with this major addition, the project has added non-root mode powered by Android's `VpnService`, allowing users without root access to run the proxy engine safely. Quick Settings tile integration has also been added to let users easily toggle the core directly from the notification shade while long-pressing the tile opens the app. Furthermore, live module updates are now fully supported for version `v2.0` and newer to upgrade the service seamlessly without requiring a system reboot.
+Introduces system notifications and direct proxy controls to keep users informed and in control of their connection. A persistent notification now displays the active proxy status along with the currently selected node name, allowing users to stop the proxy engine with a single tap directly from the notification bar.
+
+For rooted devices, the release adds a dedicated OOM guard background component that periodically maintains process priority under memory pressure, keeping the status notification and Quick Settings tile reliably accessible. Additionally, IPv6 routing in `VpnService` mode has been refined to assign IPv6 tunnel addresses only when IPv6 is enabled, ensuring clean connection fallbacks when IPv6 is turned off.
+
+Update Xray-core to v26.11.9
 
 ---
 
