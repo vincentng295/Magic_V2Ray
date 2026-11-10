@@ -179,8 +179,13 @@ public class MagicVpnService extends VpnService {
         boolean v6 = st.optBoolean("enableIPv6", false);
 
         b.addAddress("198.18.0.1", 16); // Sync with root mode xraytun0
-        b.addAddress("fdfe:dcba:9876::1", 64); // Sync with root mode xraytun0
-        b.addAddress("2001:db8:7872:6179::1", 126); // Sync with root mode xraytun0
+        // The interface only gets an IPv6 address when "Enable IPv6" is on. With it off the "::/0"
+        // route below still captures IPv6, and with no IPv6 source address on the tunnel the
+        // connection attempts fail at once instead of leaving through the physical interface.
+        if (v6) {
+            b.addAddress("fdfe:dcba:9876::1", 64); // Sync with root mode xraytun0
+            b.addAddress("2001:db8:7872:6179::1", 64); // Sync with root mode xraytun0
+        }
         if (routed) {
             b.addRoute("0.0.0.0", 0);
             b.addDnsServer("1.1.1.1");
