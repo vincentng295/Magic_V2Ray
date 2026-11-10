@@ -82,7 +82,7 @@ final class ProxyNotifier {
                 .setSmallIcon(R.drawable.ic_tile)
                 .setContentIntent(open)
                 .addAction(new Notification.Action.Builder(
-                        Icon.createWithResource(c, R.drawable.ic_power),
+                        Icon.createWithResource(c, R.drawable.ic_tile),
                         c.getString(R.string.notif_stop), stop).build())
                 .setCategory(Notification.CATEGORY_SERVICE)
                 .setShowWhen(false)

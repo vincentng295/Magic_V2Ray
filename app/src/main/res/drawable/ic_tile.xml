@@ -1,11 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Hakuma the wolf: single-colour silhouette for the status bar / notification / Quick Settings
+     tile (the system tints it). Same artwork as ic_launcher_monochrome, re-framed on the head. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24">
-    <!-- power symbol -->
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M13,3h-2v10h2V3zM17.83,5.17l-1.42,1.42C17.99,7.86 19,9.81 19,12c0,3.87 -3.13,7 -7,7s-7,-3.13 -7,-7c0,-2.19 1.01,-4.14 2.58,-5.42L6.17,5.17C4.23,6.82 3,9.26 3,12c0,4.97 4.03,9 9,9s9,-4.03 9,-9c0,-2.74 -1.23,-5.18 -3.17,-6.83z" />
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group android:translateY="-8">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M24,118 L24,108 C26,94 38,87 54,87 C70,87 82,94 84,108 L84,118 Z M25,53 C22,40 23,28 27,20 C28.5,18 30.5,18.5 32,19.5 L51,34 Z M57,34 L76,19.5 C77.5,18.5 79.5,18 81,20 C85,28 86,40 83,53 Z M20,60 C20,42 34,31 54,31 C74,31 88,42 88,60 C88,76 74,87 54,87 C34,87 20,76 20,60 Z M43.5,88.5 L54,112 L64.5,88.5 Z M32.2,57 a8.8,8.8 0 1,0 17.6,0 a8.8,8.8 0 1,0 -17.6,0 Z M58.2,57 a8.8,8.8 0 1,0 17.6,0 a8.8,8.8 0 1,0 -17.6,0 Z M34,57 a7,7 0 1,1 14,0 a7,7 0 1,1 -14,0 Z M60,57 a7,7 0 1,1 14,0 a7,7 0 1,1 -14,0 Z M37.4,58 a3.6,3.6 0 1,0 7.2,0 a3.6,3.6 0 1,0 -7.2,0 Z M63.4,58 a3.6,3.6 0 1,0 7.2,0 a3.6,3.6 0 1,0 -7.2,0 Z M48.6,65.6 C49,69.6 51.4,72.2 54,73 C56.6,72.2 59,69.6 59.4,65.6 C57,63.8 51,63.8 48.6,65.6 Z M47.5,77 L48.4,76.2 C49.6,78.6 51.6,78.6 54,74.6 C56.4,78.6 58.4,78.6 59.6,76.2 L60.5,77 C58.5,81 55.2,81 54,76.4 C52.8,81 49.5,81 47.5,77 Z" />
+    </group>
 </vector>
