@@ -244,7 +244,8 @@ public class MainActivity extends Activity {
         }
         setupView.setVisibility(View.GONE);
         welcomeView.setVisibility(View.GONE);
-        ProxyNotifier.askPermissionOnce(this);
+        // One system dialog at a time: notifications first, battery optimisation after the answer.
+        if (!ProxyNotifier.askPermissionOnce(this)) BatteryOpt.askOnce(this);
     }
 
     private void configureWebView(WebView w) {
@@ -428,6 +429,12 @@ public class MainActivity extends Activity {
     }
 
     // --------------------------------------------------------------- lifecycle
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        BatteryOpt.askOnce(this);
+    }
 
     @Override
     @SuppressWarnings("deprecation")

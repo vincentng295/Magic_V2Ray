@@ -118,13 +118,17 @@ final class ProxyNotifier {
         showRoot(c, false);
     }
 
-    /** Android 13+: asks once for the notification permission. */
-    static void askPermissionOnce(Activity a) {
-        if (Build.VERSION.SDK_INT < 33) return;
-        if (a.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return;
+    /**
+     * Android 13+: asks once for the notification permission.
+     * @return true when the dialog was shown (the answer arrives in onRequestPermissionsResult)
+     */
+    static boolean askPermissionOnce(Activity a) {
+        if (Build.VERSION.SDK_INT < 33) return false;
+        if (a.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return false;
         SharedPreferences p = a.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        if (p.getBoolean("asked_notif", false)) return;
+        if (p.getBoolean("asked_notif", false)) return false;
         p.edit().putBoolean("asked_notif", true).apply();
         a.requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIF);
+        return true;
     }
 }
