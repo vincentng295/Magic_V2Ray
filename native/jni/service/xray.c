@@ -164,18 +164,21 @@ int stop_xray(void)
 int restart_xray(void)
 {
     if (!config_ok()) { log_msg("refusing to reload: %s missing or empty", CONFIG_NAME); return -1; }
-    install_tun_blackhole();                    /* fail closed while the tun is gone */
+    root_direct_window(true);                   /* uid 0 (dnsjson) keeps the real network while the tun is down */
+    install_tun_blackhole();                    /* fail closed for everyone else while the tun is gone */
     if (g_xray > 0) kill_and_wait(g_xray);
     kill_stale_pidfile();
     proc_untrack("xray");
     xray_helper_logservice("read", "-o", XRAY_LOG_FILE);
     xray_helper_logservice("flush", NULL, NULL);
     g_xray = spawn_xray();
-    if (g_xray <= 0) { g_xray = 0; return -1; }
+    if (g_xray <= 0) { g_xray = 0; root_direct_window(false); return -1; }
     u_writef(PIDFILE, "%d\n", (int)g_xray);
     log_msg("xray reloaded with pid %d (tun=%s re-created, firewall/ip-rule left untouched)", (int)g_xray, TUN_NAME);
     proc_track_pid(g_xray, "xray");
-    if (configure_tun_iface() < 0) return -1;
+    int rc = configure_tun_iface();
+    root_direct_window(false);                  /* tun is back: uid 0 returns to normal routing */
+    if (rc < 0) return -1;
     u_write(ENABLED_FLAG, "");
     return 0;
 }

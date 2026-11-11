@@ -45,6 +45,7 @@ int  configure_tun_iface(void);
 void install_tun_blackhole(void);
 void hold_traffic(void);
 void release_traffic(void);
+void root_direct_window(bool on);   /* soft restart: let uid 0 bypass the tun blackhole */
 
 /* latency.c */
 void latency_monitor_start(void);

@@ -366,6 +366,41 @@ int apply_routing_rules(void)
     return 0;
 }
 
+/* ===================================================== root direct window === */
+
+/* Soft restart (restart_xray) keeps the firewall but drops the tun, so every
+ * packet marked 1 falls into the table-100 blackhole. uid 0 must not be caught
+ * by that: `xhuskydg_helper dnsjson` (system-DNS resolve of the outbound domain,
+ * run by the UI as root) needs the real network right then. While the window is
+ * open, uid 0 gets the same fwmark FWMARK as xray's own sockets, so it follows
+ * the upstream-interface rule instead of being captured, and RETURNs from
+ * XRAY_MARK before the DNS capture / uid marking below. Inserted at the head of
+ * XRAY_MARK, idempotent, and cleared by clear_routing_rules() with the chain. */
+static void root_direct_rules(int fam, bool on)
+{
+    ipt_tx *t = ipt_tx_begin(fam, "mangle");
+    if (!t) return;
+    ipt_spec mk = SPEC(.owner = true, .uid_lo = 0, .uid_hi = 0, .target = MVT_MARK, .set_mark = FWMARK);
+    ipt_spec rt = SPEC(.owner = true, .uid_lo = 0, .uid_hi = 0, .target = MVT_RETURN);
+    if (on) {
+        if (ipt_check(t, "XRAY_MARK", &mk) != 0) {
+            NOP(ipt_insert(t, "XRAY_MARK", 1, &rt));
+            NOP(ipt_insert(t, "XRAY_MARK", 1, &mk));
+        }
+    } else {
+        while (ipt_delete(t, "XRAY_MARK", &mk) == 0) {}
+        while (ipt_delete(t, "XRAY_MARK", &rt) == 0) {}
+    }
+    commit(t, on ? "root direct on" : "root direct off");
+}
+
+void root_direct_window(bool on)
+{
+    root_direct_rules(AF_INET, on);
+    root_direct_rules(AF_INET6, on);
+    log_msg("soft restart: uid 0 %s", on ? "uses the network directly" : "back under normal routing");
+}
+
 /* ============================================================ fail-closed === */
 
 void hold_traffic(void)
