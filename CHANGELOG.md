@@ -1,14 +1,10 @@
-# Magic V2Ray v2.0.2 Release Notes
+# Magic V2Ray v2.1 Release Notes
 
-Ask users to disable battery optimization
+Magic V2Ray 2.1 introduces a redesigned Dashboard interface that brings a cleaner, card-based layout to the app. The primary connection controls and import options are organized into structured dashboard cards, while subscription links, node URIs, and base64 lists now use a unified importer for easier setup. The top header provides quick access to actions through a dedicated menu, allowing you to easily toggle Professional Mode or adjust node categories while keeping the interface clutter-free. The app interface has also been updated with a new green color theme.
 
-# Magic V2Ray v2.0.1 Release Notes
+This update introduces automated system DNS resolution for outbound proxy domains, addressing routing and lookup issues before a proxy connection is established. When enabled, Magic V2Ray resolves outbound server domains using your device's physical network DNS and pins the resulting IP addresses directly into the local host rules. This mechanism runs prior to starting or restarting the proxy engine, and it is also integrated into node ping and HTTP tests to ensure consistent domain resolution without relying on uninitialized tunnel routes.
 
-Introduces system notifications and direct proxy controls to keep users informed and in control of their connection. A persistent notification now displays the active proxy status along with the currently selected node name, allowing users to stop the proxy engine with a single tap directly from the notification bar.
-
-For rooted devices, the release adds a dedicated OOM guard background component that periodically maintains process priority under memory pressure, keeping the status notification and Quick Settings tile reliably accessible. Additionally, IPv6 routing in `VpnService` mode has been refined to assign IPv6 tunnel addresses only when IPv6 is enabled, ensuring clean connection fallbacks when IPv6 is turned off.
-
-Update Xray-core to v26.11.9
+Root execution performance and system integration have been significantly improved. The app now uses libsu to maintain a bounded pool of persistent root shells instead of launching a new root process for every command, reducing root prompt overhead and system resource usage. Additionally, network interface handling during handoffs has been hardened to seamlessly pick up valid fallback networks when standard default routes are delayed, preventing data stalls during connection transitions.
 
 ---
 
