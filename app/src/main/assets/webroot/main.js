@@ -3252,6 +3252,40 @@ function openProxyChainEditModal(event, category, id) {
     document.getElementById('proxy-chain-modal').style.display = 'block';
 }
 
+// Shared by clipboard / file import. Accepts what the paste box accepts:
+//   - a subscription link (single http/https URL) -> fetched like a pasted one
+//   - node URIs (vless://, vmess://, ...) one per line
+//   - a base64 blob wrapping a URI list
+// Returns the number of URIs imported directly (0 when a subscription fetch
+// was started or nothing usable was found; both report via their own toast).
+function importFromText(raw) {
+    const text = String(raw || '').trim();
+    if (!text) { showToast(t('toast_clipboard_empty'), 'error'); return 0; }
+
+    if (/^https?:\/\/\S+$/i.test(text)) {
+        let domain;
+        try { domain = new URL(text).hostname; }
+        catch (e) { showToast(t('toast_invalid_sub'), 'error'); return 0; }
+        fetchSubscription(domain, text);
+        return 0;
+    }
+
+    let uris = extractUrisFromText(text);
+    if (uris.length === 0) {
+        const compact = text.replace(/\s+/g, '');
+        if (/^[A-Za-z0-9+/=_-]+$/.test(compact)) {
+            const decoded = tryDecodeBase64(compact);
+            if (decoded && decoded.includes('://')) uris = extractUrisFromText(decoded);
+        }
+    }
+    if (uris.length === 0) {
+        showToast(t('toast_no_configs_extracted'), 'error');
+        return 0;
+    }
+    parseAndAppendNodes('Manual', uris, null);
+    return uris.length;
+}
+
 async function importFromClipboard() {
     try {
         const text = await navigator.clipboard.readText();
@@ -3259,13 +3293,8 @@ async function importFromClipboard() {
             showToast(t('toast_clipboard_empty'), 'error');
             return;
         }
-        const uris = extractUrisFromText(text.trim());
-        if (uris.length === 0) {
-            showToast(t('toast_no_configs_extracted'), 'error');
-            return;
-        }
-        parseAndAppendNodes('Manual', uris, null);
-        showToast(t('toast_clipboard_imported', { count: uris.length }), 'success');
+        const count = importFromText(text);
+        if (count > 0) showToast(t('toast_clipboard_imported', { count }), 'success');
     } catch(e) {
         showToast(t('toast_clipboard_empty'), 'error');
     }
@@ -3280,13 +3309,7 @@ function handleFileImport(event) {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (e) => {
-        const text = e.target.result;
-        const uris = extractUrisFromText(text);
-        if (uris.length === 0) {
-            showToast(t('toast_no_configs_extracted'), 'error');
-        } else {
-            parseAndAppendNodes('Manual', uris, null);
-        }
+        importFromText(e.target.result);
     };
     reader.readAsText(file);
     // Reset so same file can be imported again
