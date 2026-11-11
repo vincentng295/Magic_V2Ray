@@ -81,6 +81,11 @@ android {
     }
 }
 
+dependencies {
+    // Persistent root shells instead of one `su` process per command.
+    implementation 'com.github.topjohnwu.libsu:core:6.0.0'
+}
+
 // The APK doubles as a flashable module zip (rename .apk -> .zip). Magisk,
 // KernelSU and APatch look for these at the zip root, so they are packaged as Java
 // resources, straight from the repo root (single source of truth for the module):

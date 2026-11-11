@@ -2,22 +2,35 @@ package com.huskydg.magicv2ray;
 
 import android.content.Context;
 
+import com.topjohnwu.superuser.Shell;
+
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.ArrayDeque;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Runs shell scripts as root through the device's `su` binary.
+ * Runs shell scripts as root through libsu (https://github.com/topjohnwu/libsu).
  *
- * Each script is written to a file in the app cache and executed with
- * {@code su -c "sh <file> </dev/null"}. That keeps big payloads out of the
- * argv limit (profiles are written as base64 blobs) and keeps stdin away from
- * the script so a command that reads stdin cannot swallow the rest of it.
+ * Instead of spawning a fresh `su` process for every call, root scripts are sent to
+ * a small pool (at most {@link #MAX_SHELLS}) of long-lived root shells that are opened
+ * once, with the global mount namespace ({@link Shell#FLAG_MOUNT_MASTER}). The root
+ * manager therefore only sees a handful of `su` requests per app process instead of
+ * one per command.
+ *
+ * Each script is still written to a file in the app cache and executed in the shell as
+ * {@code sh <file> </dev/null >out 2>err}. That keeps big payloads out of the argv limit
+ * (profiles are written as base64 blobs), keeps stdin away from the script so a command
+ * that reads stdin cannot swallow the rest of it, and keeps daemons a script leaves in the
+ * background from ever writing into the shared shell's pipes (stdout/stderr go to files).
  */
 final class RootShell {
 
@@ -37,11 +50,19 @@ final class RootShell {
         }
     }
 
+    /** Upper bound on simultaneously open root shells (= `su` processes). */
+    private static final int MAX_SHELLS = 3;
+    /** How long to wait for a root shell to open; covers the root manager's grant prompt. */
+    private static final long OPEN_TIMEOUT_S = 90;
+
     private static final AtomicLong SEQ = new AtomicLong();
     private static Context appContext;
-    private static String[] suPrefix;       // e.g. {"su","-M"}; null until detected
-    private static boolean suChecked;
     private static volatile boolean nonRoot;    // non-root mode: scripts run as the app's own user
+
+    private static final Object LOCK = new Object();        // guards idle + open
+    private static final Object CREATE = new Object();      // serialises opening a shell (one grant prompt)
+    private static final ArrayDeque<Shell> idle = new ArrayDeque<>();
+    private static int open;                                // live root shells, idle or in use
 
     private RootShell() {
     }
@@ -55,62 +76,200 @@ final class RootShell {
         return "'" + s.replace("'", "'\\''") + "'";
     }
 
-    /**
-     * Finds a working su invocation. Prefers the global mount namespace (-M,
-     * supported by Magisk and KernelSU) and falls back to plain su. Blocks while
-     * the root manager shows its grant prompt, hence the generous timeout.
-     */
     static void setNonRoot(boolean v) {
         nonRoot = v;
     }
 
-    static synchronized boolean hasRoot() {
+    /**
+     * Makes sure a root shell is available (opening one if needed). Blocks while the
+     * root manager shows its grant prompt, hence the generous timeout. Probes again on
+     * every call while no shell is open (the user may have granted since).
+     */
+    static boolean hasRoot() {
         if (nonRoot) return true;
-        if (suPrefix != null) return true;
-        if (suChecked) {
-            // A previous attempt failed; probe again (the user may have granted since).
-            suChecked = false;
+        try {
+            Shell s = acquire();
+            if (s == null) return false;
+            release(s, true);
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
         }
-        String[][] candidates = {{"su", "-M"}, {"su"}};
-        for (String[] c : candidates) {
-            Result r = execArgv(c, "id -u", 90_000);
-            if (r.code == 127) break;                       // su binary not found
-            if (r.code == 0 && r.out.trim().equals("0")) {
-                suPrefix = c;
-                return true;
-            }
-        }
-        suChecked = true;
-        return false;
     }
 
     /** Runs a script as root. timeoutMs <= 0 means no timeout. */
     static Result run(String script, long timeoutMs) {
-        String[] prefix;
-        synchronized (RootShell.class) {
-            prefix = nonRoot ? new String[]{"sh"} : suPrefix;
-        }
-        if (prefix == null) {
-            if (!hasRoot()) return new Result(1, "", "root access unavailable");
-            synchronized (RootShell.class) {
-                prefix = suPrefix;
-            }
-        }
         File dir = new File(appContext.getCacheDir(), "sh");
         //noinspection ResultOfMethodCallIgnored
         dir.mkdirs();
-        File f = new File(dir, "s" + SEQ.incrementAndGet() + ".sh");
-        try (FileOutputStream fo = new FileOutputStream(f)) {
-            fo.write(script.getBytes(StandardCharsets.UTF_8));
-            fo.write('\n');
+        long n = SEQ.incrementAndGet();
+        File f = new File(dir, "s" + n + ".sh");
+        File fo = new File(dir, "s" + n + ".out");
+        File fe = new File(dir, "s" + n + ".err");
+        try (FileOutputStream os = new FileOutputStream(f)) {
+            os.write(script.getBytes(StandardCharsets.UTF_8));
+            os.write('\n');
         } catch (IOException e) {
             return new Result(1, "", "cannot write script: " + e.getMessage());
         }
         try {
-            return execArgv(prefix, "sh " + sq(f.getAbsolutePath()) + " </dev/null", timeoutMs);
+            if (nonRoot) {
+                return execArgv(new String[]{"sh"}, "sh " + sq(f.getAbsolutePath()) + " </dev/null", timeoutMs);
+            }
+            return runRoot(f, fo, fe, timeoutMs);
         } finally {
             //noinspection ResultOfMethodCallIgnored
             f.delete();
+            //noinspection ResultOfMethodCallIgnored
+            fo.delete();
+            //noinspection ResultOfMethodCallIgnored
+            fe.delete();
+        }
+    }
+
+    private static Result runRoot(File script, File outFile, File errFile, long timeoutMs) {
+        // Create the capture files as the app so they keep the app's owner / SELinux label;
+        // root then only writes into them and the app can always read and delete them.
+        try {
+            if (!outFile.createNewFile() || !errFile.createNewFile()) {
+                return new Result(1, "", "cannot create output files");
+            }
+        } catch (IOException e) {
+            return new Result(1, "", "cannot create output files: " + e.getMessage());
+        }
+        //noinspection ResultOfMethodCallIgnored
+        outFile.setReadable(true, false);
+        //noinspection ResultOfMethodCallIgnored
+        outFile.setWritable(true, false);
+        //noinspection ResultOfMethodCallIgnored
+        errFile.setReadable(true, false);
+        //noinspection ResultOfMethodCallIgnored
+        errFile.setWritable(true, false);
+
+        final Shell sh;
+        try {
+            sh = acquire();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new Result(130, "", "interrupted");
+        }
+        if (sh == null) return new Result(1, "", "root access unavailable");
+
+        String cmd = "sh " + sq(script.getAbsolutePath()) + " </dev/null >" + sq(outFile.getAbsolutePath())
+                + " 2>" + sq(errFile.getAbsolutePath());
+        final AtomicReference<Shell.Result> ref = new AtomicReference<>();
+        final CountDownLatch done = new CountDownLatch(1);
+        int code;
+        boolean healthy = true;
+        try {
+            sh.newJob().add(cmd).submit(Runnable::run, r -> {
+                ref.set(r);
+                done.countDown();
+            });
+            boolean finished;
+            if (timeoutMs > 0) {
+                finished = done.await(timeoutMs, TimeUnit.MILLISECONDS);
+            } else {
+                done.await();
+                finished = true;
+            }
+            if (finished && ref.get() != null) {
+                code = ref.get().getCode();
+            } else {
+                // The job cannot be cancelled inside a persistent shell: drop the shell
+                // (closing it ends its `su`) so the pool opens a fresh one next time.
+                healthy = false;
+                code = 124;
+            }
+        } catch (InterruptedException e) {
+            healthy = false;
+            Thread.currentThread().interrupt();
+            code = 130;
+        } catch (RuntimeException e) {
+            healthy = false;
+            return new Result(1, "", "root shell error: " + e);
+        } finally {
+            release(sh, healthy);
+        }
+        // A negative code means libsu itself failed to run the job (shell died).
+        if (code < 0) code = 1;
+        return new Result(code, readQuietly(outFile), readQuietly(errFile));
+    }
+
+    private static String readQuietly(File f) {
+        try {
+            return new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            return "";
+        }
+    }
+
+    /**
+     * Takes an idle root shell, or opens a new one while fewer than MAX_SHELLS exist, or
+     * waits for one to be released. Returns null when the device has no usable root.
+     */
+    private static Shell acquire() throws InterruptedException {
+        synchronized (LOCK) {
+            while (true) {
+                Shell s;
+                while ((s = idle.pollFirst()) != null) {
+                    if (s.isAlive()) return s;
+                    open--;                                 // died while idle: forget it
+                }
+                if (open < MAX_SHELLS) {
+                    open++;                                 // reserve the slot, open it below
+                    break;
+                }
+                LOCK.wait();
+            }
+        }
+        Shell s = null;
+        try {
+            synchronized (CREATE) {
+                s = openShell();
+            }
+        } finally {
+            if (s == null) {
+                synchronized (LOCK) {
+                    open--;
+                    LOCK.notifyAll();
+                }
+            }
+        }
+        return s;
+    }
+
+    private static Shell openShell() {
+        try {
+            Shell s = Shell.Builder.create()
+                    .setFlags(Shell.FLAG_MOUNT_MASTER)      // global mount namespace, like `su -M`
+                    .setTimeout(OPEN_TIMEOUT_S)
+                    .build();
+            if (s.isRoot()) return s;
+            closeQuietly(s);                                // libsu fell back to a plain sh
+        } catch (RuntimeException ignored) {
+        }
+        return null;
+    }
+
+    private static void release(Shell s, boolean healthy) {
+        boolean keep = healthy && s.isAlive();
+        if (!keep) closeQuietly(s);
+        synchronized (LOCK) {
+            if (keep) {
+                idle.addFirst(s);
+            } else {
+                open--;
+            }
+            LOCK.notifyAll();
+        }
+    }
+
+    private static void closeQuietly(Shell s) {
+        try {
+            s.close();
+        } catch (Exception ignored) {
         }
     }
 
