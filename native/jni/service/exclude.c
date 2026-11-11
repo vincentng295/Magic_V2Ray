@@ -26,21 +26,33 @@ static bool valid_pkg(const char *s)
     return true;
 }
 
-/* Cleaned list: comments, CRs and blank lines removed. Caller frees. */
+/* The Magic V2Ray app itself is always bypassed while Exclude apps is on, whether
+ * or not the user listed it: its own traffic (UI, update checks, helper calls)
+ * must never be looped through the tunnel it controls. */
+#define SELF_PKG "com.huskydg.magicv2ray"
+
+/* Cleaned list: comments, CRs and blank lines removed, SELF_PKG always present.
+ * Caller frees. */
 static char **read_list(int *n)
 {
     char *raw = malloc(1 << 20); char **v = NULL; *n = 0;
-    if (!raw) return NULL;
-    if (u_read(EXCLUDE_LIST_FILE, raw, 1 << 20) < 0) { free(raw); return NULL; }
-    char *save = NULL;
-    for (char *l = strtok_r(raw, "\n", &save); l; l = strtok_r(NULL, "\n", &save)) {
-        char *h = strchr(l, '#'); if (h) *h = 0;
-        u_trim(l);
-        if (!*l) continue;
-        v = realloc(v, (*n + 1) * sizeof *v);
-        v[(*n)++] = strdup(l);
+    bool self = false;
+    if (raw && u_read(EXCLUDE_LIST_FILE, raw, 1 << 20) >= 0) {
+        char *save = NULL;
+        for (char *l = strtok_r(raw, "\n", &save); l; l = strtok_r(NULL, "\n", &save)) {
+            char *h = strchr(l, '#'); if (h) *h = 0;
+            u_trim(l);
+            if (!*l) continue;
+            if (!strcmp(l, SELF_PKG)) self = true;
+            v = realloc(v, (*n + 1) * sizeof *v);
+            v[(*n)++] = strdup(l);
+        }
     }
     free(raw);
+    if (!self) {
+        v = realloc(v, (*n + 1) * sizeof *v);
+        v[(*n)++] = strdup(SELF_PKG);
+    }
     return v;
 }
 static void free_list(char **v, int n) { for (int i = 0; i < n; i++) free(v[i]); free(v); }
