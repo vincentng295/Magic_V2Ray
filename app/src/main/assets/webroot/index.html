@@ -59,15 +59,44 @@
         </header>
 
         <div id="tab-dashboard" class="tab-content active">
-            <section class="pro-mode-bar">
-                <div class="setting-item-row toggle-row">
-                    <label for="set-promode"><span data-i18n="lbl_promode">Professional Mode</span><small data-i18n="desc_promode">Write config.json by hand instead of picking a node</small></label>
-                    <input type="checkbox" id="set-promode" onchange="toggleProMode(this)">
+            <div class="dash-head">
+                <h3 id="dash-title" class="dash-title" data-i18n="categories_title">Connection categories</h3>
+                <div class="dash-more">
+                    <button type="button" id="dash-more-btn" class="dash-more-btn"
+                            aria-haspopup="menu" aria-expanded="false" aria-controls="dash-more-menu"
+                            data-i18n-aria="tab_menu" aria-label="Menu" onclick="toggleDashMenu(event)">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+                    </button>
+                    <div id="dash-more-menu" class="dash-more-menu" role="menu" aria-labelledby="dash-more-btn" onclick="event.stopPropagation()">
+                        <div id="dash-import-items">
+                            <button type="button" role="menuitem" class="dash-menu-item dash-menu-item-main" onclick="toggleImportCard(); closeDashMenu();" data-i18n="import_title">Import configuration profile</button>
+                            <button type="button" role="menuitem" class="dash-menu-item" onclick="importFromClipboard(); closeDashMenu();" data-i18n="import_from_clipboard">Import from Clipboard</button>
+                            <button type="button" role="menuitem" class="dash-menu-item" onclick="importFromFile(); closeDashMenu();" data-i18n="import_from_file">Import from File</button>
+                            <div class="dash-menu-divider" role="separator"></div>
+                            <button type="button" role="menuitem" class="dash-menu-item" onclick="openAddCategoryModal(); closeDashMenu();" data-i18n="add_category">Add category</button>
+                            <button type="button" role="menuitem" class="dash-menu-item" onclick="openPolicyGroupModal(); closeDashMenu();" data-i18n="add_policy_group">Add policy group</button>
+                            <button type="button" role="menuitem" class="dash-menu-item" onclick="openProxyChainModal(); closeDashMenu();" data-i18n="add_proxy_chain">Add Proxy Chain</button>
+                            <div class="dash-menu-divider" role="separator"></div>
+                            <button type="button" role="menuitem" class="dash-menu-item" onclick="openNewNodeModal('vmess'); closeDashMenu();" data-i18n="add_vmess">Add VMess</button>
+                            <button type="button" role="menuitem" class="dash-menu-item" onclick="openNewNodeModal('vless'); closeDashMenu();" data-i18n="add_vless">Add VLESS</button>
+                            <button type="button" role="menuitem" class="dash-menu-item" onclick="openNewNodeModal('trojan'); closeDashMenu();" data-i18n="add_trojan">Add Trojan</button>
+                            <button type="button" role="menuitem" class="dash-menu-item" onclick="openNewNodeModal('shadowsocks'); closeDashMenu();" data-i18n="add_shadowsocks">Add Shadowsocks</button>
+                            <button type="button" role="menuitem" class="dash-menu-item" onclick="openNewNodeModal('wireguard'); closeDashMenu();" data-i18n="add_wireguard">Add WireGuard</button>
+                            <button type="button" role="menuitem" class="dash-menu-item" onclick="openNewNodeModal('hysteria2'); closeDashMenu();" data-i18n="add_hysteria2">Add Hysteria2</button>
+                            <button type="button" role="menuitem" class="dash-menu-item" onclick="openNewNodeModal('masque'); closeDashMenu();" data-i18n="add_masque">Add MASQUE</button>
+                            <button type="button" role="menuitem" class="dash-menu-item" onclick="openNewNodeModal('socks'); closeDashMenu();" data-i18n="add_socks">Add SOCKS</button>
+                            <button type="button" role="menuitem" class="dash-menu-item" onclick="openNewNodeModal('http'); closeDashMenu();" data-i18n="add_http">Add HTTP Proxy</button>
+                            <div class="dash-menu-divider" role="separator"></div>
+                        </div>
+                        <div class="setting-item-row toggle-row">
+                            <label for="set-promode"><span data-i18n="lbl_promode">Professional Mode</span><small data-i18n="desc_promode">Write config.json by hand instead of picking a node</small></label>
+                            <input type="checkbox" id="set-promode" onchange="toggleProMode(this)">
+                        </div>
+                    </div>
                 </div>
-            </section>
+            </div>
 
-            <section id="pro-config-section" class="pro-config-section" style="display:none;">
-                <h3 data-i18n="pro_title">Custom config.json</h3>
+            <section id="pro-config-section" class="pro-config-section dash-card" style="display:none;">
                 <details class="pro-doc" open>
                     <summary data-i18n="pro_doc_title">Read this before editing</summary>
                     <ul>
@@ -88,40 +117,15 @@
                 </div>
             </section>
 
-            <section class="import-section" id="import-section">
-                <h3 data-i18n="import_title">Import Configuration Profile</h3>
+            <section class="import-section dash-card" id="import-section" style="display:none;">
                 <textarea id="import-input" data-i18n-placeholder="import_placeholder" placeholder="Paste Sub Link (https://...) or Manual String (vless://, vmess://, trojan://) here..."></textarea>
                 <div class="import-btn-row">
                     <button class="btn btn-primary btn-import-main" onclick="processImport()" data-i18n="btn_import">Process Connection Link</button>
-                    <div class="import-add-menu-container">
-                        <button class="btn btn-add-node" onclick="toggleImportAddMenu(event)" title="More import options">+</button>
-                        <div id="import-add-dropdown" class="import-add-dropdown">
-                            <!-- These work in the Magic V2Ray app: the clipboard goes through the ksu bridge
-                                 (native-shim.js) and the file picker through MainActivity's WebChromeClient. -->
-                            <button onclick="importFromClipboard(); closeImportAddMenu();" data-i18n="import_from_clipboard">Import from Clipboard</button>
-                            <button onclick="importFromFile(); closeImportAddMenu();" data-i18n="import_from_file">Import from File</button>
-                            <div class="import-add-divider"></div>
-                            <button onclick="openAddCategoryModal(); closeImportAddMenu();" data-i18n="add_category">Add category</button>
-                            <button onclick="openPolicyGroupModal(); closeImportAddMenu();" data-i18n="add_policy_group">Add policy group</button>
-                            <button onclick="openProxyChainModal(); closeImportAddMenu();" data-i18n="add_proxy_chain">Add Proxy Chain</button>
-                            <div class="import-add-divider"></div>
-                            <button onclick="openNewNodeModal('vmess'); closeImportAddMenu();" data-i18n="add_vmess">Add VMess</button>
-                            <button onclick="openNewNodeModal('vless'); closeImportAddMenu();" data-i18n="add_vless">Add VLESS</button>
-                            <button onclick="openNewNodeModal('trojan'); closeImportAddMenu();" data-i18n="add_trojan">Add Trojan</button>
-                            <button onclick="openNewNodeModal('shadowsocks'); closeImportAddMenu();" data-i18n="add_shadowsocks">Add Shadowsocks</button>
-                            <button onclick="openNewNodeModal('wireguard'); closeImportAddMenu();" data-i18n="add_wireguard">Add WireGuard</button>
-                            <button onclick="openNewNodeModal('hysteria2'); closeImportAddMenu();" data-i18n="add_hysteria2">Add Hysteria2</button>
-                            <button onclick="openNewNodeModal('masque'); closeImportAddMenu();" data-i18n="add_masque">Add MASQUE</button>
-                            <button onclick="openNewNodeModal('socks'); closeImportAddMenu();" data-i18n="add_socks">Add SOCKS</button>
-                            <button onclick="openNewNodeModal('http'); closeImportAddMenu();" data-i18n="add_http">Add HTTP Proxy</button>
-                        </div>
-                    </div>
                 </div>
                 <input type="file" id="import-file-input" accept=".txt,.conf,.json" style="display:none;" onchange="handleFileImport(event)">
             </section>
 
             <section class="profiles-section" id="profiles-section">
-                <h3 data-i18n="categories_title">Connection Categories</h3>
                 <div id="profiles-container"></div>
             </section>
         </div>

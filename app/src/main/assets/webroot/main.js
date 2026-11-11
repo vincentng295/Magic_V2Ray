@@ -302,14 +302,40 @@ function bindProModeToFormView() {
     updateProModeVisibility();
 }
 
+// The import card is collapsed by default and opened from the [...] menu.
+let _importCardOpen = false;
+function toggleImportCard() {
+    _importCardOpen = !_importCardOpen;
+    updateProModeVisibility();
+    if (_importCardOpen) {
+        const sec = document.getElementById('import-section');
+        const input = document.getElementById('import-input');
+        if (sec) sec.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        if (input) input.focus();
+    }
+}
+
 function updateProModeVisibility() {
     const on = !!advSettings.proMode;
     const proSec = document.getElementById('pro-config-section');
     const importSec = document.getElementById('import-section');
     const profSec = document.getElementById('profiles-section');
     if (proSec) proSec.style.display = on ? 'block' : 'none';
-    if (importSec) importSec.style.display = on ? 'none' : 'block';
+    if (importSec) importSec.style.display = (on || !_importCardOpen) ? 'none' : 'block';
+    const importItems = document.getElementById('dash-import-items');
+    if (importItems) importItems.style.display = on ? 'none' : '';
     if (profSec) profSec.style.display = on ? 'none' : 'block';
+
+    // One header serves both views: the title follows the mode, and the [...]
+    // button shows a dot while professional mode is on.
+    const title = document.getElementById('dash-title');
+    if (title) {
+        const key = on ? 'pro_title' : 'categories_title';
+        title.setAttribute('data-i18n', key);
+        title.textContent = t(key);
+    }
+    const moreBtn = document.getElementById('dash-more-btn');
+    if (moreBtn) moreBtn.classList.toggle('is-on', on);
 }
 
 // Structural sanity check. Only the things that make the difference between
@@ -2975,8 +3001,39 @@ function closeAllMenus() {
     document.querySelectorAll('.category-dropdown-menu').forEach(menu => menu.classList.remove('show'));
     document.querySelectorAll('.node-dropdown-menu').forEach(menu => menu.classList.remove('show'));
     closeImportAddMenu();
+    closeDashMenu();
     closeTabMenu();
 }
+
+// [...] menu on the Dashboard header. It stays reachable in professional mode
+// (when the import card and its [+] menu are hidden), so the switch that turns
+// professional mode back off can never disappear.
+function toggleDashMenu(event) {
+    event.stopPropagation();
+    const menu = document.getElementById('dash-more-menu');
+    const isOpen = menu.classList.contains('show');
+    closeAllMenus();
+    if (!isOpen) {
+        menu.classList.add('show');
+        document.getElementById('dash-more-btn').setAttribute('aria-expanded', 'true');
+    }
+}
+
+function closeDashMenu() {
+    const menu = document.getElementById('dash-more-menu');
+    if (menu) menu.classList.remove('show');
+    const btn = document.getElementById('dash-more-btn');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+
+document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const menu = document.getElementById('dash-more-menu');
+    if (menu && menu.classList.contains('show')) {
+        closeDashMenu();
+        document.getElementById('dash-more-btn').focus();
+    }
+});
 
 function toggleTabMenu(event) {
     event.stopPropagation();

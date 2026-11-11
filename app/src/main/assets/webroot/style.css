@@ -2212,18 +2212,6 @@ select option:active {
 }
 
 /* ===== Professional Mode (custom config.json) ===== */
-.pro-mode-bar {
-    background: var(--md-surface-1);
-    border: 1px solid var(--md-outline-variant);
-    border-radius: var(--md-shape-md);
-    padding: 4px 14px;
-    margin-bottom: 16px;
-}
-
-.pro-mode-bar .setting-item-row {
-    border-bottom: none;
-}
-
 .pro-config-section {
     margin-bottom: 24px;
 }
@@ -2525,3 +2513,190 @@ textarea.pro-config-input {
 /* Non-root mode: settings implemented with iptables / ip rules stay visible but cannot be used. */
 .root-only-disabled { opacity: 0.45; pointer-events: none; }
 .root-only-note { color: #ff3b30; font-size: 12px; line-height: 1.4; margin: -12px 0 16px; }   /* -12px cancels most of the row's 16px margin-bottom: the note hugs its option */
+
+/* ===== Dashboard redesign =====
+   One header row (title + [...] menu) shared by the import view and the
+   professional-mode editor; both bodies are cards. Later rules intentionally
+   override the older .import-section / .pro-config-section styling above. */
+
+.dash-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 0 0 12px;
+}
+
+.dash-head .dash-title {
+    font-family: var(--md-font-display);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -.2px;
+    color: var(--md-on-surface);
+    margin: 0;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dash-more { position: relative; flex-shrink: 0; }
+
+.dash-more-btn {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--md-shape-full);
+    color: var(--md-on-surface-variant);
+    cursor: pointer;
+    transition: background .2s var(--md-motion-standard), color .2s, border-color .2s;
+    -webkit-tap-highlight-color: transparent;
+}
+.dash-more-btn:hover { background: var(--md-surface-3); }
+.dash-more-btn[aria-expanded="true"] {
+    background: var(--md-secondary-container);
+    color: var(--md-on-secondary-container);
+}
+.dash-more-btn:focus-visible {
+    outline: 2px solid var(--md-primary);
+    outline-offset: 2px;
+}
+/* Dot = professional mode is on */
+.dash-more-btn.is-on::after {
+    content: '';
+    position: absolute;
+    top: 7px;
+    right: 7px;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--md-tertiary);
+    border: 2px solid var(--md-surface);
+}
+
+.dash-more-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 650;
+    width: 300px;
+    max-width: calc(100vw - 32px);
+    padding: 4px 14px;
+    background: var(--md-surface-3);
+    border: 1px solid var(--md-outline-variant);
+    border-radius: var(--md-shape-md);
+    box-shadow: var(--md-shadow-3);
+    transform-origin: top right;
+    transform: scale(.95);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: transform .15s var(--md-motion-enter), opacity .15s var(--md-motion-enter), visibility 0s .15s;
+}
+.dash-more-menu.show {
+    transform: scale(1);
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition-delay: 0s;
+}
+.dash-more-menu .setting-item-row { border-bottom: none; }
+
+/* Cards */
+.dash-card {
+    background: var(--md-surface-1);
+    border: 1px solid var(--md-outline-variant);
+    border-radius: var(--md-shape-lg);
+    padding: 12px;
+    margin-bottom: 24px;
+    transition: border-color .2s var(--md-motion-standard), box-shadow .2s var(--md-motion-standard);
+}
+.dash-card:focus-within {
+    border-color: var(--md-primary);
+    box-shadow: 0 0 0 3px rgba(208, 188, 255, .12);
+}
+
+.dash-card textarea {
+    background: var(--md-surface);
+    border-color: transparent;
+    border-radius: var(--md-shape-md);
+    height: 84px;
+}
+.dash-card textarea:focus { border-color: var(--md-outline-variant); }
+
+.dash-card .import-btn-row { margin-top: 10px; }
+.dash-card .btn-import-main { padding: 12px 20px; }
+
+/* [+] button: tonal, and turns into x while its menu is open */
+.dash-card .btn-add-node {
+    width: 48px;
+    min-height: 44px;
+    background: var(--md-secondary-container);
+    color: var(--md-on-secondary-container);
+    box-shadow: none;
+}
+.dash-card .btn-add-node:hover {
+    background: var(--md-primary-container);
+    color: var(--md-on-primary-container);
+    box-shadow: none;
+}
+.btn-add-node .icon-plus { transition: transform .2s var(--md-motion-enter); }
+.import-add-menu-container:has(.import-add-dropdown.show) .icon-plus { transform: rotate(45deg); }
+
+.dash-card .import-add-dropdown {
+    top: calc(100% + 6px);
+    transform-origin: top right;
+}
+
+/* Professional editor inside its card */
+.pro-config-section.dash-card textarea.pro-config-input { height: 340px; }
+.pro-config-section.dash-card .pro-doc { background: var(--md-surface); }
+.pro-config-section.dash-card .pro-btn-row { margin-top: 10px; }
+
+/* Category list heading */
+.profiles-section h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--md-on-surface-variant);
+    margin: 0 0 10px 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dash-more-menu,
+    .btn-add-node .icon-plus,
+    .dash-card { transition: none; }
+}
+
+/* ===== [...] menu holds import + add actions ===== */
+.dash-more-menu {
+    width: 280px;
+    padding: 6px;
+    max-height: min(72vh, 560px);
+    overflow-y: auto;
+}
+.dash-more-menu .setting-item-row { padding: 6px 8px; }
+.dash-menu-item {
+    display: block;
+    width: 100%;
+    padding: 11px 12px;
+    background: none;
+    border: none;
+    border-radius: var(--md-shape-sm);
+    color: var(--md-on-surface);
+    font-family: var(--md-font-body);
+    font-size: 14px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    transition: background .15s;
+}
+.dash-menu-item:hover { background: var(--md-surface-5); }
+.dash-menu-item:focus-visible { outline: 2px solid var(--md-primary); outline-offset: -2px; }
+.dash-menu-item-main { font-weight: 600; color: var(--md-primary); }
+.dash-menu-divider { height: 1px; background: var(--md-outline-variant); margin: 4px 6px; }
