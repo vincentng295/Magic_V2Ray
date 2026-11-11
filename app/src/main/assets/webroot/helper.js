@@ -23,8 +23,6 @@ const DEFAULT_DNS_HOSTS = {
     "dns.quad9.net": ["9.9.9.9", "149.112.112.112", "2620:fe::fe", "2620:fe::9"],
     "dns.sb": ["45.11.45.11", "185.222.222.222", "2a09::", "2a11::"],
     "common.dot.dns.yandex.net": ["77.88.8.8", "77.88.8.1", "2a02:6b8::feed:0ff", "2a02:6b8:0:1::feed:0ff"],
-    "l0tl6ub9be.cloudflare-gateway.com": ["172.67.168.158", "64:ff9b::ac43:a89e" /* Need NAT64 */], // DoH DNS for VNPT
-    "exkckr7pkk.cloudflare-gateway.com": ["162.159.141.236", "172.66.1.232", "2606:4700:7::1e4", "2a06:98c1:58::1e4"], // DoH DNS for Viettel, Mobifone, VNPT
 };
 
 // ===== Custom DNS hosts =====
@@ -253,8 +251,7 @@ function serializeHostsFile(entries) {
 
 const LEGACY_DNS = [
     "https://1.1.1.1/dns-query", // DoH DNS for Cloudflare
-    "https+local://l0tl6ub9be.cloudflare-gateway.com/dns-query", // DoH DNS for VNPT
-    "https+local://exkckr7pkk.cloudflare-gateway.com/dns-query", // DoH DNS for Viettel, Mobifone, VNPT
+    "https://8.8.8.8/dns-query", // DoH DNS for Google
 ]
 
 // FakeDNS address pools. The IPv6 pool is only added when IPv6 is enabled
