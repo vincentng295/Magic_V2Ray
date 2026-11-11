@@ -310,9 +310,31 @@ async function _resolveDomainViaServers(domain, servers) {
     return [];
 }
 
+// Probe path (Check HTTP / Check IP): up to NODE_TEST_CONCURRENCY probes run at once and a
+// category usually shares a handful of server domains, so lookups are shared between
+// concurrent probes and kept for a short while. Empty answers are never kept.
+const SYSDNS_PROBE_TTL_MS = 30000;
+const SYSDNS_PROBE_TIMEOUT_MS = 4000; // a probe must not wait long for DNS before its own 3s curl
+const _sysDnsProbeCache = new Map();  // "domain|servers" -> { at, p }
+
+function _resolveDomainCached(domain, servers) {
+    const key = domain + '|' + servers.join(',');
+    const hit = _sysDnsProbeCache.get(key);
+    if (hit && Date.now() - hit.at < SYSDNS_PROBE_TTL_MS) return hit.p;
+    const entry = { at: Date.now(), p: null };
+    entry.p = _resolveDomainViaServers(domain, servers).then(ips => {
+        if (!ips.length && _sysDnsProbeCache.get(key) === entry) _sysDnsProbeCache.delete(key);
+        return ips;
+    });
+    _sysDnsProbeCache.set(key, entry);
+    return entry.p;
+}
+
 // Takes the generated config text, returns it with the resolved outbound domains added
 // to dns.hosts. Never rejects; returns the input unchanged when nothing applies.
-async function resolveOutboundViaSystemDns(configStr) {
+// Does nothing when "Use system DNS resolver to resolve outbound domain" is off.
+// opts.cache: share/keep lookups (probes); opts.timeoutMs: overall cap.
+async function resolveOutboundViaSystemDns(configStr, opts = {}) {
     if (advSettings.dnsSystemResolveOutbound === false) return configStr;
     try {
         const cfg = JSON.parse(configStr);
@@ -321,8 +343,9 @@ async function resolveOutboundViaSystemDns(configStr) {
         const servers = _getSystemDnsServers();
         if (!servers.length) return configStr;
 
-        const work = Promise.all(domains.map(async d => [d, await _resolveDomainViaServers(d, servers)]));
-        const timeout = new Promise(r => setTimeout(() => r(null), SYSDNS_TOTAL_TIMEOUT_MS));
+        const resolveOne = opts.cache ? _resolveDomainCached : _resolveDomainViaServers;
+        const work = Promise.all(domains.map(async d => [d, await resolveOne(d, servers)]));
+        const timeout = new Promise(r => setTimeout(() => r(null), opts.timeoutMs || SYSDNS_TOTAL_TIMEOUT_MS));
         const results = await Promise.race([work, timeout]);
         if (!results) return configStr;
 
@@ -4800,7 +4823,7 @@ function _buildXrayTestInbound(node, slot) {
         settings: { auth: "noauth", udp: true }
     }, ...plainTunnels];
     if (MV_NONROOT) _stripSockoptMarks(xrayConfigObj);
-    return { testIp, testPort, tmpFile, configB64: utoa(JSON.stringify(xrayConfigObj)) };
+    return { testIp, testPort, tmpFile, configStr: JSON.stringify(xrayConfigObj) };
 }
 
 // Builds the probe script. The spawned xray is bounded three ways: an explicit
@@ -4852,7 +4875,17 @@ async function _execNodeProbe(node, pingSpan, mode) {
             _setPingSpan(pingSpan, "?", "var(--red, #ff1744)");
             return;
         }
-        const { testIp, testPort, tmpFile, configB64 } = built;
+        const { testIp, testPort, tmpFile, configStr } = built;
+
+        // If "system DNS resolver for outbound" is enabled, resolve the node's server
+        // domain with the device DNS first and pin it in dns.hosts of the probe config
+        // (same as before a normal connect). Best effort: on any failure the probe config
+        // is used as-is.
+        const finalConfig = await resolveOutboundViaSystemDns(configStr, {
+            cache: true,
+            timeoutMs: SYSDNS_PROBE_TIMEOUT_MS
+        });
+        const configB64 = utoa(finalConfig);
 
         const innerCmd = mode === 'http'
             ? `RES=$(${MODDIR}/bin/curl --socks5-hostname ${testIp}:${testPort} -s ` +
