@@ -117,6 +117,60 @@ int apply_mark_rule(const char *iface)
     return 0;
 }
 
+/* ---- upstream detection when netd has no default network (yet) -------------------------
+ * Wi-Fi off -> mobile: netd drops the "fwmark 0x0/0xffff iif lo lookup <wlan>" default rule
+ * at once, but the mobile network only becomes the default a while later (it is often still
+ * unvalidated, and the validation probes themselves go through our tun -> xray -> mark 0xff).
+ * With the default rule missing the mark rule used to stay on the dead Wi-Fi table, xray had
+ * no route out, the system saw a data stall and reset the radio (data + calls gone until
+ * airplane mode). So when there is no default rule, pick the best network netd has already
+ * set up: one with an "implicit select" rule (pref 23000, i.e. a normal unrestricted network;
+ * IMS/MMS networks have none) whose table really holds a default route. */
+#define NETD_IMPLICIT_PREF 23000
+
+static bool is_mobile_name(const char *n)
+{
+    return !strncmp(n, "rmnet", 5) || !strncmp(n, "ccmni", 5) || !strncmp(n, "pdp", 3) || !strncmp(n, "wwan", 4);
+}
+
+static bool table_usable(int tbl)
+{
+    return tbl > 0 && (nl_table_has_default(AF_INET, (uint32_t)tbl) || nl_table_has_default(AF_INET6, (uint32_t)tbl));
+}
+
+static int fallback_upstream(char *out, size_t cap)
+{
+    struct if_nameindex *ni = if_nameindex();
+    char mobile[IF_NAMESIZE] = "", other[IF_NAMESIZE] = "";
+    if (!ni) return -1;
+    for (struct if_nameindex *i = ni; i->if_index && i->if_name; i++) {
+        const char *n = i->if_name;
+        if (!strcmp(n, "lo") || !strcmp(n, TUN_NAME) || !strncmp(n, "dummy", 5) || !strncmp(n, "tun", 3)) continue;
+        int tbl = table_for_iface(n);
+        if (tbl < 0 || !nl_rule_exists(AF_INET, NETD_IMPLICIT_PREF, false, 0, tbl)) continue;
+        if (!table_usable(tbl)) continue;
+        if (is_mobile_name(n)) { if (!mobile[0]) snprintf(mobile, sizeof mobile, "%s", n); }
+        else if (!other[0]) snprintf(other, sizeof other, "%s", n);
+    }
+    if_freenameindex(ni);
+    const char *pick = other[0] ? other : mobile;
+    if (!pick[0]) return -1;
+    snprintf(out, cap, "%s", pick);
+    return 0;
+}
+
+/* default-network interface, else whatever usable network netd already has */
+static int auto_upstream(char *out, size_t cap)
+{
+    if (get_active_interface(out, cap) == 0) return 0;
+    if (fallback_upstream(out, cap) == 0) {
+        char m[96]; snprintf(m, sizeof m, "no default network yet, using %s as upstream", out);
+        why("%s", m);
+        return 0;
+    }
+    return -1;
+}
+
 int get_upstream_interface(char *out, size_t cap);
 
 /* Interface fwmark FWMARK is routed to: read from the kernel rule itself, so it is what
@@ -151,13 +205,13 @@ int get_upstream_interface(char *out, size_t cap)
 {
     char want[64];
     settings_query("upstreamIface", want, sizeof want);
-    if (!want[0] || !strcmp(want, "auto")) { g_upstream_warned[0] = 0; return get_active_interface(out, cap); }
+    if (!want[0] || !strcmp(want, "auto")) { g_upstream_warned[0] = 0; return auto_upstream(out, cap); }
     for (const char *p = want; *p; p++)
         if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || (*p >= '0' && *p <= '9') ||
               *p == '_' || *p == '.' || *p == '-')) {
             if (strcmp(g_upstream_warned, want)) log_msg("upstream interface: invalid name, using auto");
             snprintf(g_upstream_warned, sizeof g_upstream_warned, "%s", want);
-            return get_active_interface(out, cap);
+            return auto_upstream(out, cap);
         }
     char p[160]; snprintf(p, sizeof p, "/sys/class/net/%s", want);
     if (strcmp(want, TUN_NAME) && access(p, F_OK) == 0 && table_for_iface(want) >= 0) {
@@ -167,7 +221,7 @@ int get_upstream_interface(char *out, size_t cap)
     }
     if (strcmp(g_upstream_warned, want)) log_msg("upstream interface %s unavailable, falling back to auto", want);
     snprintf(g_upstream_warned, sizeof g_upstream_warned, "%s", want);
-    return get_active_interface(out, cap);
+    return auto_upstream(out, cap);
 }
 
 int refresh_mark_rule(void)
@@ -186,8 +240,12 @@ static void write_addr_info(const char *iface)
     if (t) { u_write(ADDR_INFO_FILE, t); free(t); }
 }
 
+/* set while the upstream is unknown or its mark rule could not be applied: re-check quickly */
+static bool g_retry_fast;
+
 static void on_event(char *cur_act, char *cur_up, size_t cap)
 {
+    g_retry_fast = false;
     char new_act[64] = "", new_up[64] = "";
     if (get_active_interface(new_act, sizeof new_act) < 0) new_act[0] = 0;
     if (get_upstream_interface(new_up, sizeof new_up) < 0) new_up[0] = 0;
@@ -206,12 +264,14 @@ static void on_event(char *cur_act, char *cur_up, size_t cap)
     if (!new_act[0] && !new_up[0]) {
         log_msg("network interface disconnected");
         cur_act[0] = cur_up[0] = 0;
+        g_retry_fast = true;
         unlink(ADDR_INFO_FILE);
         return;
     }
     if (new_up[0] && strcmp(new_up, cur_up)) {
         log_msg("upstream interface changed: %s -> %s", cur_up[0] ? cur_up : "none", new_up);
         if (apply_mark_rule(new_up) == 0) snprintf(cur_up, cap, "%s", new_up);
+        else g_retry_fast = true;                    /* table not published yet: try again in 2 s */
     }
     if (strcmp(new_act, cur_act)) {
         log_msg("network interface changed: %s -> %s", cur_act[0] ? cur_act : "none", new_act[0] ? new_act : "none");
@@ -247,7 +307,8 @@ static void monitor_main(int stop_fd)
 
     for (;;) {
         struct pollfd p[2] = { { nl, POLLIN, 0 }, { stop_fd, POLLIN, 0 } };
-        int pr = poll(p, 2, cur_up[0] ? -1 : 2000);       /* nothing applied yet: re-check every 2 s */
+        /* nothing applied yet: re-check every 2 s; otherwise every 10 s as a safety net for missed events */
+        int pr = poll(p, 2, (cur_up[0] && !g_retry_fast) ? 10000 : 2000);
         if (pr < 0 && errno != EINTR) break;
         if (p[1].revents) break;
         if (pr == 0) {

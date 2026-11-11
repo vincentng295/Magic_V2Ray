@@ -218,6 +218,22 @@ static int route_cb(struct nlmsghdr *h, void *arg)
     return 0;
 }
 
+/* true when `table` holds a usable unicast default route (dst /0 through a device) */
+bool nl_table_has_default(int family, uint32_t table)
+{
+    struct { struct nlmsghdr n; struct rtmsg r; } q;
+    struct rt_list L = { .family = family, .table = table };
+    bool found = false;
+    memset(&q, 0, sizeof q);
+    q.n.nlmsg_len = NLMSG_LENGTH(sizeof q.r);
+    q.n.nlmsg_type = RTM_GETROUTE; q.r.rtm_family = family;
+    nl_dump(&q.n, route_cb, &L);
+    for (int i = 0; i < L.n; i++)
+        if (L.v[i].h.rtm_dst_len == 0 && L.v[i].h.rtm_type == RTN_UNICAST && L.v[i].oif) { found = true; break; }
+    free(L.v);
+    return found;
+}
+
 int nl_route_flush_table(int family, uint32_t table)
 {
     struct { struct nlmsghdr n; struct rtmsg r; } q;

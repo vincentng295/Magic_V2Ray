@@ -33,6 +33,8 @@ int  nl_route_replace_dev(int family, uint32_t table, const char *dev,
 int  nl_route_blackhole(int family, uint32_t table, uint32_t metric);
 int  nl_route_del_dev(int family, const void *dst, int plen, const char *dev); /* main table */
 int  nl_route_flush_table(int family, uint32_t table);
+/* true when the table has a unicast default route through a device (v4 or v6 per family) */
+bool nl_table_has_default(int family, uint32_t table);
 
 enum { NL_ADDR_NODAD = 1, NL_ADDR_NOPREFIXROUTE = 2 };
 int  nl_addr_add(int family, const char *dev, const void *addr, int plen, int flags, bool replace);
