@@ -1,6 +1,7 @@
 package com.huskydg.magicv2ray;
 
 import android.content.Context;
+import android.util.Log;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -8,6 +9,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
@@ -29,6 +34,8 @@ import java.util.regex.Pattern;
  * The WebUI is not part of the module any more; it is the app itself.
  */
 final class ModuleInstaller {
+
+    private static final String TAG = "ModuleInstaller";
 
     static final String MODDIR = "/data/adb/modules/magic_v2ray";
     /** Where Magisk / KernelSU / APatch stage a module update that is applied at the next boot. */
@@ -92,6 +99,15 @@ final class ModuleInstaller {
         int bundledVc = versionCode(bundled);
         String bundledVer = prop(bundled, "version");
 
+        // SHA-256 of every file install() would write. null = could not be computed (the
+        // check then falls back to the versionCode / version comparison below).
+        Map<String, String> expected = null;
+        try {
+            expected = expectedHashes(ctx);
+        } catch (IOException e) {
+            Log.w(TAG, "cannot hash payload: " + e.getMessage());
+        }
+
         RootShell.Result probe = RootShell.run(
                 "M=" + RootShell.sq(MODDIR) + "\n"
                         + "if [ -s \"$M/module.prop\" ]; then\n"
@@ -103,8 +119,9 @@ final class ModuleInstaller {
                         + "   && [ -x \"$M/service.sh\" ] && [ -x \"$M/proxy_control.sh\" ] && [ -s \"$M/app.apk\" ]; then\n"
                         + "  :\n"
                         + "else echo MISSING; fi\n"
-                        + "[ -p /dev/sysctl_stubs/run/control.pipe ] && echo SVC=1 || echo SVC=0\n",
-                30_000);
+                        + "[ -p /dev/sysctl_stubs/run/control.pipe ] && echo SVC=1 || echo SVC=0\n"
+                        + hashCheckScript(ctx, expected),
+                120_000);   // hashing the installed apk / geo files can take a while on slow storage
         if (!probe.ok()) {
             return new Outcome(Status.FAILED, probe.err.trim(), false, false);
         }
@@ -118,9 +135,24 @@ final class ModuleInstaller {
             else if (line.startsWith("VER=")) installedVer = line.substring(4).trim();
         }
 
+        // Content check: every installed file must have the same SHA-256 as the bundled one.
+        // When the device has no usable sha256sum, fall back to comparing the version string.
+        boolean hashed = expected != null && probe.out.contains("HASHER=1");
+        StringBuilder diff = new StringBuilder();
+        for (String line : probe.out.split("\n")) {
+            if (line.startsWith("DIFF=")) diff.append(' ').append(line.substring(5).trim());
+        }
+        boolean contentDiffers = hashed
+                ? diff.length() > 0
+                : !installedVer.equals(bundledVer);
+
+        // A newer module than the app's bundle is never overwritten (no downgrade).
         boolean need = missing
                 || installedVc < bundledVc
-                || (installedVc == bundledVc && !installedVer.equals(bundledVer));
+                || (installedVc == bundledVc && contentDiffers);
+        Log.i(TAG, "module installed vc=" + installedVc + " bundled vc=" + bundledVc
+                + " hashed=" + hashed + " missing=" + missing + " need=" + need
+                + (diff.length() > 0 ? " changed:" + diff : ""));
 
         // An installed module that predates dynamic updates (<= 175) cannot be stopped live,
         // so its replacement is staged for the root manager and applied by a reboot.
@@ -141,8 +173,8 @@ final class ModuleInstaller {
             installed = true;
         }
 
-        // busybox applets for the WebUI shell (idempotent; skipped when already current)
-        progress.step(R.string.setup_installing);
+        // busybox applets for the WebUI shell (idempotent; skipped when already current).
+        // No "installing the module" status here: that text is only for a real install.
         NonRootEnv.installBusybox(ctx, new File(ctx.getApplicationInfo().nativeLibraryDir));
 
         boolean reboot = false;
@@ -266,6 +298,90 @@ final class ModuleInstaller {
                         + "exit 0\n",
                 60_000);
         return r.ok() && r.out.contains("STARTED") && !r.out.contains("NOT_STARTED");
+    }
+
+    // ------------------------------------------------------------------ checksum
+
+    /** Relative path inside the module -> SHA-256 (hex) of the bytes install() writes there. */
+    private static Map<String, String> expectedHashes(Context ctx) throws IOException {
+        Map<String, String> m = new LinkedHashMap<>();
+        try (ZipFile zf = new ZipFile(ctx.getApplicationInfo().sourceDir)) {
+            for (String f : TEXT_ASSETS) m.put(f, sha256Entry(zf, f));
+            for (String f : DATA_ASSETS) m.put(f, sha256Entry(zf, f));
+        }
+        File libDir = new File(ctx.getApplicationInfo().nativeLibraryDir);
+        for (String[] b : NATIVE_BINS) {
+            File src = new File(libDir, b[0]);
+            if (!src.isFile() || src.length() == 0) {
+                throw new IOException("missing native binary for this CPU: " + b[0]);
+            }
+            m.put(b[1], sha256File(src));
+        }
+        m.put("app.apk", sha256File(new File(ctx.getApplicationInfo().sourceDir)));
+        return m;
+    }
+
+    /**
+     * Root-shell snippet (appended to the probe script, so {@code $M} is the module dir) that
+     * prints {@code HASHER=1} plus one {@code DIFF=<path>} line per file that is missing from
+     * the module or whose SHA-256 differs, or {@code HASHER=0} when no sha256 tool works.
+     */
+    private static String hashCheckScript(Context ctx, Map<String, String> expected) {
+        if (expected == null) return "echo HASHER=0\n";
+        StringBuilder sb = new StringBuilder();
+        sb.append("NB=").append(RootShell.sq(ctx.getApplicationInfo().nativeLibraryDir + "/libbusybox.so")).append('\n');
+        sb.append("H=''\n");
+        // pick the first sha256 tool that really works (toolbox/toybox/busybox differ per ROM)
+        sb.append("for c in \"sha256sum\" \"toybox sha256sum\" \"$NB sha256sum\" \"$M/bin/busybox sha256sum\"; do\n");
+        sb.append("  t=$(printf abc | $c 2>/dev/null); t=${t%% *}\n");
+        sb.append("  if [ \"$t\" = ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad ]; then H=\"$c\"; break; fi\n");
+        sb.append("done\n");
+        sb.append("if [ -n \"$H\" ]; then\n");
+        sb.append("echo HASHER=1\n");
+        sb.append("chk() {\n");
+        sb.append("  f=\"$M/$2\"\n");
+        sb.append("  if [ -f \"$f\" ]; then s=$($H \"$f\" 2>/dev/null); s=${s%% *}; [ \"$s\" = \"$1\" ] || echo \"DIFF=$2\"\n");
+        sb.append("  else echo \"DIFF=$2\"; fi\n");
+        sb.append("}\n");
+        for (Map.Entry<String, String> e : expected.entrySet()) {
+            sb.append("chk ").append(e.getValue()).append(' ').append(RootShell.sq(e.getKey())).append('\n');
+        }
+        sb.append("else echo HASHER=0; fi\n");
+        return sb.toString();
+    }
+
+    private static String sha256Entry(ZipFile zf, String name) throws IOException {
+        ZipEntry e = zf.getEntry(name);
+        if (e == null) throw new IOException("not in APK: " + name);
+        try (InputStream in = zf.getInputStream(e)) {
+            return sha256(in);
+        }
+    }
+
+    private static String sha256File(File f) throws IOException {
+        try (InputStream in = new java.io.FileInputStream(f)) {
+            return sha256(in);
+        }
+    }
+
+    private static String sha256(InputStream in) throws IOException {
+        MessageDigest md;
+        try {
+            md = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            throw new IOException(e);
+        }
+        byte[] b = new byte[64 * 1024];
+        int n;
+        while ((n = in.read(b)) > 0) md.update(b, 0, n);
+        char[] hex = new char[64];
+        byte[] d = md.digest();
+        final String digits = "0123456789abcdef";
+        for (int i = 0; i < d.length; i++) {
+            hex[i * 2] = digits.charAt((d[i] >> 4) & 0xF);
+            hex[i * 2 + 1] = digits.charAt(d[i] & 0xF);
+        }
+        return new String(hex);
     }
 
     // ------------------------------------------------------------------ helpers
