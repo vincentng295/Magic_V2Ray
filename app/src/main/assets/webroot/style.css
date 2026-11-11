@@ -2700,3 +2700,10 @@ textarea.pro-config-input {
 .dash-menu-item:focus-visible { outline: 2px solid var(--md-primary); outline-offset: -2px; }
 .dash-menu-item-main { font-weight: 600; color: var(--md-primary); }
 .dash-menu-divider { height: 1px; background: var(--md-outline-variant); margin: 4px 6px; }
+
+/* DNS Engine options now live inside the DNS settings group box */
+.settings-group-box h4.dns-engine-heading {
+    margin: 16px 0 12px;
+    padding-top: 16px;
+    border-top: 1px solid var(--md-outline-variant, rgba(128,128,128,.25));
+}

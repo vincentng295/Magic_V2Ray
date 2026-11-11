@@ -245,50 +245,48 @@
                             <button type="button" class="btn-dns-configure" onclick="openDnsModal()" data-i18n="btn_configure">Configure</button>
                         </div>
 
-                    </div>
-                </div>
+                        <h4 class="dns-engine-heading" data-i18n="group_dns_engine">DNS Engine Options</h4>
 
-                <div class="settings-group-box">
-                    <h4 data-i18n="group_dns_engine">DNS Engine Options</h4>
+                        <div class="setting-item-row toggle-row" id="row-dns-disablecache">
+                            <label for="set-dns-disablecache"><span data-i18n="lbl_dns_disablecache">Disable DNS cache</span><small data-i18n="desc_dns_disablecache">Do not cache DNS answers in Xray (system DNS is not affected)</small></label>
+                            <input type="checkbox" id="set-dns-disablecache" onchange="syncDnsEngineOptions()">
+                        </div>
 
-                    <div class="setting-item-row toggle-row" id="row-dns-disablecache">
-                        <label for="set-dns-disablecache"><span data-i18n="lbl_dns_disablecache">Disable DNS cache</span><small data-i18n="desc_dns_disablecache">Do not cache DNS answers in Xray (system DNS is not affected)</small></label>
-                        <input type="checkbox" id="set-dns-disablecache" onchange="syncDnsEngineOptions()">
-                    </div>
+                        <div class="setting-item-row toggle-row" id="row-dns-servestale">
+                            <label for="set-dns-servestale"><span data-i18n="lbl_dns_servestale">Serve stale cache</span><small data-i18n="desc_dns_servestale">Return expired cache instantly and refresh it in the background</small></label>
+                            <input type="checkbox" id="set-dns-servestale" onchange="syncDnsEngineOptions()">
+                        </div>
 
-                    <div class="setting-item-row toggle-row" id="row-dns-servestale">
-                        <label for="set-dns-servestale"><span data-i18n="lbl_dns_servestale">Serve stale cache</span><small data-i18n="desc_dns_servestale">Return expired cache instantly and refresh it in the background</small></label>
-                        <input type="checkbox" id="set-dns-servestale" onchange="syncDnsEngineOptions()">
-                    </div>
+                        <div class="setting-item-row" id="row-dns-servettl">
+                            <label for="set-dns-servettl"><span data-i18n="lbl_dns_servettl">Stale cache lifetime (s)</span><small data-i18n="desc_dns_servettl">How long expired entries may still be served. 0 = never expires</small></label>
+                            <input type="number" id="set-dns-servettl" min="0" step="1" value="0">
+                        </div>
 
-                    <div class="setting-item-row" id="row-dns-servettl">
-                        <label for="set-dns-servettl"><span data-i18n="lbl_dns_servettl">Stale cache lifetime (s)</span><small data-i18n="desc_dns_servettl">How long expired entries may still be served. 0 = never expires</small></label>
-                        <input type="number" id="set-dns-servettl" min="0" step="1" value="0">
-                    </div>
+                        <div class="setting-item-row toggle-row" id="row-dns-disablefallback">
+                            <label for="set-dns-disablefallback"><span data-i18n="lbl_dns_disablefallback">Disable fallback</span><small data-i18n="desc_dns_disablefallback">Never query servers that did not match the domain list</small></label>
+                            <input type="checkbox" id="set-dns-disablefallback" onchange="syncDnsEngineOptions()">
+                        </div>
 
-                    <div class="setting-item-row toggle-row" id="row-dns-disablefallback">
-                        <label for="set-dns-disablefallback"><span data-i18n="lbl_dns_disablefallback">Disable fallback</span><small data-i18n="desc_dns_disablefallback">Never query servers that did not match the domain list</small></label>
-                        <input type="checkbox" id="set-dns-disablefallback" onchange="syncDnsEngineOptions()">
-                    </div>
+                        <div class="setting-item-row toggle-row" id="row-dns-disablefallbackifmatch">
+                            <label for="set-dns-disablefallbackifmatch"><span data-i18n="lbl_dns_disablefallbackifmatch">Disable fallback if matched</span><small data-i18n="desc_dns_disablefallbackifmatch">Skip fallback servers when a server's domain list already matched</small></label>
+                            <input type="checkbox" id="set-dns-disablefallbackifmatch" onchange="syncDnsEngineOptions()">
+                        </div>
 
-                    <div class="setting-item-row toggle-row" id="row-dns-disablefallbackifmatch">
-                        <label for="set-dns-disablefallbackifmatch"><span data-i18n="lbl_dns_disablefallbackifmatch">Disable fallback if matched</span><small data-i18n="desc_dns_disablefallbackifmatch">Skip fallback servers when a server's domain list already matched</small></label>
-                        <input type="checkbox" id="set-dns-disablefallbackifmatch" onchange="syncDnsEngineOptions()">
-                    </div>
+                        <div class="setting-item-row toggle-row" id="row-dns-parallel">
+                            <label for="set-dns-parallel"><span data-i18n="lbl_dns_parallel">Parallel query</span><small data-i18n="desc_dns_parallel">Query servers at the same time to speed up resolving</small></label>
+                            <input type="checkbox" id="set-dns-parallel" onchange="syncDnsEngineOptions()">
+                        </div>
 
-                    <div class="setting-item-row toggle-row" id="row-dns-parallel">
-                        <label for="set-dns-parallel"><span data-i18n="lbl_dns_parallel">Parallel query</span><small data-i18n="desc_dns_parallel">Query servers at the same time to speed up resolving</small></label>
-                        <input type="checkbox" id="set-dns-parallel" onchange="syncDnsEngineOptions()">
-                    </div>
+                        <div class="setting-item-row toggle-row" id="row-dns-systemhosts">
+                            <label for="set-dns-systemhosts"><span data-i18n="lbl_dns_systemhosts">Use system hosts</span><small data-i18n="desc_dns_systemhosts">Append the device hosts file to the built-in DNS hosts</small></label>
+                            <input type="checkbox" id="set-dns-systemhosts" onchange="syncDnsEngineOptions()">
+                        </div>
 
-                    <div class="setting-item-row toggle-row" id="row-dns-systemhosts">
-                        <label for="set-dns-systemhosts"><span data-i18n="lbl_dns_systemhosts">Use system hosts</span><small data-i18n="desc_dns_systemhosts">Append the device hosts file to the built-in DNS hosts</small></label>
-                        <input type="checkbox" id="set-dns-systemhosts" onchange="syncDnsEngineOptions()">
-                    </div>
+                        <div class="setting-item-row toggle-row" id="row-dns-sysresolve">
+                            <label for="set-dns-sysresolve"><span data-i18n="lbl_dns_sysresolve">Use system DNS resolver to resolve outbound domain</span><small data-i18n="desc_dns_sysresolve">Before connecting, resolve the outbound server's domain with the device's DNS and pin the result in dns.hosts</small></label>
+                            <input type="checkbox" id="set-dns-sysresolve">
+                        </div>
 
-                    <div class="setting-item-row toggle-row" id="row-dns-sysresolve">
-                        <label for="set-dns-sysresolve"><span data-i18n="lbl_dns_sysresolve">Use system DNS resolver to resolve outbound domain</span><small data-i18n="desc_dns_sysresolve">Before connecting, resolve the outbound server's domain with the device's DNS and pin the result in dns.hosts</small></label>
-                        <input type="checkbox" id="set-dns-sysresolve">
                     </div>
                 </div>
 
