@@ -3,16 +3,16 @@
 /* MD3 Color Tokens — Dark scheme */
 :root {
     /* Primary */
-    --md-primary: #D0BCFF;
-    --md-on-primary: #381E72;
-    --md-primary-container: #4F378B;
-    --md-on-primary-container: #EADDFF;
+    --md-primary: #78DC77;
+    --md-on-primary: #00390A;
+    --md-primary-container: #005313;
+    --md-on-primary-container: #94F990;
 
     /* Secondary */
-    --md-secondary: #CCC2DC;
-    --md-on-secondary: #332D41;
-    --md-secondary-container: #4A4458;
-    --md-on-secondary-container: #E8DEF8;
+    --md-secondary: #B9CCB4;
+    --md-on-secondary: #253423;
+    --md-secondary-container: #3B4B39;
+    --md-on-secondary-container: #D4E8CF;
 
     /* Tertiary */
     --md-tertiary: #EFB8C8;
@@ -32,16 +32,16 @@
     --md-on-success-container: #6DD58C;
 
     /* Surface */
-    --md-surface: #141218;
-    --md-surface-1: #1e1b23;
-    --md-surface-2: #232029;
-    --md-surface-3: #28262f;
-    --md-surface-4: #2b2830;
-    --md-surface-5: #2e2b33;
-    --md-on-surface: #E6E1E5;
-    --md-on-surface-variant: #CAC4D0;
-    --md-outline: #938F99;
-    --md-outline-variant: #49454F;
+    --md-surface: #111411;
+    --md-surface-1: #1a1d19;
+    --md-surface-2: #1e211d;
+    --md-surface-3: #232622;
+    --md-surface-4: #252824;
+    --md-surface-5: #282b27;
+    --md-on-surface: #E2E3DC;
+    --md-on-surface-variant: #C2C9BD;
+    --md-outline: #8C9388;
+    --md-outline-variant: #424940;
 
     /* Shadows */
     --md-shadow-1: 0 1px 2px rgba(0,0,0,.3), 0 1px 3px 1px rgba(0,0,0,.15);
@@ -602,12 +602,12 @@ textarea::placeholder { color: var(--md-outline); }
 }
 
 .config-item:hover {
-    background: rgba(208, 188, 255, 0.06);
+    background: rgba(120, 220, 119, 0.06);
 }
 .config-item:hover::before { background: var(--md-primary); }
 
 .config-item.selected {
-    background: rgba(208, 188, 255, 0.12);
+    background: rgba(120, 220, 119, 0.12);
 }
 .config-item.selected::before { background: var(--md-primary); }
 
@@ -653,7 +653,7 @@ textarea::placeholder { color: var(--md-outline); }
     align-items: center;
 }
 .btn-menu-trigger:hover {
-    background: rgba(208, 188, 255, 0.1);
+    background: rgba(120, 220, 119, 0.1);
     color: var(--md-on-surface);
 }
 
@@ -780,7 +780,7 @@ textarea::placeholder { color: var(--md-outline); }
     color: var(--md-on-surface-variant);
 }
 .btn-confirm-cancel:hover {
-    background: rgba(208, 188, 255, 0.1);
+    background: rgba(120, 220, 119, 0.1);
 }
 .btn-confirm-ok {
     background: var(--md-error);
@@ -975,7 +975,7 @@ textarea::placeholder { color: var(--md-outline); }
     transition: background .2s, color .2s;
 }
 .routing-rule-icon-btn:hover {
-    background: rgba(208, 188, 255, 0.1);
+    background: rgba(120, 220, 119, 0.1);
     color: var(--md-on-surface);
 }
 .routing-rule-icon-btn.btn-delete-item:hover {
@@ -1139,7 +1139,7 @@ textarea::placeholder { color: var(--md-outline); }
     transition: background .2s, color .2s;
 }
 .hosts-row-icon-btn:hover {
-    background: rgba(208, 188, 255, 0.1);
+    background: rgba(120, 220, 119, 0.1);
     color: var(--md-on-surface);
 }
 .hosts-row-icon-btn.btn-delete-item:hover {
@@ -1305,7 +1305,7 @@ textarea::placeholder { color: var(--md-outline); }
     left: 2px;
 }
 .setting-item-row input[type="checkbox"]:hover::before {
-    box-shadow: 0 0 0 8px rgba(208,188,255,0.12);
+    box-shadow: 0 0 0 8px rgba(120, 220, 119,0.12);
 }
 
 /* Removed feature: Allow Insecure (grayed out, struck through, non-interactive) */
@@ -1380,11 +1380,11 @@ textarea::placeholder { color: var(--md-outline); }
     padding: 16px;
     font-size: 15px;
     letter-spacing: .3px;
-    box-shadow: 0 2px 8px rgba(208, 188, 255, 0.25);
+    box-shadow: 0 2px 8px rgba(120, 220, 119, 0.25);
     border-radius: var(--md-shape-full);
 }
 .btn-save-settings:hover {
-    box-shadow: 0 4px 16px rgba(208, 188, 255, 0.35);
+    box-shadow: 0 4px 16px rgba(120, 220, 119, 0.35);
 }
 
 /* Reset-to-defaults button under Save: tonal, no glow */
@@ -1799,7 +1799,7 @@ select option:active {
 }
 .log-tool-btn[data-active="true"] {
     color: var(--md-primary);
-    background: rgba(208, 188, 255, 0.1);
+    background: rgba(120, 220, 119, 0.1);
 }
 .log-tool-btn--clear:hover { color: var(--md-error); }
 .log-tool-btn--refresh.spinning svg {
@@ -2325,7 +2325,7 @@ textarea.pro-config-input {
     overflow: hidden;
 }
 .config-item.builtin-node.selected {
-    background: rgba(208, 188, 255, 0.12);
+    background: rgba(120, 220, 119, 0.12);
     border-color: var(--md-primary);
 }
 
@@ -2619,7 +2619,7 @@ textarea.pro-config-input {
 }
 .dash-card:focus-within {
     border-color: var(--md-primary);
-    box-shadow: 0 0 0 3px rgba(208, 188, 255, .12);
+    box-shadow: 0 0 0 3px rgba(120, 220, 119, .12);
 }
 
 .dash-card textarea {
