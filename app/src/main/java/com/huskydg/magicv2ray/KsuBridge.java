@@ -210,6 +210,49 @@ final class KsuBridge {
                 && c.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
     }
 
+    /**
+     * DNS servers of the underlying (non-VPN) network as a JSON array of IP strings, in the
+     * order Android uses them. Unusable entries are dropped here: the wildcard address
+     * (0.0.0.0 / ::), loopback and IPv6 link-local servers (they need a scope id that a bare
+     * UDP query to "fe80::1" cannot carry). Returns "[]" when nothing usable is known.
+     */
+    @JavascriptInterface
+    public String getSystemDnsServers() {
+        JSONArray out = new JSONArray();
+        try {
+            ConnectivityManager cm = (ConnectivityManager) activity.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return out.toString();
+            Network pick = null;
+            Network act = cm.getActiveNetwork();
+            if (act != null && isPhysical(cm, act)) pick = act;
+            if (pick == null) {
+                for (Network n : cm.getAllNetworks()) {
+                    if (isPhysical(cm, n)) {
+                        pick = n;
+                        break;
+                    }
+                }
+            }
+            if (pick == null) return out.toString();
+            LinkProperties lp = cm.getLinkProperties(pick);
+            if (lp == null) return out.toString();
+            java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<>();
+            for (java.net.InetAddress a : lp.getDnsServers()) {
+                if (a == null || a.isAnyLocalAddress() || a.isLoopbackAddress()) continue;
+                if (a instanceof java.net.Inet6Address && a.isLinkLocalAddress()) continue;
+                String host = a.getHostAddress();
+                if (host == null) continue;
+                int pct = host.indexOf('%');
+                if (pct >= 0) host = host.substring(0, pct);
+                if (host.isEmpty() || "0.0.0.0".equals(host) || "::".equals(host)) continue;
+                seen.add(host);
+            }
+            for (String h : seen) out.put(h);
+        } catch (RuntimeException ignored) {
+        }
+        return out.toString();
+    }
+
     @JavascriptInterface
     public int sdk() {
         return android.os.Build.VERSION.SDK_INT;

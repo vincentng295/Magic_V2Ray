@@ -162,6 +162,9 @@ let advSettings = {
     dnsDisableFallbackIfMatch: false,
     dnsParallelQuery: true, // speed up DNS (Xray's own default is false)
     dnsUseSystemHosts: false,
+    // Resolve the outbound server's domain with the device's DNS before connecting and pin the
+    // result in dns.hosts (see resolveOutboundViaSystemDns() in main.js). Default ON.
+    dnsSystemResolveOutbound: true,
     localDns: false,
     fakeDnsLocal: false,
     // Professional mode: when true, config.json is taken verbatim from

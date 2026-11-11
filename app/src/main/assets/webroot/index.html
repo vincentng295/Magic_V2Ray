@@ -285,6 +285,11 @@
                         <label for="set-dns-systemhosts"><span data-i18n="lbl_dns_systemhosts">Use system hosts</span><small data-i18n="desc_dns_systemhosts">Append the device hosts file to the built-in DNS hosts</small></label>
                         <input type="checkbox" id="set-dns-systemhosts" onchange="syncDnsEngineOptions()">
                     </div>
+
+                    <div class="setting-item-row toggle-row" id="row-dns-sysresolve">
+                        <label for="set-dns-sysresolve"><span data-i18n="lbl_dns_sysresolve">Use system DNS resolver to resolve outbound domain</span><small data-i18n="desc_dns_sysresolve">Before connecting, resolve the outbound server's domain with the device's DNS and pin the result in dns.hosts</small></label>
+                        <input type="checkbox" id="set-dns-sysresolve">
+                    </div>
                 </div>
 
                 <button class="btn btn-primary btn-save-settings" onclick="saveAdvancedSettingsForm()" data-i18n="btn_save_settings">Save & Apply Configurations</button>

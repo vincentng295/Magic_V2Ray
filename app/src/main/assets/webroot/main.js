@@ -212,6 +212,138 @@ function resolveXrayConfigChecked(rawUri) {
     return { ok: true, config: configStr };
 }
 
+// ===== System DNS resolver for outbound domains =====
+// Before the config is written (i.e. before every connect / restart / reload) the
+// domain(s) of the outbound server(s) are resolved with the DEVICE's DNS servers
+// (ksu.getSystemDnsServers) through `xhuskydg_helper dnsjson <domain> <server>`, and
+// every returned IP (v4 + v6) is pinned in dns.hosts of the generated config:
+//     "example.com": ["1.2.3.4", "2001:db8::1234"]
+// so Xray never has to resolve its own server through its (not yet usable) DNS chain.
+// Best effort: any failure just leaves the config as it was.
+const SYSDNS_MAX_SERVERS = 3;        // servers tried per domain, in system order
+const SYSDNS_TOTAL_TIMEOUT_MS = 8000; // never hold up connecting for longer than this
+const SYSDNS_DOMAIN_RE = /^(?=.{1,253}$)[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(?:\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*$/;
+
+// System DNS servers, minus anything unusable: 0.0.0.0 / :: (the wildcard address is
+// not a resolver) and non-IP junk. Resolves to [] when the bridge is missing (plain
+// KernelSU WebUI) or the device reports nothing.
+function _getSystemDnsServers() {
+    try {
+        if (typeof ksu !== 'object' || typeof ksu.getSystemDnsServers !== 'function') return [];
+        const arr = JSON.parse(ksu.getSystemDnsServers() || '[]');
+        if (!Array.isArray(arr)) return [];
+        const out = [];
+        arr.forEach(x => {
+            const ip = String(x || '').trim().replace(/%.*$/, '');
+            if (!ip || ip === '0.0.0.0' || ip === '::') return;
+            if (typeof isIpAddr === 'function' && !isIpAddr(ip)) return;
+            if (!out.includes(ip)) out.push(ip);
+        });
+        return out;
+    } catch (e) {
+        console.warn('[sysdns] getSystemDnsServers failed', e);
+        return [];
+    }
+}
+
+// Host part of "host", "host:port", "[v6]:port" or a URL-ish string.
+function _hostOf(v) {
+    let h = String(v || '').trim();
+    if (!h) return '';
+    h = h.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').replace(/[\/?#].*$/, '');
+    if (h.startsWith('[')) {
+        const i = h.indexOf(']');
+        return i > 0 ? h.slice(1, i) : '';
+    }
+    if ((h.match(/:/g) || []).length === 1) h = h.slice(0, h.indexOf(':'));
+    return h;
+}
+
+// Domains (not IPs) the generated outbounds will have to dial: settings.address,
+// vnext[]/servers[] addresses, peers[].endpoint, ... of every real proxy outbound.
+function _collectOutboundDomains(cfg) {
+    const found = new Set();
+    const SKIP_PROTO = ['freedom', 'blackhole', 'dns', 'loopback'];
+    const KEYS = ['address', 'endpoint', 'server', 'host'];
+    const walk = (o, depth) => {
+        if (!o || depth > 6) return;
+        if (Array.isArray(o)) { o.forEach(x => walk(x, depth + 1)); return; }
+        if (typeof o !== 'object') return;
+        Object.keys(o).forEach(k => {
+            const v = o[k];
+            if (typeof v === 'string' && KEYS.includes(k)) {
+                const h = _hostOf(v).toLowerCase();
+                if (h && SYSDNS_DOMAIN_RE.test(h) && !(typeof isIpAddr === 'function' && isIpAddr(h))
+                    && h.indexOf('.') > 0) found.add(h);
+            } else if (v && typeof v === 'object') {
+                walk(v, depth + 1);
+            }
+        });
+    };
+    (Array.isArray(cfg.outbounds) ? cfg.outbounds : []).forEach(ob => {
+        if (!ob || SKIP_PROTO.includes(ob.protocol)) return;
+        walk(ob.settings, 0);
+    });
+    return Array.from(found);
+}
+
+// One `dnsjson` run -> list of IPs (v4 first, then v6), or [] on any failure.
+function _dnsjsonQuery(domain, server) {
+    return new Promise(resolve => {
+        execShell(`${shQuote(MODDIR + '/bin/xhuskydg_helper')} dnsjson ${shQuote(domain)} ${shQuote(server)}`, (out) => {
+            try {
+                const j = JSON.parse(out);
+                if (!j || j.error) return resolve([]);
+                resolve([].concat(j.ipv4 || [], j.ipv6 || []).filter(x => typeof x === 'string' && x));
+            } catch (e) {
+                resolve([]);
+            }
+        });
+    });
+}
+
+async function _resolveDomainViaServers(domain, servers) {
+    for (const server of servers.slice(0, SYSDNS_MAX_SERVERS)) {
+        const ips = await _dnsjsonQuery(domain, server);
+        if (ips.length) return Array.from(new Set(ips));
+    }
+    return [];
+}
+
+// Takes the generated config text, returns it with the resolved outbound domains added
+// to dns.hosts. Never rejects; returns the input unchanged when nothing applies.
+async function resolveOutboundViaSystemDns(configStr) {
+    if (advSettings.dnsSystemResolveOutbound === false) return configStr;
+    try {
+        const cfg = JSON.parse(configStr);
+        const domains = _collectOutboundDomains(cfg);
+        if (!domains.length) return configStr;
+        const servers = _getSystemDnsServers();
+        if (!servers.length) return configStr;
+
+        const work = Promise.all(domains.map(async d => [d, await _resolveDomainViaServers(d, servers)]));
+        const timeout = new Promise(r => setTimeout(() => r(null), SYSDNS_TOTAL_TIMEOUT_MS));
+        const results = await Promise.race([work, timeout]);
+        if (!results) return configStr;
+
+        if (!cfg.dns || typeof cfg.dns !== 'object') cfg.dns = {};
+        const hosts = (cfg.dns.hosts && typeof cfg.dns.hosts === 'object') ? cfg.dns.hosts : {};
+        let added = 0;
+        results.forEach(([domain, ips]) => {
+            if (!ips.length) return;
+            if (Object.prototype.hasOwnProperty.call(hosts, domain)) return; // user / built-in entry wins
+            hosts[domain] = ips;
+            added++;
+        });
+        if (!added) return configStr;
+        cfg.dns.hosts = hosts;
+        return JSON.stringify(cfg);
+    } catch (e) {
+        console.warn('[sysdns] resolve failed, config left unchanged', e);
+        return configStr;
+    }
+}
+
 // Regenerates config.json for the currently active node and restarts the
 // engine only if it is already running. Used by every "settings changed"
 // path so the write/validate/restart sequence exists in exactly one place.
@@ -265,7 +397,7 @@ function applyActiveConfig(options = {}) {
     }
     showLoading(t("toast_reload_xray"));
 
-    writeFileB64(CONFIG_JSON, res.config, () => {
+    resolveOutboundViaSystemDns(res.config).then(finalConfig => writeFileB64(CONFIG_JSON, finalConfig, () => {
         if (force) {
             _forceRestart(options, onDone);
             return;
@@ -284,7 +416,7 @@ function applyActiveConfig(options = {}) {
             }
             if (onDone) onDone(true);
         });
-    });
+    }));
 }
  
 // ===== Professional mode (hand written config.json) =====
@@ -3787,6 +3919,8 @@ function bindSettingsToFormView() {
     // Default ON: settings saved by older versions have no value.
     document.getElementById('set-dns-parallel').checked = advSettings.dnsParallelQuery !== false;
     document.getElementById('set-dns-systemhosts').checked = advSettings.dnsUseSystemHosts === true;
+    // Default ON: settings saved by older versions have no value.
+    document.getElementById('set-dns-sysresolve').checked = advSettings.dnsSystemResolveOutbound !== false;
     syncDnsEngineOptions();
 
     // DNS group
@@ -3841,6 +3975,7 @@ function saveAdvancedSettingsForm(isLangOnly = false) {    advSettings.loglevel 
     advSettings.dnsDisableFallbackIfMatch = document.getElementById('set-dns-disablefallbackifmatch').checked;
     advSettings.dnsParallelQuery = document.getElementById('set-dns-parallel').checked;
     advSettings.dnsUseSystemHosts = document.getElementById('set-dns-systemhosts').checked;
+    advSettings.dnsSystemResolveOutbound = document.getElementById('set-dns-sysresolve').checked;
 
     // DNS group
     advSettings.localDns = document.getElementById('set-localdns').checked;
