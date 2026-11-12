@@ -313,7 +313,13 @@ function tryDecodeBase64(str) {
 
 function utoa(str) {
     const bytes = new TextEncoder().encode(str);
-    const binString = String.fromCodePoint(...bytes);
+    // Spreading every byte into one fromCodePoint() call throws RangeError (too many
+    // arguments) beyond ~100 KB: a large hosts import then failed to be written and
+    // vanished on reload. Convert in chunks instead.
+    let binString = '';
+    for (let i = 0; i < bytes.length; i += 8192) {
+        binString += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+    }
     return btoa(binString);
 }
 

@@ -5701,7 +5701,11 @@ function initHostsFileIfNeeded(rawFromDisk, callback) {
 function persistHostsEntries(callback) {
     const text = serializeHostsFile(hostsEntries);
     hostsFileText = text;
-    writeFileB64(HOSTS_FILE, text, callback);
+    writeFileB64(HOSTS_FILE, text, (out, err, errno) => {
+        // A failed write used to pass silently, and the next reload then showed an empty file.
+        if (errno) showToast(t('toast_hosts_write_failed'), 'error');
+        if (callback) callback(out, err, errno);
+    });
 }
 
 // Re-reads HOSTS_FILE from disk and pushes it into config.json — for when
