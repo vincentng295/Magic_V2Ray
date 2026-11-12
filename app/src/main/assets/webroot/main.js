@@ -152,6 +152,15 @@ function shQuote(str) {
 // Writes `content` to `path` without ever placing it in the command line as
 // text. Base64 output is [A-Za-z0-9+/=] only, so it cannot break quoting.
 // Files are created 0600 under a 077 umask — they hold server credentials.
+// A single exec() carrying the whole payload only works while the command stays small: a
+// plain `sh -c <command>` (KernelSU WebUI, root managers) is capped at ~128 KB per
+// argument, so a config holding a large dns.hosts was cut off / refused and the core then
+// started from a missing, empty or truncated config.json. Big payloads are therefore
+// appended to a staging file in WRITE_CHUNK-sized pieces (each exec stays far below the
+// limit) and decoded once at the end.
+const WRITE_CHUNK = 48000; // base64 chars per exec; multiple of 4, well under 128 KB
+let _writeSeq = 0;
+
 function writeFileB64(path, content, callback) {
     let encoded;
     try {
@@ -161,11 +170,38 @@ function writeFileB64(path, content, callback) {
         if (callback) callback('', String(e), 1);
         return;
     }
+    const cb = callback || (() => {});
     const p = shQuote(path);
-    execShell(
-        `umask 077; printf '%s' ${shQuote(encoded)} | base64 -d > ${p} && chmod 600 ${p}`,
-        callback || (() => {})
-    );
+
+    if (encoded.length <= WRITE_CHUNK) {
+        execShell(
+            `umask 077; printf '%s' ${shQuote(encoded)} | base64 -d > ${p} && chmod 600 ${p}`,
+            cb
+        );
+        return;
+    }
+
+    const stage = shQuote(`${path}.${Date.now().toString(36)}${(++_writeSeq).toString(36)}.b64`);
+    let pos = 0;
+    const step = (out, err, errno) => {
+        if (errno) {
+            execShell(`rm -f ${stage}`, () => cb(out, err, errno));
+            return;
+        }
+        if (pos >= encoded.length) {
+            execShell(
+                `umask 077; base64 -d ${stage} > ${p}; rc=$?; rm -f ${stage}; ` +
+                `[ $rc -eq 0 ] && chmod 600 ${p}; exit $rc`,
+                cb
+            );
+            return;
+        }
+        const part = encoded.slice(pos, pos + WRITE_CHUNK);
+        const redirect = pos === 0 ? '>' : '>>';
+        pos += WRITE_CHUNK;
+        execShell(`umask 077; printf '%s' ${shQuote(part)} ${redirect} ${stage}`, step);
+    };
+    step('', '', 0);
 }
 
 function saveProfiles() {
@@ -4823,6 +4859,12 @@ function _buildXrayTestInbound(node, slot) {
         protocol: "socks",
         settings: { auth: "noauth", udp: true }
     }, ...plainTunnels];
+    // The probe only needs to reach the node: the user's (possibly huge) custom hosts list is
+    // dropped and only the built-in resolver pins stay. The probe script passes the whole config
+    // to `sh -c` as ONE argument, which fails outright beyond ~128 KB.
+    if (xrayConfigObj.dns && typeof xrayConfigObj.dns === 'object') {
+        xrayConfigObj.dns.hosts = { ...DEFAULT_DNS_HOSTS };
+    }
     if (MV_NONROOT) _stripSockoptMarks(xrayConfigObj);
     return { testIp, testPort, tmpFile, configStr: JSON.stringify(xrayConfigObj) };
 }

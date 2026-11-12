@@ -160,12 +160,25 @@ function mergeDnsHosts(base, custom) {
 // Hosts tab's own file (HOSTS_FILE, real /etc/hosts syntax) — main.js
 // keeps the small in-memory `hostsFileText` cache in sync with disk on
 // every write, so generation here can stay synchronous.
+// Parsing + merging a large hosts file is expensive and this runs for every generated
+// config (connect, reload, every node probe), so the result is memoised on the exact hosts
+// text. Callers get a shallow copy: they add/delete keys (system-DNS pinning), never the
+// cached object.
+let _dnsHostsMemo = { text: null, legacy: null, merged: null };
 function buildDnsHosts(settings) {
     try {
-        const hosts = (typeof hostsFileText !== 'undefined' && hostsFileText)
+        const hasFile = (typeof hostsFileText !== 'undefined' && hostsFileText);
+        const legacy = hasFile ? null : (settings && settings.customHosts);
+        if (_dnsHostsMemo.merged && _dnsHostsMemo.text === (hasFile ? hostsFileText : null)
+            && _dnsHostsMemo.legacy === (legacy || null)) {
+            return { ..._dnsHostsMemo.merged };
+        }
+        const hosts = hasFile
             ? parseStandardHostsFile(hostsFileText)
-            : parseCustomHosts(settings && settings.customHosts).hosts; // pre-migration fallback
-        return mergeDnsHosts(DEFAULT_DNS_HOSTS, hosts);
+            : parseCustomHosts(legacy).hosts; // pre-migration fallback
+        const merged = mergeDnsHosts(DEFAULT_DNS_HOSTS, hosts);
+        _dnsHostsMemo = { text: hasFile ? hostsFileText : null, legacy: legacy || null, merged };
+        return { ...merged };
     } catch (e) {
         return { ...DEFAULT_DNS_HOSTS };
     }
@@ -182,6 +195,35 @@ function buildDnsHosts(settings) {
 // equivalent in real hosts syntax, so the tab that edits a real hosts file
 // doesn't offer it.
 
+// A big imported hosts list (ad-block lists, other tools' exports) nearly always contains
+// junk: IPv6 zone ids ("fe80::1%lo0"), IP literals used as a "hostname" ("0.0.0.0 0.0.0.0"),
+// labels with illegal characters, over-long names. Xray refuses the WHOLE config when one
+// dns.hosts entry is malformed, so the core would not start at all. Such lines are skipped
+// here instead (parse side) and again when dns.hosts is built.
+const HOSTS_NAME_RE = /^(?=.{1,253}$)[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?(?:\.[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?)*$/;
+
+function isUsableHostsKey(key) {
+    const k = String(key || '');
+    if (!k) return false;
+    const m = k.match(HOSTS_KEY_PREFIX_RE);
+    if (m) {
+        const prefix = m[0].toLowerCase();
+        const rest = k.slice(m[0].length);
+        if (!rest) return false;
+        if (prefix === 'regexp:') {
+            try { new RegExp(rest); return true; } catch (e) { return false; }
+        }
+        if (prefix === 'geosite:' || prefix === 'ext:') return true;
+        return HOSTS_NAME_RE.test(rest);
+    }
+    return HOSTS_NAME_RE.test(k) && !isIpAddr(k);
+}
+
+// IP usable as a dns.hosts value: plain v4/v6, no "%zone" suffix.
+function isUsableHostsIp(ip) {
+    return typeof ip === 'string' && ip.indexOf('%') === -1 && isIpAddr(ip);
+}
+
 // Parses a whole hosts-file text into { hostname: [ip, ip, ...] } for
 // dns.hosts generation. Comment-only and blank lines are skipped; a
 // trailing "# ..." on a data line is stripped first. A line whose first
@@ -195,12 +237,13 @@ function parseStandardHostsFile(text) {
         const parts = line.split(/\s+/).filter(Boolean);
         if (parts.length < 2) return;
         const ip = parts[0];
-        if (!isIpAddr(ip)) return;
+        if (!isUsableHostsIp(ip)) return;
         for (const name of parts.slice(1)) {
             const key = normalizeHostKey(name);
-            if (!key) continue;
-            const prev = Array.isArray(hosts[key]) ? hosts[key] : [];
-            hosts[key] = [...new Set([...prev, ip])];
+            if (!key || !isUsableHostsKey(key)) continue;
+            const prev = hosts[key];
+            if (!Array.isArray(prev)) hosts[key] = [ip];
+            else if (!prev.includes(ip)) prev.push(ip);
         }
     });
     return hosts;
@@ -214,8 +257,8 @@ function parseStandardHostsDataLine(line) {
     const parts = clean.split(/\s+/).filter(Boolean);
     if (parts.length < 2) return null;
     const ip = parts[0];
-    if (!isIpAddr(ip)) return null;
-    const hostnames = parts.slice(1).map(normalizeHostKey).filter(Boolean);
+    if (!isUsableHostsIp(ip)) return null;
+    const hostnames = parts.slice(1).map(normalizeHostKey).filter(k => k && isUsableHostsKey(k));
     if (!hostnames.length) return null;
     return { ip, hostnames };
 }
