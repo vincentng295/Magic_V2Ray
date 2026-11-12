@@ -56,6 +56,15 @@
             android:name=".StopProxyReceiver"
             android:exported="false" />
 
+        <!-- Share proxy via Shizuku: Shizuku delivers its binder to the app through this provider. -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:enabled="true"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+
         <!-- Quick Settings tile: tap toggles the core, long-press opens the app. -->
         <service
             android:name=".CoreTileService"

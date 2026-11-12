@@ -6372,3 +6372,125 @@ function importPendingSublist() {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', hide);
     else hide();
 })();
+
+
+// ===== Share proxy via Shizuku (non-root mode) =====
+// Hotspot / USB-tethering clients use the proxy without root. The app does the work
+// (ShizukuHotspot.java); this card only shows its state (ksu.hotspotInfo) and starts / stops it.
+// Failures come back as "<code>|<detail>"; the code picks the localised hint.
+let _shizukuTimer = null;
+let _shizukuInfo = null;
+
+function initShizukuShare() {
+    const k = window.ksu;
+    const box = document.getElementById('shizuku-share-box');
+    if (!box || !MV_NONROOT || !k || typeof k.hotspotInfo !== 'function') return;
+    box.style.display = '';
+    document.getElementById('set-shizuku-wifi').checked = advSettings.shizukuShareWifi !== false;
+    document.getElementById('set-shizuku-usb').checked = advSettings.shizukuShareUsb === true;
+    document.getElementById('set-shizuku-auto').checked = advSettings.shizukuShareAuto === true;
+    refreshShizukuShare();
+    if (!_shizukuTimer) _shizukuTimer = setInterval(() => { if (!document.hidden) refreshShizukuShare(); }, 3000);
+}
+
+function saveShizukuShareSettings() {
+    advSettings.shizukuShareWifi = document.getElementById('set-shizuku-wifi').checked;
+    advSettings.shizukuShareUsb = document.getElementById('set-shizuku-usb').checked;
+    advSettings.shizukuShareAuto = document.getElementById('set-shizuku-auto').checked;
+    if (!advSettings.shizukuShareWifi && !advSettings.shizukuShareUsb) {      // at least one downstream
+        advSettings.shizukuShareWifi = true;
+        document.getElementById('set-shizuku-wifi').checked = true;
+    }
+    writeFileB64(SETTINGS_FILE, utoa(JSON.stringify(advSettings)), () => {});
+}
+
+function _shizukuFmtBytes(n) {
+    n = Number(n) || 0;
+    const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let i = 0;
+    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return n.toFixed(i ? 1 : 0) + ' ' + u[i];
+}
+
+function refreshShizukuShare() {
+    const k = window.ksu;
+    const txt = document.getElementById('shizuku-status-text');
+    const btn = document.getElementById('shizuku-action-btn');
+    if (!txt || !btn || !k || typeof k.hotspotInfo !== 'function') return;
+    let info;
+    try { info = JSON.parse(k.hotspotInfo()); } catch (e) { return; }
+    _shizukuInfo = info;
+    let msg, label, enabled = true;
+    if (!info.supported) {
+        msg = t('shizuku_state_unsupported'); label = t('btn_shizuku_start'); enabled = false;
+    } else if (info.state === 'STARTING') {
+        msg = t('shizuku_state_starting'); label = t('btn_shizuku_stop');
+    } else if (info.state === 'ACTIVE') {
+        msg = t('shizuku_state_active', {
+            n: info.clientCount || 0,
+            up: _shizukuFmtBytes(info.bytesUp), down: _shizukuFmtBytes(info.bytesDown)
+        });
+        label = t('btn_shizuku_stop');
+    } else if (info.shizuku === 'not_installed') {
+        msg = t('shizuku_state_not_installed'); label = t('btn_shizuku_install');
+    } else if (info.shizuku === 'not_running') {
+        msg = t('shizuku_state_not_running'); label = t('btn_shizuku_open');
+    } else if (info.shizuku === 'permission') {
+        msg = t('shizuku_state_permission'); label = t('btn_shizuku_grant');
+    } else if (info.state === 'ERROR') {
+        msg = _shizukuErrorText(info.code, info.detail); label = t('btn_shizuku_start');
+    } else if (!info.engineRunning) {
+        msg = t('shizuku_state_engine_off'); label = t('btn_shizuku_start'); enabled = false;
+    } else {
+        msg = t('shizuku_state_ready'); label = t('btn_shizuku_start');
+    }
+    txt.textContent = msg;
+    btn.textContent = label;
+    btn.disabled = !enabled;
+}
+
+function _shizukuErrorText(code, detail) {
+    const key = 'shizuku_err_' + String(code || 'failed').replace(/[^a-z_]/g, '');
+    const base = (typeof i18n !== 'undefined' && i18n[currentLang] && key in i18n[currentLang]) ? t(key) : t('shizuku_err_failed');
+    return detail ? base + ' (' + detail + ')' : base;
+}
+
+function shizukuShareAction() {
+    const k = window.ksu;
+    const info = _shizukuInfo;
+    if (!k || !info) return;
+    if (info.state === 'STARTING' || info.state === 'ACTIVE') {
+        window.__shizukuStopCb = () => { showToast(t('toast_shizuku_stopped'), 'success'); refreshShizukuShare(); };
+        k.hotspotStop('__shizukuStopCb');
+        return;
+    }
+    if (info.shizuku === 'not_installed' || info.shizuku === 'not_running') { k.hotspotOpenShizuku(); return; }
+    if (info.shizuku === 'permission') {
+        if (k.hotspotRequestPermission() === 'denied_forever') {
+            showToast(t('shizuku_err_denied_forever'), 'error');
+            k.hotspotOpenShizuku();
+        }
+        return;
+    }
+    const opts = JSON.stringify({
+        wifi: document.getElementById('set-shizuku-wifi').checked,
+        usb: document.getElementById('set-shizuku-usb').checked
+    });
+    window.__shizukuStartCb = (errno, out, err) => {
+        if (errno === 0) {
+            showToast(t('toast_shizuku_started'), 'success');
+        } else {
+            const i = String(err).indexOf('|');
+            showToast(_shizukuErrorText(i < 0 ? 'failed' : err.slice(0, i), i < 0 ? err : err.slice(i + 1)), 'error');
+        }
+        refreshShizukuShare();
+    };
+    k.hotspotStart(opts, '__shizukuStartCb');
+    refreshShizukuShare();
+}
+
+(function () {
+    if (!MV_NONROOT) return;
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => setTimeout(initShizukuShare, 0));
+    else setTimeout(initShizukuShare, 0);
+})();

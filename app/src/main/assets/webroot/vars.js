@@ -112,6 +112,10 @@ let advSettings = {
     queryStrategy: "UseIPv4",
     networkMode: 0,
     allowTether: true,
+    // Network tab, "Share proxy via Shizuku" (non-root only). Read by the app (NonRootEnv.settings).
+    shizukuShareWifi: true,
+    shizukuShareUsb: false,
+    shizukuShareAuto: false,
     // Network tab, "Bypass VpnService". true (default): traffic headed to other
     // apps' VPN tunnels (tun0, tun1, ... = VPN_IFACE_PATTERN) skips Xray, so
     // VpnService handles the packet first and only its own outgoing traffic

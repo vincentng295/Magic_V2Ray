@@ -137,6 +137,7 @@ public class MagicVpnService extends VpnService {
                 }
                 VpnController.setRunning();
                 watchNetwork();
+                ShizukuHotspot.onEngineUp(this);
             } catch (Exception e) {
                 VpnController.setFailed(String.valueOf(e.getMessage()));
                 teardownLocked();
@@ -507,6 +508,7 @@ public class MagicVpnService extends VpnService {
     }
 
     private void teardownLocked() {
+        ShizukuHotspot.onEngineDown(this);      // async: the bridge has nowhere to go without xray
         closing = true;
         killXray();
         closing = true;

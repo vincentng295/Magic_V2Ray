@@ -42,6 +42,7 @@ Từ phiên bản **v2.0**, các thiết bị chưa root có thể chạy Magic 
 - **Quản lý danh mục (Category Organizing):** Gom nhóm các proxy server vào các thư mục hoặc danh mục tùy chỉnh.
 - **Nhập liên kết thông minh (Smart Subscription Import):** Dán nhanh các URL đăng ký, chuỗi cấu hình thô hoặc đoạn mã hỗn hợp.
 - **Cập nhật 1-Click (Auto-Reload):** Lưu liên kết đăng ký để cập nhật lại toàn bộ server chỉ bằng một thao tác.
+- **Chia sẻ điểm phát sóng không cần root:** Ở chế độ không cần root (Non-Root mode), Shizuku có thể chia sẻ proxy với các thiết bị kết nối qua điểm phát sóng hoặc cáp USB (Android 13 trở lên).
 - **Chia sẻ Hotspot Native:** Chia sẻ kết nối proxy cho máy tính, console hoặc điện thoại khác qua Wi-Fi Hotspot với đầy đủ hỗ trợ IPv4 và IPv6.
 
 ---

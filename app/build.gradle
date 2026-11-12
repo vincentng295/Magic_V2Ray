@@ -75,6 +75,10 @@ android {
         }
     }
 
+    buildFeatures {
+        aidl true      // IHotspotService (Shizuku UserService)
+    }
+
     lint {
         checkReleaseBuilds false
         abortOnError false
@@ -84,6 +88,11 @@ android {
 dependencies {
     // Persistent root shells instead of one `su` process per command.
     implementation 'com.github.topjohnwu.libsu:core:6.0.0'
+    // Share proxy via Shizuku (non-root hotspot sharing)
+    // androidx.annotation is annotations only (nothing at runtime) and would require
+    // android.useAndroidX=true, so it is excluded to keep that switched off.
+    implementation('dev.rikka.shizuku:api:13.1.5') { exclude group: 'androidx.annotation' }
+    implementation('dev.rikka.shizuku:provider:13.1.5') { exclude group: 'androidx.annotation' }
 }
 
 // The APK doubles as a flashable module zip (rename .apk -> .zip). Magisk,

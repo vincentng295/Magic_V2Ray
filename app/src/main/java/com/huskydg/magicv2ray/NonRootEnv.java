@@ -300,6 +300,94 @@ final class NonRootEnv {
         }
     }
 
+    /** Where the main engine's socks-test-in inbound listens when the runtime config cannot be read. */
+    private static final String SOCKS_TEST_HOST = "127.17.1.3";
+    private static final int SOCKS_TEST_PORT = 808 + 50000;       // NONROOT_PORT_OFFSET in helper.js
+
+    static File hotspotConfigFile(Context c) {
+        return new File(datadir(c), "config.hotspot.json");
+    }
+
+    static File hotspotLogFile(Context c) {
+        return new File(stubdir(c), "logs/hotspot.log");
+    }
+
+    /**
+     * Config of the "hotspot bridge" xray (Share proxy via Shizuku): a tun inbound on the fd of
+     * the tethering upstream (XRAY_TUN_FD, handed over by vpnrun exactly like the VpnService fd)
+     * whose only outbound is a SOCKS5 connection to the main engine's socks-test-in inbound.
+     *
+     * Everything the user configured (node, chain, routing rules, DNS, fake DNS, sniffing) lives
+     * in the main xray, and socks-test-in is routed there exactly like tun-in, so hotspot clients
+     * get the same treatment as the phone itself without a second copy of that config, and without
+     * a second connection to the server. Written after the main config exists: the port is read
+     * from the runtime config the main xray actually runs with.
+     */
+    static File hotspotConfig(Context c, boolean blockIpv6) throws IOException {
+        String host = SOCKS_TEST_HOST;
+        int port = SOCKS_TEST_PORT;
+        try {
+            JSONObject main = new JSONObject(readText(new File(datadir(c), "config.nonroot.json")));
+            JSONArray inbounds = main.optJSONArray("inbounds");
+            for (int i = 0; inbounds != null && i < inbounds.length(); i++) {
+                JSONObject in = inbounds.optJSONObject(i);
+                if (in != null && "socks-test-in".equals(in.optString("tag"))) {
+                    host = in.optString("listen", host);
+                    port = in.optInt("port", port);
+                }
+            }
+        } catch (IOException | JSONException ignored) {
+            // the main engine is not up yet or the file is unreadable: the defaults are what helper.js emits
+        }
+        try {
+            JSONObject cfg = new JSONObject();
+            cfg.put("log", new JSONObject().put("loglevel", "warning"));
+
+            JSONObject tun = new JSONObject();
+            tun.put("tag", "tun-in");
+            tun.put("protocol", "tun");
+            tun.put("settings", new JSONObject().put("name", "xraytun1").put("mtu", HotspotService.TUN_MTU));
+            cfg.put("inbounds", new JSONArray().put(tun));
+
+            JSONObject server = new JSONObject().put("address", host).put("port", port);
+            JSONObject mainOut = new JSONObject();
+            mainOut.put("tag", "main");
+            mainOut.put("protocol", "socks");
+            mainOut.put("settings", new JSONObject().put("servers", new JSONArray().put(server)));
+            JSONObject block = new JSONObject().put("tag", "block").put("protocol", "blackhole");
+            cfg.put("outbounds", new JSONArray().put(mainOut).put(block));
+
+            JSONArray rules = new JSONArray();
+            if (blockIpv6) {
+                // "Enable IPv6" off: the main engine only drops IPv6 coming from tun-in, which is
+                // not where these clients enter it, so drop it here.
+                rules.put(new JSONObject().put("type", "field")
+                        .put("ip", new JSONArray().put("::/0")).put("outboundTag", "block"));
+            }
+            rules.put(new JSONObject().put("type", "field")
+                    .put("inboundTag", new JSONArray().put("tun-in")).put("outboundTag", "main"));
+            cfg.put("routing", new JSONObject().put("domainStrategy", "AsIs").put("rules", rules));
+
+            File dst = hotspotConfigFile(c);
+            try (FileOutputStream out = new FileOutputStream(dst)) {
+                out.write(cfg.toString().getBytes(StandardCharsets.UTF_8));
+            }
+            return dst;
+        } catch (JSONException e) {
+            throw new IOException("cannot build the hotspot bridge config: " + e.getMessage());
+        }
+    }
+
+    private static String readText(File f) throws IOException {
+        try (FileInputStream in = new FileInputStream(f)) {
+            ByteArrayOutputStream bo = new ByteArrayOutputStream();
+            byte[] b = new byte[16 * 1024];
+            int n;
+            while ((n = in.read(b)) > 0) bo.write(b, 0, n);
+            return bo.toString("UTF-8");
+        }
+    }
+
     /**
      * "Enable IPv6" off: put a first routing rule that sends every IPv6 destination coming from
      * the tun to the "block" outbound (the root engine does the same with ip6tables).

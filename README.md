@@ -42,6 +42,7 @@ Starting with **v2.0**, devices without root access can run Magic V2Ray seamless
 - **Category Organization:** Group your proxy servers into custom folders/categories.
 - **Smart Subscription Import:** Easily paste subscription URLs, raw configurations, or mixed text codes.
 - **One-Click Auto-Reload:** Keep your subscriptions up-to-date with a single tap.
+- **Hotspot Sharing without root:** in Non-Root mode, Shizuku can share the proxy with hotspot / USB clients (Android 13+).
 - **Hotspot Sharing:** Share your proxied connection with laptops, consoles, or other phones via IPv4/IPv6 Wi-Fi Hotspot.
 
 ---

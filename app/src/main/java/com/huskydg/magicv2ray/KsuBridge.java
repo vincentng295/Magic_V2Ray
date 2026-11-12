@@ -323,6 +323,44 @@ final class KsuBridge {
         }
     }
 
+    // ------------------------------------------------ Share proxy via Shizuku (non-root)
+
+    /** JSON state for the WebUI card (see ShizukuHotspot.info). */
+    @JavascriptInterface
+    public String hotspotInfo() {
+        return ShizukuHotspot.info(activity.getApplicationContext());
+    }
+
+    /** "requested" | "denied_forever" | "unavailable". */
+    @JavascriptInterface
+    public String hotspotRequestPermission() {
+        return ShizukuHotspot.requestPermission();
+    }
+
+    @JavascriptInterface
+    public void hotspotOpenShizuku() {
+        ShizukuHotspot.openShizuku(activity.getApplicationContext());
+    }
+
+    /** options: {"wifi":bool,"usb":bool}. Callback gets (errno, stdout, "code|detail"). */
+    @JavascriptInterface
+    public void hotspotStart(String options, String callback) {
+        if (callback == null || !CB_RE.matcher(callback).matches() || !RunMode.isNonRoot(activity)) return;
+        ShizukuHotspot.start(activity, options, (code, out, err) -> deliver(callback, code, out, err));
+    }
+
+    @JavascriptInterface
+    public void hotspotStop(String callback) {
+        if (callback == null || !CB_RE.matcher(callback).matches()) return;
+        ShizukuHotspot.stop(activity, (code, out, err) -> deliver(callback, code, out, err));
+    }
+
+    private void deliver(String callback, int code, String out, String err) {
+        final String js = "window['" + callback + "']&&window['" + callback + "'](" + code + ","
+                + JSONObject.quote(out) + "," + JSONObject.quote(err) + ")";
+        web.post(() -> web.evaluateJavascript(js, null));
+    }
+
     // ------------------------------------------------------------ app appearance
 
     /** The WebUI's appearance settings as JSON ("" until first saved). */
