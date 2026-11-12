@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Magic V2Ray</string>
+    <string name="setup_checking_root">正在检查 Root 权限…</string>
+    <string name="setup_checking_module">正在检查 Magic V2Ray 模块…</string>
+    <string name="setup_installing">正在将模块安装到 /data/adb/modules/magic_v2ray…</string>
+    <string name="setup_starting">正在启动服务…</string>
+    <string name="err_no_root">需要 Root 权限。\n\n请在 Magisk、KernelSU 或 APatch 中授予 Magic V2Ray 超级用户权限，然后点按“重试”。</string>
+    <string name="err_install">无法安装模块。</string>
+    <string name="reboot_hint">模块已更新。请重启设备以运行新引擎。</string>
+    <string name="retry">重试</string>
+    <string name="exit">退出</string>
+    <string name="tile_label">Magic V2Ray</string>
+    <string name="tile_on">已开启</string>
+    <string name="tile_off">已关闭</string>
+    <string name="tile_busy">处理中…</string>
+    <string name="tile_unavailable">不可用</string>
+    <string name="use_nonroot">使用非 Root 模式（VpnService）</string>
+    <string name="welcome_title">欢迎使用 Magic V2Ray！</string>
+    <string name="welcome_subtitle">Magic V2Ray 提供两种运行代理的方式，请选择适合你的一种：</string>
+    <string name="welcome_hint">你可以随时在应用设置中切换模式。</string>
+    <string name="mode_root_title">Root 模式</string>
+    <string name="mode_vpn_title">VPN 模式</string>
+    <string name="feat_faster">更快</string>
+    <string name="feat_battery">更省电</string>
+    <string name="feat_needs_root">设备需已 Root</string>
+    <string name="feat_slower">较慢</string>
+    <string name="feat_background">在后台运行</string>
+    <string name="feat_compatible">兼容性好</string>
+    <string name="err_no_root_title">需要 Root 权限</string>
+    <string name="err_no_root_body">请在 Magisk、KernelSU 或 APatch 中授予 Magic V2Ray 超级用户权限，然后点按“重试”。</string>
+    <string name="err_install_title">设置失败</string>
+    <string name="vpn_channel">代理状态</string>
+    <string name="notif_title_on">代理已启用</string>
+    <string name="notif_title_paused">代理已暂停</string>
+    <string name="notif_node">节点：%1$s</string>
+    <string name="notif_stop">关闭代理</string>
+    <string name="vpn_notif_text">Xray 正在运行（VpnService）</string>
+    <string name="vpn_notif_paused">VPN 已连接，代理在此网络上已暂停</string>
+</resources>

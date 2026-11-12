@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Magic V2Ray</string>
+    <string name="setup_checking_root">Проверка root-доступа…</string>
+    <string name="setup_checking_module">Проверка модуля Magic V2Ray…</string>
+    <string name="setup_installing">Установка модуля в /data/adb/modules/magic_v2ray…</string>
+    <string name="setup_starting">Запуск службы…</string>
+    <string name="err_no_root">Нужен root-доступ.\n\nПредоставьте Magic V2Ray права суперпользователя в Magisk, KernelSU или APatch и нажмите «Повторить».</string>
+    <string name="err_install">Не удалось установить модуль.</string>
+    <string name="reboot_hint">Модуль обновлён. Перезагрузите устройство, чтобы запустить новый движок.</string>
+    <string name="retry">Повторить</string>
+    <string name="exit">Выход</string>
+    <string name="tile_label">Magic V2Ray</string>
+    <string name="tile_on">Вкл.</string>
+    <string name="tile_off">Выкл.</string>
+    <string name="tile_busy">Выполняется…</string>
+    <string name="tile_unavailable">Недоступно</string>
+    <string name="use_nonroot">Использовать режим без root (VpnService)</string>
+    <string name="welcome_title">Добро пожаловать в Magic V2Ray!</string>
+    <string name="welcome_subtitle">Magic V2Ray предлагает два способа запуска прокси. Выберите подходящий:</string>
+    <string name="welcome_hint">Режим можно сменить в любой момент в настройках приложения.</string>
+    <string name="mode_root_title">Режим root</string>
+    <string name="mode_vpn_title">Режим VPN</string>
+    <string name="feat_faster">Быстрее</string>
+    <string name="feat_battery">Экономит заряд</string>
+    <string name="feat_needs_root">Нужен root на устройстве</string>
+    <string name="feat_slower">Медленнее</string>
+    <string name="feat_background">Работает в фоне</string>
+    <string name="feat_compatible">Совместимо</string>
+    <string name="err_no_root_title">Нужен root-доступ</string>
+    <string name="err_no_root_body">Предоставьте Magic V2Ray права суперпользователя в Magisk, KernelSU или APatch и нажмите «Повторить».</string>
+    <string name="err_install_title">Ошибка настройки</string>
+    <string name="vpn_channel">Состояние прокси</string>
+    <string name="notif_title_on">Прокси активен</string>
+    <string name="notif_title_paused">Прокси приостановлен</string>
+    <string name="notif_node">Узел: %1$s</string>
+    <string name="notif_stop">Отключить прокси</string>
+    <string name="vpn_notif_text">Xray работает (VpnService)</string>
+    <string name="vpn_notif_paused">VPN подключён, прокси приостановлен в этой сети</string>
+</resources>
