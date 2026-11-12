@@ -323,6 +323,22 @@ function _collectOutboundDomains(cfg) {
     return Array.from(found);
 }
 
+// Domains used as dns.servers addresses: "tls://dns.adguard.com", "https://dns.adguard.com/dns-query",
+// "quic+local://...", "tcp://host:53", or a bare "dns.adguard.com" (== udp://host:53). Servers may be
+// plain strings or { address, ... } objects. IPs, "localhost", "fakedns" and dotless names are skipped.
+function _collectDnsServerDomains(cfg) {
+    const found = new Set();
+    const servers = cfg && cfg.dns && Array.isArray(cfg.dns.servers) ? cfg.dns.servers : [];
+    servers.forEach(s => {
+        const addr = typeof s === 'string' ? s : (s && typeof s.address === 'string' ? s.address : '');
+        if (!addr) return;
+        const h = _hostOf(addr).toLowerCase();
+        if (h && SYSDNS_DOMAIN_RE.test(h) && !(typeof isIpAddr === 'function' && isIpAddr(h))
+            && h !== 'localhost' && h !== 'fakedns' && h.indexOf('.') > 0) found.add(h);
+    });
+    return Array.from(found);
+}
+
 // One `dnsjson` run -> list of IPs (v4 first, then v6), or [] on any failure.
 function _dnsjsonQuery(domain, server) {
     return new Promise(resolve => {
@@ -374,7 +390,7 @@ async function resolveOutboundViaSystemDns(configStr, opts = {}) {
     if (advSettings.dnsSystemResolveOutbound === false) return configStr;
     try {
         const cfg = JSON.parse(configStr);
-        const domains = _collectOutboundDomains(cfg);
+        const domains = Array.from(new Set([..._collectOutboundDomains(cfg), ..._collectDnsServerDomains(cfg)]));
         if (!domains.length) return configStr;
         const servers = _getSystemDnsServers();
         if (!servers.length) return configStr;
