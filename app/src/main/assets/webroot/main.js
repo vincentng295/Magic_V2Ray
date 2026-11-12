@@ -728,6 +728,7 @@ document.addEventListener('DOMContentLoaded', () => {
         renderProfiles();
         syncAutocheckList();
         importPendingSublist();
+        checkDeepLink();
     });
 });
  
@@ -6562,3 +6563,17 @@ async function clearAllHosts() {
         showToast(t('toast_hosts_cleared'), 'success');
     });
 }
+
+
+// ===== Deep links: v2rayng:// and magicv2ray:// install-config?url=<urlencoded> =====
+// The app only lets an http(s) URL through (MainActivity.linkUrl). Any web page or app can fire these
+// links, so the user is always asked before the subscription is fetched and added.
+async function checkDeepLink() {
+    const k = window.ksu;
+    if (!k || typeof k.takePendingLink !== 'function') return;
+    const url = String(k.takePendingLink() || '').trim();
+    if (!url) return;
+    if (!await showConfirm(t('confirm_deeplink_sub', { url }))) return;
+    importFromText(url);
+}
+window.checkDeepLink = checkDeepLink;

@@ -83,9 +83,35 @@ public class MainActivity extends Activity {
         super.attachBaseContext(AppPrefs.wrap(base));
     }
 
+    /** Subscription URL from a v2rayng:// / magicv2ray:// link, waiting for the WebUI to take it. */
+    static volatile String pendingLink;
+
+    /** Only http(s) subscription URLs get through; the WebUI still asks the user before adding. */
+    private static String linkUrl(Intent i) {
+        Uri u = i == null ? null : i.getData();
+        if (u == null || !Intent.ACTION_VIEW.equals(i.getAction())) return null;
+        String sch = u.getScheme();
+        if (!"v2rayng".equals(sch) && !"magicv2ray".equals(sch)) return null;
+        String url = u.getQueryParameter("url");          // already url-decoded
+        if (url == null) return null;
+        url = url.trim();
+        return url.matches("(?i)^https?://\\S+$") ? url : null;
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        String url = linkUrl(intent);
+        if (url == null) return;
+        pendingLink = url;
+        if (web != null) web.post(() -> web.evaluateJavascript("window.checkDeepLink&&window.checkDeepLink()", null));
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        pendingLink = linkUrl(getIntent());
         // Until the WebUI reports its real surface colour, use the cached one (or the resource default).
         boolean light = !AppPrefs.isNight(this);
         bg = AppPrefs.hasChrome(this) ? AppPrefs.chromeBg(this, getColor(R.color.mv_bg)) : getColor(R.color.mv_bg);

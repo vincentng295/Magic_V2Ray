@@ -2738,3 +2738,8 @@ textarea.pro-config-input {
     color: var(--md-sys-color-error, #b3261e);
     margin-top: 4px;
 }
+
+#confirm-modal-message {
+    white-space: pre-line;
+    word-break: break-all;
+}

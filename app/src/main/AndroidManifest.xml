@@ -26,10 +26,21 @@
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode|density|locale|layoutDirection"
             android:exported="true"
+            android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Deep links: v2rayng:// and magicv2ray:// install-config?url=<urlencoded subscription URL> -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="v2rayng" android:host="install-config" />
+                <data android:scheme="v2rayng" android:host="install-sub" />
+                <data android:scheme="magicv2ray" android:host="install-config" />
+                <data android:scheme="magicv2ray" android:host="install-sub" />
             </intent-filter>
             <!-- Long-press on the Quick Settings tile opens the app. -->
             <intent-filter>

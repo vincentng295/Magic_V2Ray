@@ -149,6 +149,14 @@ final class KsuBridge {
         activity.runOnUiThread(() -> ((MainActivity) activity).saveTextFile(safe, text == null ? "" : text, callback));
     }
 
+    /** The URL of a pending deep link ("" if none); returns it once. */
+    @JavascriptInterface
+    public String takePendingLink() {
+        String u = MainActivity.pendingLink;
+        MainActivity.pendingLink = null;
+        return u == null ? "" : u;
+    }
+
     /** "root" or "nonroot": decides which base paths and engine the WebUI uses. */
     @JavascriptInterface
     public String mode() {
