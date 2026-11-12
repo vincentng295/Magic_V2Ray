@@ -53,6 +53,9 @@ public class MainActivity extends Activity {
     private static final String HOST = "appassets.local";
     private static final String START_URL = "https://" + HOST + "/webroot/index.html";
     private static final int REQ_FILE = 1;
+    private static final int REQ_SAVE = 3;
+    private String pendingSaveText;
+    private String pendingSaveCb;
     private static final Pattern PKG_RE = Pattern.compile("^[A-Za-z0-9_.]+$");
 
     private final LruCache<String, byte[]> icons = new LruCache<>(400);
@@ -399,10 +402,49 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** Asks the user where to save {@code text} (system "create document" dialog); reports back to JS. */
+    void saveTextFile(String name, String text, String callback) {
+        pendingSaveText = text;
+        pendingSaveCb = callback;
+        Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                .addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("text/plain")
+                .putExtra(Intent.EXTRA_TITLE, name);
+        try {
+            startActivityForResult(i, REQ_SAVE);
+        } catch (ActivityNotFoundException e) {
+            finishSave(null);
+        }
+    }
+
+    private void finishSave(Uri uri) {
+        String text = pendingSaveText, cb = pendingSaveCb;
+        pendingSaveText = null;
+        pendingSaveCb = null;
+        int code = 1;
+        if (uri != null && text != null) {
+            try (java.io.OutputStream o = getContentResolver().openOutputStream(uri, "wt")) {
+                if (o != null) {
+                    o.write(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    code = 0;
+                }
+            } catch (java.io.IOException | RuntimeException ignored) {
+            }
+        }
+        if (cb != null && web != null) {
+            final String js = "window['" + cb + "']&&window['" + cb + "'](" + code + ")";
+            web.post(() -> web.evaluateJavascript(js, null));
+        }
+    }
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode == VpnController.REQ_VPN) {
             VpnController.onPermissionResult(resultCode == RESULT_OK);
+            return;
+        }
+        if (requestCode == REQ_SAVE) {
+            finishSave(resultCode == RESULT_OK && data != null ? data.getData() : null);
             return;
         }
         if (requestCode == REQ_FILE && filePathCallback != null) {

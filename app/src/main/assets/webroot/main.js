@@ -6494,3 +6494,71 @@ function shizukuShareAction() {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => setTimeout(initShizukuShare, 0));
     else setTimeout(initShizukuShare, 0);
 })();
+
+
+// ===== Custom Hosts: import / export / delete all =====
+// Import MERGES into the current list (same domain -> IPs are added); "Delete all" first gives a replace.
+function _mergeHostsText(text) {
+    const incoming = parseHostsEntries(text);
+    if (!incoming.length) return 0;
+    const byDomain = new Map(hostsEntries.map(e => [e.domain, e]));
+    incoming.forEach(e => {
+        const cur = byDomain.get(e.domain);
+        if (cur) e.ips.forEach(ip => { if (!cur.ips.includes(ip)) cur.ips.push(ip); });
+        else { const n = { domain: e.domain, ips: e.ips.slice() }; hostsEntries.push(n); byDomain.set(e.domain, n); }
+    });
+    hostsEntries.sort((a, b) => a.domain.localeCompare(b.domain));
+    persistHostsEntries(() => {
+        loadHostsDomainList();
+        applyActiveConfig();
+        showToast(t('toast_hosts_imported', { count: incoming.length }), 'success');
+    });
+    return incoming.length;
+}
+
+function importHostsFromFile() {
+    document.getElementById('hosts-import-input').click();
+}
+
+function handleHostsFileImport(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => { if (!_mergeHostsText(String(e.target.result || ''))) showToast(t('toast_hosts_import_empty'), 'error'); };
+    reader.readAsText(file);
+    event.target.value = '';
+}
+
+async function importHostsFromClipboard() {
+    try {
+        const text = await navigator.clipboard.readText();
+        if (!_mergeHostsText(text || '')) showToast(t('toast_hosts_import_empty'), 'error');
+    } catch (e) {
+        showToast(t('toast_clipboard_empty'), 'error');
+    }
+}
+
+function exportHostsFile() {
+    if (!hostsEntries.length) { showToast(t('toast_hosts_export_empty'), 'error'); return; }
+    const text = serializeHostsFile(hostsEntries);
+    const k = window.ksu;
+    if (k && typeof k.saveTextFile === 'function') {
+        window.__hostsSaveCb = (code) => { if (code === 0) showToast(t('toast_hosts_exported'), 'success'); };
+        k.saveTextFile('hosts.txt', text, '__hostsSaveCb');
+        return;
+    }
+    navigator.clipboard.writeText(text).then(
+        () => showToast(t('toast_hosts_exported_clip'), 'success'),
+        () => showToast(t('toast_rules_export_fail'), 'error'));
+}
+
+async function clearAllHosts() {
+    if (!hostsEntries.length) return;
+    if (!await showConfirm(t('confirm_clear_hosts', { count: hostsEntries.length }))) return;
+    hostsEntries = [];
+    persistHostsEntries(() => {
+        loadHostsDomainList();
+        applyActiveConfig();
+        showToast(t('toast_hosts_cleared'), 'success');
+    });
+}

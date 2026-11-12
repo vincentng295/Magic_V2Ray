@@ -141,6 +141,14 @@ final class KsuBridge {
         return out.toString();
     }
 
+    /** Save dialog for a text file; callback(0) saved, callback(1) cancelled / failed. */
+    @JavascriptInterface
+    public void saveTextFile(final String name, final String text, final String callback) {
+        if (callback == null || !CB_RE.matcher(callback).matches() || !(activity instanceof MainActivity)) return;
+        final String safe = (name == null ? "hosts.txt" : name).replaceAll("[^A-Za-z0-9._-]", "_");
+        activity.runOnUiThread(() -> ((MainActivity) activity).saveTextFile(safe, text == null ? "" : text, callback));
+    }
+
     /** "root" or "nonroot": decides which base paths and engine the WebUI uses. */
     @JavascriptInterface
     public String mode() {

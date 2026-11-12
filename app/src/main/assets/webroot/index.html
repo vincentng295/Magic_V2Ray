@@ -503,6 +503,15 @@
                     </div>
                 </div>
                 <p class="hosts-panel-desc" data-i18n="hosts_panel_desc">Merged into dns.hosts on top of the built-in defaults. One domain per entry; a domain can have several IPs.</p>
+                <p class="hosts-panel-desc hosts-panel-warn" data-i18n="hosts_need_hijack">Custom hosts only take effect when Hijack DNS is enabled (Traffic settings → DNS). Without it, DNS queries bypass Xray's DNS module and these entries are ignored.</p>
+
+                <div class="hosts-header-actions" style="flex-wrap:wrap; gap:8px; margin:8px 0;">
+                    <input type="file" id="hosts-import-input" accept=".txt,.hosts,text/plain,*/*" style="display:none;" onchange="handleHostsFileImport(event)">
+                    <button type="button" class="btn btn-secondary" onclick="importHostsFromFile()" data-i18n="btn_hosts_import">Import file</button>
+                    <button type="button" class="btn btn-secondary" onclick="importHostsFromClipboard()" data-i18n="btn_hosts_paste">Paste</button>
+                    <button type="button" class="btn btn-secondary" onclick="exportHostsFile()" data-i18n="btn_hosts_export">Export file</button>
+                    <button type="button" class="btn btn-secondary btn-delete-item" onclick="clearAllHosts()" data-i18n="btn_hosts_clear">Delete all</button>
+                </div>
 
                 <div class="hosts-search-bar">
                     <input type="text" id="hosts-search-input" oninput="onHostsSearchInput()"

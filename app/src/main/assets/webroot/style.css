@@ -2733,3 +2733,8 @@ textarea.pro-config-input {
 .cp-swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
 .cp-swatch { aspect-ratio: 1; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; box-shadow: inset 0 0 0 1px rgba(128,128,128,.4); }
 .cp-swatch.selected { border-color: var(--md-on-surface); }
+
+.hosts-panel-warn {
+    color: var(--md-sys-color-error, #b3261e);
+    margin-top: 4px;
+}
