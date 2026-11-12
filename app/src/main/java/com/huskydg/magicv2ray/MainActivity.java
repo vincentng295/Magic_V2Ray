@@ -3,12 +3,14 @@ package com.huskydg.magicv2ray;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
+import android.content.Context;
+import android.content.res.Configuration;
+import android.view.ContextThemeWrapper;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
-import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Bundle;
@@ -50,8 +52,6 @@ public class MainActivity extends Activity {
 
     private static final String HOST = "appassets.local";
     private static final String START_URL = "https://" + HOST + "/webroot/index.html";
-    private static final int BG = Color.parseColor("#141218");
-    private static final int FG = Color.parseColor("#E6E0E9");
     private static final int REQ_FILE = 1;
     private static final Pattern PKG_RE = Pattern.compile("^[A-Za-z0-9_.]+$");
 
@@ -71,12 +71,23 @@ public class MainActivity extends Activity {
     private Button nonRootBtn;
     private WebView web;
     private ValueCallback<Uri[]> filePathCallback;
+    private int bg;                  // current system-bar / backdrop colour
+    private boolean lightBars;       // dark bar icons (light theme)
+
+    @Override
+    protected void attachBaseContext(Context base) {
+        // Apply the user's light / dark choice to the day-night resource qualifier.
+        super.attachBaseContext(AppPrefs.wrap(base));
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        getWindow().setStatusBarColor(BG);
-        getWindow().setNavigationBarColor(BG);
+        // Until the WebUI reports its real surface colour, use the cached one (or the resource default).
+        boolean light = !AppPrefs.isNight(this);
+        bg = AppPrefs.hasChrome(this) ? AppPrefs.chromeBg(this, getColor(R.color.mv_bg)) : getColor(R.color.mv_bg);
+        lightBars = AppPrefs.hasChrome(this) ? AppPrefs.chromeLight(this) : light;
+        paintChrome();
         buildSetupViews();
         if (RunMode.get(this) == null) {
             showWelcome();          // first launch: let the user pick root / VPN
@@ -85,11 +96,48 @@ public class MainActivity extends Activity {
         }
     }
 
+    // ------------------------------------------------------------------ appearance
+
+    /** Called (on the UI thread) by the WebUI whenever its theme changes. */
+    void applyChrome(int color, boolean light) {
+        bg = color;
+        lightBars = light;
+        AppPrefs.saveChrome(this, color, light);
+        paintChrome();
+        if (root != null) root.setBackgroundColor(color);
+        if (web != null) web.setBackgroundColor(color);
+    }
+
+    @SuppressWarnings("deprecation")
+    private void paintChrome() {
+        getWindow().setStatusBarColor(bg);
+        getWindow().setNavigationBarColor(bg);
+        int flags = 0;
+        if (lightBars) {
+            flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+        }
+        getWindow().getDecorView().setSystemUiVisibility(flags);
+    }
+
+    /** Native dialogs (JS alert / confirm / prompt) follow the app's current light / dark state. */
+    private Context dialogContext() {
+        return new ContextThemeWrapper(this, lightBars
+                ? android.R.style.Theme_DeviceDefault_Light_Dialog_Alert
+                : android.R.style.Theme_DeviceDefault_Dialog_Alert);
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        // System dark mode or dynamic colours changed: let the WebUI re-resolve its theme.
+        if (web != null) web.evaluateJavascript("window.mvThemeSystemChanged && mvThemeSystemChanged()", null);
+    }
+
     // ------------------------------------------------------------ setup screens
 
     private void buildSetupViews() {
         root = new FrameLayout(this);
-        root.setBackgroundColor(BG);
+        root.setBackgroundColor(bg);
         LayoutInflater inflater = LayoutInflater.from(this);
 
         // Welcome page: two cards, root and VPN (layout after AdAway's welcome page).
@@ -236,7 +284,7 @@ public class MainActivity extends Activity {
     private void showWebUi() {
         if (web == null) {
             web = new WebView(this);
-            web.setBackgroundColor(BG);
+            web.setBackgroundColor(bg);
             configureWebView(web);
             root.addView(web, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -304,7 +352,7 @@ public class MainActivity extends Activity {
     private final class HostChromeClient extends WebChromeClient {
         @Override
         public boolean onJsAlert(WebView view, String url, String message, JsResult result) {
-            new AlertDialog.Builder(MainActivity.this)
+            new AlertDialog.Builder(dialogContext())
                     .setMessage(message)
                     .setPositiveButton(android.R.string.ok, (d, w) -> result.confirm())
                     .setOnCancelListener(d -> result.cancel())
@@ -314,7 +362,7 @@ public class MainActivity extends Activity {
 
         @Override
         public boolean onJsConfirm(WebView view, String url, String message, JsResult result) {
-            new AlertDialog.Builder(MainActivity.this)
+            new AlertDialog.Builder(dialogContext())
                     .setMessage(message)
                     .setPositiveButton(android.R.string.ok, (d, w) -> result.confirm())
                     .setNegativeButton(android.R.string.cancel, (d, w) -> result.cancel())
@@ -325,9 +373,9 @@ public class MainActivity extends Activity {
 
         @Override
         public boolean onJsPrompt(WebView view, String url, String message, String def, JsPromptResult result) {
-            final EditText input = new EditText(MainActivity.this);
+            final EditText input = new EditText(dialogContext());
             if (def != null) input.setText(def);
-            new AlertDialog.Builder(MainActivity.this)
+            new AlertDialog.Builder(dialogContext())
                     .setMessage(message)
                     .setView(input)
                     .setPositiveButton(android.R.string.ok, (d, w) -> result.confirm(input.getText().toString()))

@@ -322,4 +322,57 @@ final class KsuBridge {
             ProxyNotifier.showRoot(app, running);
         }
     }
+
+    // ------------------------------------------------------------ app appearance
+
+    /** The WebUI's appearance settings as JSON ("" until first saved). */
+    @JavascriptInterface
+    public String getAppSettings() {
+        return AppPrefs.getJson(activity);
+    }
+
+    @JavascriptInterface
+    public void setAppSettings(String json) {
+        AppPrefs.setJson(activity, json);
+    }
+
+    /** True when the SYSTEM is in dark mode, whatever theme the app itself is showing. */
+    @JavascriptInterface
+    public boolean isSystemNight() {
+        return AppPrefs.systemIsNight(activity);
+    }
+
+    /**
+     * Android 13+ dynamic colour: the system accent1-3 / neutral1-2 shades as
+     * {"a1":{"0":"#FFFFFF","10":...,"1000":"#000000"},"a2":...,"n1":...,"n2":...}; "" when unavailable.
+     */
+    @JavascriptInterface
+    public String getSystemPalette() {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) return "";
+        final String[][] groups = {{"a1", "accent1"}, {"a2", "accent2"}, {"a3", "accent3"}, {"n1", "neutral1"}, {"n2", "neutral2"}};
+        final int[] shades = {0, 10, 50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000};
+        try {
+            JSONObject out = new JSONObject();
+            for (String[] g : groups) {
+                JSONObject o = new JSONObject();
+                for (int sh : shades) {
+                    int id = activity.getResources().getIdentifier("system_" + g[1] + "_" + sh, "color", "android");
+                    if (id == 0) return "";
+                    o.put(String.valueOf(sh), String.format("#%06X", 0xFFFFFF & activity.getResources().getColor(id, activity.getTheme())));
+                }
+                out.put(g[0], o);
+            }
+            return out.toString();
+        } catch (JSONException | RuntimeException e) {
+            return "";
+        }
+    }
+
+    /** Colours the status / navigation bars (and the WebView backdrop) to match the WebUI's surface. */
+    @JavascriptInterface
+    public void setChrome(final String bgHex, final boolean lightBars) {
+        if (bgHex == null || !bgHex.matches("^#[0-9A-Fa-f]{6}$") || !(activity instanceof MainActivity)) return;
+        final int color = android.graphics.Color.parseColor(bgHex);
+        activity.runOnUiThread(() -> ((MainActivity) activity).applyChrome(color, lightBars));
+    }
 }

@@ -1,6 +1,6 @@
 /* ===== Material Design 3 — Magic V2Ray ===== */
 
-/* MD3 Color Tokens — Dark scheme */
+/* MD3 Color Tokens — dark/green fallback; theme.js sets the real light/dark scheme at runtime */
 :root {
     /* Primary */
     --md-primary: #78DC77;
@@ -42,6 +42,13 @@
     --md-on-surface-variant: #C2C9BD;
     --md-outline: #8C9388;
     --md-outline-variant: #424940;
+
+    /* Extra tokens (theme.js overrides all of these at runtime) */
+    --md-warning: #FFC457;
+    --md-primary-rgb: 120, 220, 119;
+    --md-on-surface-rgb: 226, 227, 220;
+    --md-error-rgb: 242, 184, 181;
+    --md-success-rgb: 109, 213, 140;
 
     /* Shadows */
     --md-shadow-1: 0 1px 2px rgba(0,0,0,.3), 0 1px 3px 1px rgba(0,0,0,.15);
@@ -157,18 +164,18 @@ header h1 {
 .status-badge.active {
     color: var(--md-success);
     border-color: var(--md-success);
-    background: rgba(109, 213, 140, 0.08);
+    background: rgba(var(--md-success-rgb), 0.08);
 }
 .status-badge.active::before {
     background: var(--md-success);
-    box-shadow: 0 0 0 3px rgba(109, 213, 140, 0.2);
+    box-shadow: 0 0 0 3px rgba(var(--md-success-rgb), 0.2);
     animation: pulse-dot 2s infinite;
 }
 
 .status-badge.inactive {
     color: var(--md-error);
     border-color: var(--md-error);
-    background: rgba(242, 184, 181, 0.08);
+    background: rgba(var(--md-error-rgb), 0.08);
 }
 .status-badge.inactive::before {
     background: var(--md-error);
@@ -208,8 +215,8 @@ header h1 {
 .status-ip.error { color: var(--md-error); }
 
 @keyframes pulse-dot {
-    0%, 100% { box-shadow: 0 0 0 3px rgba(109, 213, 140, 0.2); }
-    50%       { box-shadow: 0 0 0 6px rgba(109, 213, 140, 0.08); }
+    0%, 100% { box-shadow: 0 0 0 3px rgba(var(--md-success-rgb), 0.2); }
+    50%       { box-shadow: 0 0 0 6px rgba(var(--md-success-rgb), 0.08); }
 }
 
 /* ===== Language Switcher ===== */
@@ -474,7 +481,7 @@ header h1 {
     font-size: 12px;
     border-radius: var(--md-shape-full);
 }
-.btn-danger:hover { background: rgba(242, 184, 181, 0.08); }
+.btn-danger:hover { background: rgba(var(--md-error-rgb), 0.08); }
 
 /* Filled Tonal – Export Log */
 .btn-export-log {
@@ -602,12 +609,12 @@ textarea::placeholder { color: var(--md-outline); }
 }
 
 .config-item:hover {
-    background: rgba(120, 220, 119, 0.06);
+    background: rgba(var(--md-primary-rgb), 0.06);
 }
 .config-item:hover::before { background: var(--md-primary); }
 
 .config-item.selected {
-    background: rgba(120, 220, 119, 0.12);
+    background: rgba(var(--md-primary-rgb), 0.12);
 }
 .config-item.selected::before { background: var(--md-primary); }
 
@@ -653,7 +660,7 @@ textarea::placeholder { color: var(--md-outline); }
     align-items: center;
 }
 .btn-menu-trigger:hover {
-    background: rgba(120, 220, 119, 0.1);
+    background: rgba(var(--md-primary-rgb), 0.1);
     color: var(--md-on-surface);
 }
 
@@ -701,7 +708,7 @@ textarea::placeholder { color: var(--md-outline); }
 
 .category-dropdown-menu button:hover,
 .node-dropdown-menu button:hover {
-    background: rgba(255,255,255,0.08);
+    background: rgba(var(--md-on-surface-rgb),0.08);
 }
 
 .category-dropdown-menu button.btn-delete-item,
@@ -710,7 +717,7 @@ textarea::placeholder { color: var(--md-outline); }
 }
 .category-dropdown-menu button.btn-delete-item:hover,
 .node-dropdown-menu button.btn-delete-item:hover {
-    background: rgba(242,184,181,0.1);
+    background: rgba(var(--md-error-rgb),0.1);
 }
 
 /* ===== Node Actions ===== */
@@ -780,7 +787,7 @@ textarea::placeholder { color: var(--md-outline); }
     color: var(--md-on-surface-variant);
 }
 .btn-confirm-cancel:hover {
-    background: rgba(120, 220, 119, 0.1);
+    background: rgba(var(--md-primary-rgb), 0.1);
 }
 .btn-confirm-ok {
     background: var(--md-error);
@@ -975,11 +982,11 @@ textarea::placeholder { color: var(--md-outline); }
     transition: background .2s, color .2s;
 }
 .routing-rule-icon-btn:hover {
-    background: rgba(120, 220, 119, 0.1);
+    background: rgba(var(--md-primary-rgb), 0.1);
     color: var(--md-on-surface);
 }
 .routing-rule-icon-btn.btn-delete-item:hover {
-    background: rgba(242,184,181,0.1);
+    background: rgba(var(--md-error-rgb),0.1);
     color: var(--md-error);
 }
 
@@ -1139,11 +1146,11 @@ textarea::placeholder { color: var(--md-outline); }
     transition: background .2s, color .2s;
 }
 .hosts-row-icon-btn:hover {
-    background: rgba(120, 220, 119, 0.1);
+    background: rgba(var(--md-primary-rgb), 0.1);
     color: var(--md-on-surface);
 }
 .hosts-row-icon-btn.btn-delete-item:hover {
-    background: rgba(242,184,181,0.1);
+    background: rgba(var(--md-error-rgb),0.1);
     color: var(--md-error);
 }
 
@@ -1305,7 +1312,7 @@ textarea::placeholder { color: var(--md-outline); }
     left: 2px;
 }
 .setting-item-row input[type="checkbox"]:hover::before {
-    box-shadow: 0 0 0 8px rgba(120, 220, 119,0.12);
+    box-shadow: 0 0 0 8px rgba(var(--md-primary-rgb),0.12);
 }
 
 /* Removed feature: Allow Insecure (grayed out, struck through, non-interactive) */
@@ -1380,11 +1387,11 @@ textarea::placeholder { color: var(--md-outline); }
     padding: 16px;
     font-size: 15px;
     letter-spacing: .3px;
-    box-shadow: 0 2px 8px rgba(120, 220, 119, 0.25);
+    box-shadow: 0 2px 8px rgba(var(--md-primary-rgb), 0.25);
     border-radius: var(--md-shape-full);
 }
 .btn-save-settings:hover {
-    box-shadow: 0 4px 16px rgba(120, 220, 119, 0.35);
+    box-shadow: 0 4px 16px rgba(var(--md-primary-rgb), 0.35);
 }
 
 /* Reset-to-defaults button under Save: tonal, no glow */
@@ -1473,7 +1480,7 @@ textarea::placeholder { color: var(--md-outline); }
 }
 
 .import-add-dropdown button:hover {
-    background: rgba(255,255,255,0.08);
+    background: rgba(var(--md-on-surface-rgb),0.08);
 }
 
 .import-add-divider {
@@ -1613,7 +1620,7 @@ textarea::placeholder { color: var(--md-outline); }
     line-height: 1;
 }
 .modal-icon-btn:hover {
-    background: rgba(255,255,255,0.08);
+    background: rgba(var(--md-on-surface-rgb),0.08);
     color: var(--md-on-surface);
 }
 .modal-icon-btn.check-btn {
@@ -1763,7 +1770,7 @@ select option:active {
 }
 .log-status-dot.live {
     background: var(--md-success);
-    box-shadow: 0 0 0 3px rgba(109, 213, 140, 0.2);
+    box-shadow: 0 0 0 3px rgba(var(--md-success-rgb), 0.2);
     animation: pulse-dot 2s infinite;
 }
 
@@ -1794,12 +1801,12 @@ select option:active {
     padding: 0;
 }
 .log-tool-btn:hover {
-    background: rgba(255,255,255,0.08);
+    background: rgba(var(--md-on-surface-rgb),0.08);
     color: var(--md-on-surface);
 }
 .log-tool-btn[data-active="true"] {
     color: var(--md-primary);
-    background: rgba(120, 220, 119, 0.1);
+    background: rgba(var(--md-primary-rgb), 0.1);
 }
 .log-tool-btn--clear:hover { color: var(--md-error); }
 .log-tool-btn--refresh.spinning svg {
@@ -1852,7 +1859,7 @@ select option:active {
     letter-spacing: .2px;
 }
 .log-filter-chip:hover {
-    background: rgba(255,255,255,0.06);
+    background: rgba(var(--md-on-surface-rgb),0.06);
     color: var(--md-on-surface);
 }
 .log-filter-chip.active {
@@ -1860,10 +1867,10 @@ select option:active {
     border-color: var(--md-primary);
     color: var(--md-on-primary-container);
 }
-.log-filter-chip[data-level="debug"].active  { background: rgba(130,180,255,.15); border-color: #82B4FF; color: #82B4FF; }
-.log-filter-chip[data-level="info"].active   { background: rgba(109,213,140,.12); border-color: var(--md-success); color: var(--md-success); }
-.log-filter-chip[data-level="warning"].active{ background: rgba(255,196,87,.12); border-color: #FFC457; color: #FFC457; }
-.log-filter-chip[data-level="error"].active  { background: rgba(242,184,181,.12); border-color: var(--md-error); color: var(--md-error); }
+.log-filter-chip[data-level="debug"].active  { background: color-mix(in srgb, var(--blue) 15%, transparent); border-color: var(--blue); color: var(--blue); }
+.log-filter-chip[data-level="info"].active   { background: rgba(var(--md-success-rgb),.12); border-color: var(--md-success); color: var(--md-success); }
+.log-filter-chip[data-level="warning"].active{ background: color-mix(in srgb, var(--md-warning) 12%, transparent); border-color: var(--md-warning); color: var(--md-warning); }
+.log-filter-chip[data-level="error"].active  { background: rgba(var(--md-error-rgb),.12); border-color: var(--md-error); color: var(--md-error); }
 
 /* Log output area */
 .log-output {
@@ -2012,7 +2019,7 @@ select option:active {
 }
 .latency-status-dot.live {
     background: var(--md-success);
-    box-shadow: 0 0 0 3px rgba(109, 213, 140, 0.2);
+    box-shadow: 0 0 0 3px rgba(var(--md-success-rgb), 0.2);
     animation: pulse-dot 2s infinite;
 }
 
@@ -2318,14 +2325,14 @@ textarea.pro-config-input {
    Pinned above every category, so unlike normal .config-item rows it is not
    sitting inside a .nodes-list card and needs its own surface + rounding. */
 .config-item.builtin-node {
-    background: var(--md-surface-container, rgba(255, 255, 255, 0.04));
+    background: rgba(var(--md-on-surface-rgb), 0.04);
     border: 1px solid var(--md-outline-variant);
     border-radius: 12px;
     margin-bottom: 12px;
     overflow: hidden;
 }
 .config-item.builtin-node.selected {
-    background: rgba(120, 220, 119, 0.12);
+    background: rgba(var(--md-primary-rgb), 0.12);
     border-color: var(--md-primary);
 }
 
@@ -2340,7 +2347,7 @@ textarea.pro-config-input {
 }
 .exclude-pending-text {
     font-size: 13px;
-    color: #FFC457;
+    color: var(--md-warning);
     visibility: hidden;
 }
 .exclude-apply-bar .btn { margin: 0; width: auto; }
@@ -2445,8 +2452,8 @@ textarea.pro-config-input {
     flex-shrink: 0;
     transition: background .2s, color .2s;
 }
-.dns-icon-btn:hover { background: rgba(255,255,255,0.08); color: var(--md-on-surface); }
-.dns-icon-btn.btn-delete-item:hover { background: rgba(242,184,181,0.1); color: var(--md-error); }
+.dns-icon-btn:hover { background: rgba(var(--md-on-surface-rgb),0.08); color: var(--md-on-surface); }
+.dns-icon-btn.btn-delete-item:hover { background: rgba(var(--md-error-rgb),0.1); color: var(--md-error); }
 
 .dns-add-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .dns-add-input,
@@ -2502,7 +2509,7 @@ textarea.pro-config-input {
 }
 
 .routing-rule-outbound-badge.tag-group {
-    background: var(--md-surface-2, rgba(255,255,255,.08));
+    background: var(--md-surface-2, rgba(var(--md-on-surface-rgb),.08));
     border: 1px solid var(--md-outline-variant);
 }
 .routing-rule-outbound-badge.tag-group.tag-missing {
@@ -2619,7 +2626,7 @@ textarea.pro-config-input {
 }
 .dash-card:focus-within {
     border-color: var(--md-primary);
-    box-shadow: 0 0 0 3px rgba(120, 220, 119, .12);
+    box-shadow: 0 0 0 3px rgba(var(--md-primary-rgb), .12);
 }
 
 .dash-card textarea {
@@ -2707,3 +2714,22 @@ textarea.pro-config-input {
     padding-top: 16px;
     border-top: 1px solid var(--md-outline-variant, rgba(128,128,128,.25));
 }
+
+/* ===== App settings: colour picker ===== */
+.app-color-current[hidden] { display: none; }
+#app-theme, #app-color { max-width: 200px; }
+#app-color { min-width: 190px; }
+.app-color-current { align-items: center; }
+.app-color-current .app-color-dot { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--md-outline-variant); flex: none; margin-right: 12px; }
+.app-color-current .app-color-hex { font-family: var(--md-font-mono); font-size: 13px; color: var(--md-on-surface-variant); flex: 1; }
+.cp-body { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+.cp-preview-row { display: flex; align-items: center; gap: 14px; }
+.cp-preview { width: 56px; height: 56px; border-radius: 16px; border: 1px solid var(--md-outline-variant); flex: none; }
+.cp-hex { flex: 1; min-width: 0; font-family: var(--md-font-mono); text-transform: uppercase; }
+.cp-slider { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--md-on-surface-variant); }
+.cp-slider input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 14px; border-radius: 7px; border: 1px solid var(--md-outline-variant); outline: none; margin: 0; }
+.cp-slider input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 24px; height: 24px; border-radius: 50%; background: #fff; border: 3px solid var(--md-primary); box-shadow: 0 1px 4px rgba(0,0,0,.45); }
+#cp-hue { background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); }
+.cp-swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+.cp-swatch { aspect-ratio: 1; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; box-shadow: inset 0 0 0 1px rgba(128,128,128,.4); }
+.cp-swatch.selected { border-color: var(--md-on-surface); }

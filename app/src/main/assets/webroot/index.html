@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Magic V2Ray Control Board</title>
     <link rel="stylesheet" href="style.css">
+    <script src="theme.js"></script>
 </head>
 <body>
     <div class="container">
@@ -15,7 +16,7 @@
                 </div>
                 <div class="header-actions">
                 <div class="lang-switcher">
-                    <select id="lang-select" onchange="changeLanguage(this.value)" style="padding: 4px 8px; border-radius: 4px; background: var(--bg-panel, #222); color: var(--text-main, #fff); border: 1px solid #444;">
+                    <select id="lang-select" onchange="changeLanguage(this.value)" style="padding: 4px 8px; border-radius: 4px; background: var(--md-surface-2); color: var(--md-on-surface); border: 1px solid var(--md-outline-variant);">
                         <option value="auto" data-i18n="lang_auto">Auto (system)</option>
                         <option value="en">English</option>
                         <option value="vi">Tiếng Việt</option>
@@ -39,6 +40,7 @@
                         <button type="button" role="menuitem" class="tab-menu-item" data-tab="tab-hosts" onclick="switchTab('tab-hosts', event)" data-i18n="tab_hosts">Custom Hosts</button>
                         <button type="button" role="menuitem" class="tab-menu-item" data-tab="tab-log" onclick="switchTab('tab-log', event)" data-i18n="tab_log">Xray Log</button>
                         <button type="button" role="menuitem" class="tab-menu-item" data-tab="tab-latency" onclick="switchTab('tab-latency', event)" data-i18n="tab_latency">Network Latency</button>
+                        <button type="button" role="menuitem" class="tab-menu-item" data-tab="tab-appsettings" onclick="switchTab('tab-appsettings', event)" data-i18n="tab_appsettings">App Settings</button>
                         <button type="button" role="menuitem" class="tab-menu-item" data-tab="tab-about" onclick="switchTab('tab-about', event)" data-i18n="tab_about">About</button>
                     </div>
                 </div>
@@ -561,6 +563,37 @@
             </section>
         </div>
 
+        <!-- ===== App Settings Tab ===== -->
+        <div id="tab-appsettings" class="tab-content">
+            <section class="settings-form-panel">
+                <h3 data-i18n="app_settings_title">App settings</h3>
+                <div class="settings-group-box">
+                    <h4 data-i18n="grp_appearance">Appearance</h4>
+                    <div class="setting-item-row">
+                        <label for="app-theme"><span data-i18n="lbl_theme">Theme</span><small data-i18n="desc_theme">Light, dark, or follow the system</small></label>
+                        <select id="app-theme">
+                            <option value="system" data-i18n="theme_system">System default</option>
+                            <option value="light" data-i18n="theme_light">Light</option>
+                            <option value="dark" data-i18n="theme_dark">Dark</option>
+                        </select>
+                    </div>
+                    <div class="setting-item-row">
+                        <label for="app-color"><span data-i18n="lbl_app_color">Primary color</span><small data-i18n="desc_app_color">Android 13 or newer</small></label>
+                        <select id="app-color">
+                            <option value="system" data-i18n="color_system">Follow system</option>
+                            <option value="default" data-i18n="color_default">Default</option>
+                            <option value="custom" data-i18n="color_custom">Choose custom color...</option>
+                        </select>
+                    </div>
+                    <div class="setting-item-row app-color-current" id="app-color-current" hidden>
+                        <span class="app-color-dot" id="app-color-dot"></span>
+                        <span class="app-color-hex" id="app-color-hex"></span>
+                        <button type="button" class="btn btn-secondary" id="app-color-change" data-i18n="btn_change_color">Change</button>
+                    </div>
+                </div>
+            </section>
+        </div>
+
         <!-- ===== About Tab ===== -->
         <!-- Links come from the ABOUT_* / SUPPORT_* constants in vars.js
              (see initAboutTab in main.js); a row whose URL is empty is hidden. -->
@@ -681,6 +714,7 @@
     <script src="vars.js"></script>
     <script src="main.js"></script>
     <script src="excludeapps.js"></script>
+    <script src="appsettings.js"></script>
     <div id="toast-container" class="toast-container"></div>
 
     <!-- Confirm Modal (KSU webui does not support window.confirm()) -->
@@ -1348,6 +1382,27 @@
             </div>
         </div>
     </div>
+    <!-- Custom colour picker (App settings) -->
+    <div id="color-picker-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-window">
+            <header class="modal-header">
+                <button type="button" class="modal-icon-btn" id="cp-cancel">←</button>
+                <h2 data-i18n="cp_title">Choose a color</h2>
+                <button type="button" class="modal-icon-btn check-btn" id="cp-ok">✓</button>
+            </header>
+            <div class="modal-body cp-body">
+                <div class="cp-preview-row">
+                    <div class="cp-preview" id="cp-preview"></div>
+                    <input type="text" id="cp-hex" class="cp-hex" maxlength="7" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Hex">
+                </div>
+                <label class="cp-slider"><span data-i18n="cp_hue">Hue</span><input type="range" id="cp-hue" min="0" max="360" step="1"></label>
+                <label class="cp-slider"><span data-i18n="cp_saturation">Saturation</span><input type="range" id="cp-sat" min="0" max="100" step="1"></label>
+                <label class="cp-slider"><span data-i18n="cp_brightness">Brightness</span><input type="range" id="cp-val" min="0" max="100" step="1"></label>
+                <div class="cp-swatches" id="cp-swatches"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- Add Category Modal -->
     <div id="add-category-modal" class="modal-overlay" style="display: none;">
         <div class="modal-window">

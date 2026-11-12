@@ -1,20 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Material 3 dark tokens, same as the WebUI (assets/webroot/style.css). -->
-    <color name="mv_bg">#141218</color>
-    <color name="mv_surface_container">#2B2930</color>
-    <color name="mv_surface_container_high">#36343B</color>
-    <color name="mv_on_surface">#E6E0E9</color>
-    <color name="mv_on_surface_variant">#CAC4D0</color>
-    <color name="mv_primary">#D0BCFF</color>
-    <color name="mv_on_primary">#381E72</color>
-    <color name="mv_primary_container">#4F378B</color>
-    <color name="mv_on_primary_container">#EADDFF</color>
-    <color name="mv_secondary_container">#4A4458</color>
-    <color name="mv_on_secondary_container">#E8DEF8</color>
-    <color name="mv_positive">#A8DAB5</color>
-    <color name="mv_negative">#F2B8B5</color>
-    <color name="mv_error">#F2B8B5</color>
-    <color name="mv_error_container">#8C1D18</color>
-    <color name="mv_ripple">#33D0BCFF</color>
+    <!-- Material 3 LIGHT tokens (default green). values-night/colors.xml holds the dark ones.
+         Only the setup / welcome screens use these; the WebUI is themed by theme.js. -->
+    <color name="mv_bg">#F6FAF5</color>
+    <color name="mv_surface_container">#EBEFEA</color>
+    <color name="mv_surface_container_high">#E5EAE4</color>
+    <color name="mv_on_surface">#191C19</color>
+    <color name="mv_on_surface_variant">#414941</color>
+    <color name="mv_primary">#006E1C</color>
+    <color name="mv_on_primary">#FFFFFF</color>
+    <color name="mv_primary_container">#94F990</color>
+    <color name="mv_on_primary_container">#002204</color>
+    <color name="mv_secondary_container">#D3E8D0</color>
+    <color name="mv_on_secondary_container">#0F1F10</color>
+    <color name="mv_positive">#1E7A3C</color>
+    <color name="mv_negative">#BA1A1A</color>
+    <color name="mv_error">#BA1A1A</color>
+    <color name="mv_error_container">#FFDAD6</color>
+    <color name="mv_ripple">#33006E1C</color>
+    <color name="mv_ripple_on_primary">#33FFFFFF</color>
+    <color name="mv_card_stroke">#33414941</color>
 </resources>

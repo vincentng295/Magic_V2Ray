@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Material 3 DARK tokens (default green), same as the WebUI fallback in style.css. -->
+    <color name="mv_bg">#111411</color>
+    <color name="mv_surface_container">#1E211D</color>
+    <color name="mv_surface_container_high">#282B27</color>
+    <color name="mv_on_surface">#E2E3DC</color>
+    <color name="mv_on_surface_variant">#C2C9BD</color>
+    <color name="mv_primary">#78DC77</color>
+    <color name="mv_on_primary">#00390A</color>
+    <color name="mv_primary_container">#005313</color>
+    <color name="mv_on_primary_container">#94F990</color>
+    <color name="mv_secondary_container">#3B4B39</color>
+    <color name="mv_on_secondary_container">#D4E8CF</color>
+    <color name="mv_positive">#A8DAB5</color>
+    <color name="mv_negative">#F2B8B5</color>
+    <color name="mv_error">#F2B8B5</color>
+    <color name="mv_error_container">#8C1D18</color>
+    <color name="mv_ripple">#3378DC77</color>
+    <color name="mv_ripple_on_primary">#3300390A</color>
+    <color name="mv_card_stroke">#33C2C9BD</color>
+</resources>

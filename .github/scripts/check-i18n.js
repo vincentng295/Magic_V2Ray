@@ -16,7 +16,7 @@
 const fs = require('fs');
 
 const i18n = eval('(function(){' + fs.readFileSync('app/src/main/assets/webroot/i18n.js', 'utf8') + '; return i18n;})()');
-const src = fs.readFileSync('app/src/main/assets/webroot/main.js', 'utf8') + fs.readFileSync('app/src/main/assets/webroot/index.html', 'utf8');
+const src = fs.readFileSync('app/src/main/assets/webroot/main.js', 'utf8') + fs.readFileSync('app/src/main/assets/webroot/appsettings.js', 'utf8') + fs.readFileSync('app/src/main/assets/webroot/index.html', 'utf8');
 
 const used = new Set();
 for (const m of src.matchAll(/\bt\(\s*['"]([a-zA-Z0-9_]+)['"]/g)) used.add(m[1]);
