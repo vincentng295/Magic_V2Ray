@@ -2766,3 +2766,50 @@ textarea.pro-config-input {
 }
 
 #dns-leak-warning { margin-bottom: 16px; }
+
+/* ===== App wallpaper (App settings → Background image) ===== */
+html.has-bg body { background-color: transparent; }
+html.has-bg body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    background: var(--mv-bg-image) center / cover no-repeat;
+}
+html.has-bg body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background: var(--mv-bg-dim);
+    pointer-events: none;
+}
+html.has-bg header {
+    background: var(--mv-surface-glass);
+    border-radius: 0 0 var(--md-shape-xl) var(--md-shape-xl);
+    padding-left: 16px;
+    padding-right: 16px;
+    margin-left: -16px;
+    margin-right: -16px;
+}
+html.has-bg .settings-group-box {
+    border-radius: var(--md-shape-xl);
+}
+html.has-bg .settings-form-panel > h3,
+html.has-bg .dash-title,
+html.has-bg header h1 {
+    /* outlined heading text, readable on any wallpaper */
+    color: var(--md-on-surface);
+    -webkit-text-stroke: 4px var(--md-surface);
+    paint-order: stroke fill;
+    text-shadow: 0 0 3px var(--md-surface), 0 0 3px var(--md-surface);
+}
+.bg-preview {
+    width: 56px; height: 40px; flex: none;
+    border-radius: var(--md-shape-sm);
+    border: 1px solid var(--md-outline-variant);
+    background: var(--md-surface-3) center / cover no-repeat;
+}
+.bg-actions { display: flex; gap: 8px; align-items: center; }
+#app-bg-dim { width: 140px; }
+html.has-bg .category-group { border-radius: var(--md-shape-xl); overflow: hidden; }

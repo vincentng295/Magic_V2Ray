@@ -8,7 +8,8 @@
     'use strict';
 
     var DEFAULT_SEED = '#006E1C';                 // Material baseline green
-    var DEFAULTS = { theme: 'system', color: 'default', seed: DEFAULT_SEED };
+    var DEFAULTS = { theme: 'system', color: 'default', seed: DEFAULT_SEED, bg: false, bgTheme: false, bgSeed: '', bgDim: 35 };
+    var BG_KEY = 'mv_bg_image';                   // wallpaper data URL (downscaled JPEG), per-device
     var MIN_SDK_COLOR = 33;                       // "Primary color" needs Android 13+
 
     // ---------------------------------------------------------------- colour math (CIELAB)
@@ -144,8 +145,20 @@
         return {
             theme: ['system', 'light', 'dark'].indexOf(o.theme) >= 0 ? o.theme : DEFAULTS.theme,
             color: ['system', 'default', 'custom'].indexOf(o.color) >= 0 ? o.color : DEFAULTS.color,
-            seed: seed
+            seed: seed,
+            bg: o.bg === true,
+            bgTheme: o.bgTheme === true,
+            bgSeed: /^#[0-9a-fA-F]{6}$/.test(o.bgSeed || '') ? o.bgSeed.toUpperCase() : '',
+            bgDim: Math.max(0, Math.min(80, Number(o.bgDim) >= 0 ? Math.round(Number(o.bgDim)) : DEFAULTS.bgDim))
         };
+    }
+    function getImage() { try { return (global.localStorage && localStorage.getItem(BG_KEY)) || ''; } catch (e) { return ''; } }
+    function putImage(d) {
+        try {
+            if (!global.localStorage) return false;
+            if (d) localStorage.setItem(BG_KEY, d); else localStorage.removeItem(BG_KEY);
+            return true;
+        } catch (e) { return false; }
     }
     function load() {
         var raw = '';
@@ -173,17 +186,33 @@
     }
 
     var prefs = load();
+    var img = getImage();
 
     function resolve(p) {
         var dark = p.theme === 'dark' || (p.theme === 'system' && systemIsDark());
         var mode = colorSupported() ? p.color : 'default';
         var pal = mode === 'system' ? systemPalette() : null;
-        if (!pal) pal = paletteFromSeed(mode === 'custom' ? p.seed : DEFAULT_SEED);
+        var bgOn = p.bg && !!img;
+        if (bgOn && p.bgTheme && p.bgSeed) pal = paletteFromSeed(p.bgSeed);       // theme colour from wallpaper
+        else if (!pal) pal = paletteFromSeed(mode === 'custom' ? p.seed : DEFAULT_SEED);
         return { dark: dark, scheme: buildScheme(pal, dark) };
     }
     function apply() {
         var r = resolve(prefs), root = document.documentElement;
+        var bgOn = prefs.bg && !!img;
         Object.keys(r.scheme).forEach(function (k) { root.style.setProperty(k, r.scheme[k]); });
+        // Wallpaper: cards turn translucent so the picture shows through; --mv-bg-dim darkens/lightens it.
+        if (bgOn) {
+            ['--md-surface-1', '--md-surface-2', '--md-surface-3'].forEach(function (k) {
+                root.style.setProperty(k, 'rgba(' + hexToRgb(r.scheme[k]).join(',') + ',' + (r.dark ? 0.72 : 0.78) + ')');
+            });
+            root.style.setProperty('--mv-bg-image', 'url("' + img + '")');
+            root.style.setProperty('--mv-bg-dim', 'rgba(' + hexToRgb(r.scheme['--md-surface']).join(',') + ',' + (prefs.bgDim / 100) + ')');
+            root.style.setProperty('--mv-surface-glass', 'rgba(' + hexToRgb(r.scheme['--md-surface']).join(',') + ',0.6)');
+        } else {
+            ['--mv-bg-image', '--mv-bg-dim', '--mv-surface-glass'].forEach(function (k) { root.style.removeProperty(k); });
+        }
+        root.classList.toggle('has-bg', bgOn);
         root.setAttribute('data-theme', r.dark ? 'dark' : 'light');
         root.style.colorScheme = r.dark ? 'dark' : 'light';
         try { if (hostHas('setChrome')) host.setChrome(r.scheme['--md-surface'], !r.dark); } catch (e) { /* ignore */ }
@@ -200,6 +229,16 @@
         get: function () { return Object.assign({}, prefs); },
         set: update,
         apply: apply,
+        hasImage: function () { return !!img; },
+        getImage: function () { return img; },
+        // dataUrl: downscaled JPEG; seed: dominant colour of it. Returns false when it could not be stored.
+        setImage: function (dataUrl, seed) {
+            if (!putImage(dataUrl)) return false;
+            img = dataUrl;
+            update({ bg: true, bgSeed: seed || '' });
+            return true;
+        },
+        clearImage: function () { putImage(''); img = ''; update({ bg: false, bgTheme: false, bgSeed: '' }); },
         colorSupported: colorSupported,
         defaultSeed: DEFAULT_SEED,
         // exposed for the picker + tests

@@ -626,6 +626,28 @@
                 </div>
 
                 <div class="settings-group-box">
+                    <h4 data-i18n="grp_background">Background image</h4>
+                    <div class="setting-item-row">
+                        <label><span data-i18n="lbl_bg_image">App wallpaper</span><small data-i18n="desc_bg_image">Pick an image from your device to use as the app background</small></label>
+                        <div class="bg-actions">
+                            <span class="bg-preview" id="app-bg-preview" hidden></span>
+                            <button type="button" class="btn btn-secondary" id="app-bg-pick" data-i18n="btn_bg_choose">Choose</button>
+                            <button type="button" class="btn btn-secondary" id="app-bg-remove" data-i18n="btn_bg_remove" hidden>Remove</button>
+                        </div>
+                        <input type="file" id="app-bg-input" accept="image/*" style="display:none;">
+                    </div>
+                    <div class="setting-item-row toggle-row" id="app-bg-theme-row">
+                        <label for="app-bg-theme"><span data-i18n="lbl_bg_theme">Theme color from image</span><small data-i18n="desc_bg_theme">Use the dominant color of the wallpaper as the app's primary color</small></label>
+                        <input type="checkbox" id="app-bg-theme">
+                    </div>
+                    <div class="setting-item-row" id="app-bg-dim-row">
+                        <label for="app-bg-dim"><span data-i18n="lbl_bg_dim">Image overlay</span><small data-i18n="desc_bg_dim">Blend the wallpaper with the theme background for readability</small></label>
+                        <input type="range" id="app-bg-dim" min="0" max="80" step="5">
+                    </div>
+                    <div class="hosts-panel-warn" id="app-bg-error" style="display:none;" data-i18n="err_bg_image">Could not use this image.</div>
+                </div>
+
+                <div class="settings-group-box">
                     <h4 data-i18n="grp_logs">Logs &amp; diagnostics</h4>
                     <div class="setting-item-row">
                         <label for="btn-export-logs"><span data-i18n="lbl_export_logs">Export app logs</span><small data-i18n="desc_export_logs">Saves a zip with app and Xray logs, settings, config (UUIDs hidden) and device info to Download/MagicV2Ray. Attach it when reporting a bug.</small></label>

@@ -101,5 +101,66 @@
     });
 
     syncControls();
+
+    // ---- wallpaper
+    var bgInput = $('app-bg-input');
+    function showBgError(on) { var e = $('app-bg-error'); if (e) e.style.display = on ? '' : 'none'; }
+    function syncBg() {
+        var has = T.hasImage() && T.get().bg, p = T.get();
+        $('app-bg-preview').hidden = !has;
+        if (has) $('app-bg-preview').style.backgroundImage = 'url("' + T.getImage() + '")';
+        $('app-bg-remove').hidden = !has;
+        $('app-bg-theme-row').style.display = has ? '' : 'none';
+        $('app-bg-dim-row').style.display = has ? '' : 'none';
+        $('app-bg-theme').checked = p.bgTheme;
+        $('app-bg-dim').value = p.bgDim;
+    }
+    // Dominant colour: hue histogram weighted by saturation*value; falls back to the mean colour.
+    function dominantColor(ctx, w, h) {
+        var d = ctx.getImageData(0, 0, w, h).data, bins = [], i, n = 24, tot = [0, 0, 0, 0];
+        for (i = 0; i < n; i++) bins.push({ w: 0, r: 0, g: 0, b: 0 });
+        for (i = 0; i < d.length; i += 4) {
+            var r = d[i], g = d[i + 1], b = d[i + 2];
+            tot[0] += r; tot[1] += g; tot[2] += b; tot[3]++;
+            var hv = hexToHsv(T.rgbToHex([r, g, b]));
+            var wt = (hv.s / 100) * (hv.v / 100);
+            if (hv.s < 18 || hv.v < 15 || hv.v > 97) continue;
+            var bin = bins[Math.floor(hv.h / (360 / n)) % n];
+            bin.w += wt; bin.r += r * wt; bin.g += g * wt; bin.b += b * wt;
+        }
+        var best = bins.reduce(function (a, b) { return b.w > a.w ? b : a; }, bins[0]);
+        if (best.w > 0) return T.rgbToHex([best.r / best.w, best.g / best.w, best.b / best.w]);
+        return T.rgbToHex([tot[0] / tot[3], tot[1] / tot[3], tot[2] / tot[3]]);
+    }
+    function processImage(file) {
+        var url = URL.createObjectURL(file), im = new Image();
+        im.onload = function () {
+            try {
+                var MAX = 1280, k = Math.min(1, MAX / Math.max(im.naturalWidth, im.naturalHeight));
+                var cv = document.createElement('canvas');
+                cv.width = Math.max(1, Math.round(im.naturalWidth * k));
+                cv.height = Math.max(1, Math.round(im.naturalHeight * k));
+                var ctx = cv.getContext('2d');
+                ctx.drawImage(im, 0, 0, cv.width, cv.height);
+                var sm = document.createElement('canvas'); sm.width = 48; sm.height = 48;
+                var sctx = sm.getContext('2d');
+                sctx.drawImage(im, 0, 0, 48, 48);
+                var seed = dominantColor(sctx, 48, 48);
+                var data = cv.toDataURL('image/jpeg', 0.82);
+                if (!T.setImage(data, seed)) throw new Error('store');
+                showBgError(false);
+            } catch (e) { showBgError(true); }
+            URL.revokeObjectURL(url);
+            syncBg();
+        };
+        im.onerror = function () { URL.revokeObjectURL(url); showBgError(true); };
+        im.src = url;
+    }
+    $('app-bg-pick').addEventListener('click', function () { bgInput.value = ''; bgInput.click(); });
+    bgInput.addEventListener('change', function () { if (bgInput.files && bgInput.files[0]) processImage(bgInput.files[0]); });
+    $('app-bg-remove').addEventListener('click', function () { T.clearImage(); showBgError(false); syncBg(); });
+    $('app-bg-theme').addEventListener('change', function () { T.set({ bgTheme: this.checked }); });
+    $('app-bg-dim').addEventListener('input', function () { T.set({ bgDim: +this.value }); });
+    syncBg();
     }
 })();
