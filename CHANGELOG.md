@@ -1,4 +1,8 @@
-# Magic V2Ray v2.3 Release Notes
+# Magic V2Ray v2.3.1 Release Notes
+
+Fix cannot export `xray.log` when using Root mode.
+
+## Magic V2Ray v2.3 Release Notes
 
 This release transitions the core engine to a custom Xray-core source submodule, allowing direct connections to plaintext VLESS and Trojan nodes without needing the previous loopback tunnel workaround. To keep connections secure, the app now displays explicit security warnings before connecting to unencrypted VLESS or Trojan nodes, enables Hijack DNS by default, and warns you whenever DNS settings leave queries vulnerable to leaking outside the proxy.
 
