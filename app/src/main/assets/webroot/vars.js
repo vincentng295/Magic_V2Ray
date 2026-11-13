@@ -155,8 +155,8 @@ let advSettings = {
     // socks-test-in is routed to a `dns` outbound (tag dns-out) so Xray's own
     // DNS module answers it, instead of forwarding the raw packets to
     // proxy/direct. Xray's upstream DNS queries then follow dnsViaProxy.
-    // Default OFF; settings saved by older versions have no value (treated as off).
-    hijackDns: false,
+    // Default ON (prevents DNS leaks); settings saved without a value are treated as on.
+    hijackDns: true,
     // Xray dns.* engine options (Traffic Settings > DNS Engine Options).
     // Built into the config by buildDnsEngineOptions() in helper.js.
     dnsDisableCache: false,

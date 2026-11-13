@@ -930,7 +930,7 @@ function convert_uri_to_xray_json(uri, optional_settings, is_nonroot = false) {
         mtu: 1350,
         pinnedPeerCertSha256: "",
         dnsViaProxy: true,
-        hijackDns: false,
+        hijackDns: true,
         dnsDisableCache: false,
         dnsServeStale: false,
         dnsServeExpiredTTL: 0,
@@ -1665,7 +1665,7 @@ function convert_uri_to_xray_json(uri, optional_settings, is_nonroot = false) {
     // Hijack DNS: client DNS (port 53 from tun-in / socks-test-in) goes to the
     // `dns` outbound so Xray's DNS module resolves it; the module's own
     // upstream queries (tagless, port 53) then leave via proxy/direct.
-    const hijackDns = settings.hijackDns === true;
+    const hijackDns = settings.hijackDns !== false;
 
     // Client DNS rule (port 53 from tun-in / socks-test-in). Defined once so it
     // can be placed either at the very top of routing.rules (hijack ON) or at

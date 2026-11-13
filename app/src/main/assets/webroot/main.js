@@ -3987,7 +3987,7 @@ function bindSettingsToFormView() {
     // even though the value was being persisted correctly.
     document.getElementById('set-dnsviaproxy').checked = advSettings.dnsViaProxy !== false;
     // Default ON: settings saved by older versions have no value.
-    document.getElementById('set-hijackdns').checked = advSettings.hijackDns === true;
+    document.getElementById('set-hijackdns').checked = advSettings.hijackDns !== false;
     document.getElementById('set-pinned-cert').value = advSettings.pinnedPeerCertSha256 || "";
 
     // DNS engine options
