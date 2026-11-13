@@ -45,7 +45,7 @@ import java.util.zip.ZipOutputStream;
  * Builds one zip with everything useful for a bug report:
  *
  *   app.log          this app's logcat (also carries the WebUI console output)
- *   xray.log         Xray's output (tail)
+ *   xray.log         Xray's output: root = `logservice read` dump of the ring buffer, non-root = tail of the file
  *   service.log, proxy_control.log, hotspot.log   backend logs, when they exist
  *   settings.txt     options as shown in the UI, English labels (built by the WebUI)
  *   config.txt       active node URI payload, UUIDs / passwords hidden (built by the WebUI)
@@ -63,6 +63,8 @@ final class LogExporter {
     /** Per log file: only the newest part is kept. */
     private static final int LOG_TAIL_BYTES = 2 * 1024 * 1024;
     private static final int APP_LOG_LINES = 6000;
+    /** Upper bound for `logservice read -n`; the daemon keeps at most its own max-lines (default 1000). */
+    private static final int XRAY_LOG_LINES = 100000;
     private static final int MAX_TEXT_CHARS = 6 * 1024 * 1024;
     private static final int HOSTS_KEPT = 50;
     private static final String SAVE_DIR = "MagicV2Ray";
@@ -103,7 +105,9 @@ final class LogExporter {
         // 2. everything the app can see on its own
         entries.put("deviceinfo.txt", deviceInfo(c, nonRoot, datadir, moddir));
         entries.put("app.log", appLog());
-        entries.put("xray.log", tailFile(stubdir + "/logs/xray.log"));
+        // Root mode: Xray's output only lives in the logservice daemon's ring buffer, so it has to be
+        // dumped with `logservice read`. Non-root: the VpnService appends it to a plain file.
+        entries.put("xray.log", nonRoot ? tailFile(stubdir + "/logs/xray.log") : xrayLogFromService(moddir, stubdir));
         if (!nonRoot) {
             // native service / control script logs (root mode only)
             entries.put("xray-datadir.log", tailFile(datadir + "/xray.log"));
@@ -182,6 +186,32 @@ final class LogExporter {
                         + "; else echo '(file not found: " + path + ")'; fi", 20_000);
         if (out.trim().isEmpty()) return "(empty: " + path + ")\n";
         return out;
+    }
+
+    /**
+     * Root mode xray.log: `xhuskydg_helper logservice read -c <control pipe> -n N -o <file>` dumps the
+     * newest N buffered lines (the same call the Xray Log tab makes). It is written to a temp file
+     * first, never to stdout, so the result does not depend on how the shell wires stdin / stdout.
+     */
+    private static String xrayLogFromService(String moddir, String stubdir) {
+        final String ctl = stubdir + "/logs/control.pipe";
+        final String tmp = stubdir + "/run/export_xray.$$.log";
+        String script = ""
+                + "T=\"" + tmp + "\"\n"
+                + "rm -f \"$T\"\n"
+                + "ERR=$(" + RootShell.sq(moddir + "/bin/xhuskydg_helper") + " logservice read -c " + RootShell.sq(ctl)
+                + " -n " + XRAY_LOG_LINES + " -o \"$T\" 2>&1)\n"
+                + "RC=$?\n"
+                + "if [ -s \"$T\" ]; then\n"
+                + "  tail -c " + LOG_TAIL_BYTES + " \"$T\"\n"
+                + "else\n"
+                + "  echo \"(logservice returned no log lines: exit code $RC)\"\n"
+                + "  [ -n \"$ERR\" ] && echo \"$ERR\"\n"
+                + "  [ -p " + RootShell.sq(ctl) + " ] && echo '(control pipe exists)' || echo '(control pipe missing: logservice is not running)'\n"
+                + "fi\n"
+                + "rm -f \"$T\"\n";
+        String out = sh(script, 30_000);
+        return out.trim().isEmpty() ? "(empty: logservice read gave no output)\n" : out;
     }
 
     /** config.json with credentials hidden and the (possibly huge) dns.hosts table shortened. */
