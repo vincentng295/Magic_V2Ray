@@ -8,15 +8,15 @@
 # executables for its ABI(s). Flashing it installs the module, then the app.
 #
 #   ./build.sh                     -> APKs: arm64-v8a, x86_64 and universal
-#   ./build.sh --update-xray       -> force re-download of xray even if cached
+#   ./build.sh --update-xray       -> force rebuild of xray even if up to date
 #   ./build.sh --update-helper     -> force rebuild of xhuskydg_helper even if up to date
 #
-# Needs JDK 17, Gradle 8.7+ and an Android SDK (see check_apk_tools below).
+# Needs JDK 17, Gradle 8.7+, Go (version from core/xray-core/go.mod) and an
+# Android SDK (see check_apk_tools below).
 #
-# The downloaded xray binary's version is cached in bin/<arch>/xray.version.
-# On each run, fetch_xray re-downloads whenever that cache is missing, stale
-# (doesn't match the Xray-core version parsed from module.prop), or
-# --update-xray was passed.
+# xray is built from source in core/xray-core (GOOS=android, cgo with the NDK clang). The result is cached per-arch in bin/<arch>/xray, stamped in
+# bin/<arch>/xray.version with a hash of the sources, and rebuilt whenever
+# they change or --update-xray was passed.
 #
 # xhuskydg_helper is built from source in native/ (C++ applets in native/jni,
 # the C service daemon in native/jni/service) with the Android NDK. The result
@@ -40,50 +40,52 @@ mkdir -p "$OUT"
 VERSION=$(sed -n 's/^version=//p' module.prop | head -n 1 | tr ' /&' '_' | tr -d '\r')
 MODID=$(sed -n 's/^id=//p' module.prop | head -n 1 | tr -d '\r')
 
-# Xray-core version is embedded in module.prop's version string, e.g.
-#   version=v1.10.1 & Xray-core@v26.7.28
-XRAY_VERSION=$(sed -n 's/^version=//p' module.prop | head -n 1 | tr -d '\r' | sed -n 's/.*Xray-core@\(v[0-9.]*\).*/\1/p')
-[[ -n "$XRAY_VERSION" ]] || { echo "could not parse Xray-core version from module.prop" >&2; exit 1; }
-
-XRAY_BASE_URL="https://github.com/vincentng295/Xray-core/releases/download/${XRAY_VERSION}-xhuskydg"
-
 need() {
     for f in "$@"; do
         [[ -e $f ]] || { echo "missing required path: $f" >&2; exit 1; }
     done
 }
 
-# Maps our arch dir names to the asset name Xray-core publishes under.
-xray_asset_for() {
-    case "$1" in
-        arm64-v8a) echo "Xray-android-arm64-v8a.zip" ;;
-        x86_64)    echo "Xray-android-amd64.zip" ;;
-        *) echo "unknown arch: $1" >&2; exit 1 ;;
-    esac
+xray_src_hash() {
+    {
+        find core/xray-core -type f \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' \) \
+            -not -path '*/.git/*' -print0 | sort -z | xargs -0 sha256sum
+        go version
+    } | sha256sum | cut -d' ' -f1
 }
 
-# Downloads and unpacks the xray binary for one arch into bin/<arch>/xray,
-# skipping the fetch if the binary is already present.
-fetch_xray() {
+# Builds bin/<arch>/xray from core/xray-core, skipping the build if the cached
+# binary matches the hash of the current sources and Go toolchain.
+build_xray() {
     local arch="$1"
+    local root="$PWD"
     local dest="bin/${arch}"
     local vfile="${dest}/xray.version"
-    if [[ "$FORCE_UPDATE_XRAY" != "1" && -x "${dest}/xray" && -f "$vfile" && "$(cat "$vfile")" == "$XRAY_VERSION" ]]; then
-        echo "==> bin/${arch}/xray already at ${XRAY_VERSION}, skipping download"
+    local hash; hash=$(xray_src_hash)
+    if [[ "$FORCE_UPDATE_XRAY" != "1" && -x "${dest}/xray" && -f "$vfile" && "$(cat "$vfile")" == "$hash" ]]; then
+        echo "==> bin/${arch}/xray is up to date, skipping build"
         return
     fi
-    local asset; asset=$(xray_asset_for "$arch")
-    local url="${XRAY_BASE_URL}/${asset}"
-    local tmp; tmp=$(mktemp -d)
-    echo "==> fetching ${url}"
-    curl -fsSL -o "${tmp}/${asset}" "$url"
+    local goarch triple
+    case "$arch" in
+        arm64-v8a) goarch=arm64; triple="aarch64-linux-android31" ;;
+        x86_64)    goarch=amd64; triple="x86_64-linux-android31" ;;
+        *) echo "unknown arch: $arch" >&2; exit 1 ;;
+    esac
+    # GOOS=android needs external (cgo) linking, so build with the NDK clang.
+    local ndk tc cc; ndk=$(find_ndk)
+    tc=$(echo "$ndk"/toolchains/llvm/prebuilt/*/bin | awk '{print $1}')
+    cc="${tc}/${triple}-clang"
+    [[ -x "$cc" ]] || { echo "missing ${cc}" >&2; exit 1; }
+    echo "==> building xray for ${arch} from core/xray-core (NDK: ${ndk})"
     mkdir -p "$dest"
-    unzip -q -o "${tmp}/${asset}" -d "$tmp"
-    need "${tmp}/xray"
-    install -m 0755 "${tmp}/xray" "${dest}/xray"
-    echo -n "${XRAY_VERSION}" > "$vfile"
-    rm -rf "$tmp"
-    echo "    installed ${dest}/xray (${XRAY_VERSION})"
+    ( cd core/xray-core && \
+      CGO_ENABLED=1 CC="$cc" GOOS=android GOARCH="$goarch" \
+      go build -trimpath -buildvcs=false -ldflags "-s -w -buildid= -checklinkname=0" \
+          -o "${root}/${dest}/xray" ./main )
+    chmod 0755 "${dest}/xray"
+    echo -n "$hash" > "$vfile"
+    echo "    built ${dest}/xray ($(du -h "${dest}/xray" | cut -f1))"
 }
 
 # Builds bin/<arch>/xhuskydg_helper from native/. The service daemon is plain C
@@ -204,6 +206,9 @@ check_apk_tools() {
         [[ "${jv:-0}" -ge 17 ]] || problems+=("JDK ${jv:-?} found, but JDK 17+ is required (java -version).")
     fi
 
+    [[ -f core/xray-core/go.mod ]] || problems+=("core/xray-core is missing (run: git submodule update --init --recursive).")
+    command -v go >/dev/null 2>&1 || problems+=("Go is not installed (see core/xray-core/go.mod for the required version): https://go.dev/dl/")
+
     if [[ -x ./gradlew ]]; then
         GRADLE_CMD="./gradlew"
     elif command -v gradle >/dev/null 2>&1; then
@@ -264,7 +269,7 @@ verify_flashable() {
 build_apk() {
     local a f name
     for a in arm64-v8a x86_64; do
-        fetch_xray "$a"; build_helper "$a"; fetch_busybox "$a"; stage_jnilibs "$a"
+        build_xray "$a"; build_helper "$a"; fetch_busybox "$a"; stage_jnilibs "$a"
     done
     echo "==> ${GRADLE_CMD} assembleRelease"
     rm -f app/build/outputs/apk/release/*.apk

@@ -171,8 +171,10 @@ jobs:
     needs: [shell, native, webui, python-tests, manifest]
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-      # build.sh needs bash, curl and unzip (fetching xray, verifying the APKs).
+      # build.sh needs bash, curl (busybox download) and unzip (verifying the APKs).
       # All ship on ubuntu-latest; installed explicitly so a runner image
       # change can't silently break the build.
       - name: Install build dependencies
@@ -187,25 +189,26 @@ jobs:
           echo "NDK: $ndk"
           echo "ANDROID_NDK_HOME=$ndk" >> "$GITHUB_ENV"
 
-      # Prerelease builds get "x-alpha-build-<8-char commit hash> & Xray-core@vX"
-      # so the APK filename and the module.prop shipped inside it identify the
-      # exact commit. The Xray-core part is kept from module.prop (build.sh
-      # parses it to decide which xray binary to download). Stable builds
-      # keep module.prop's version untouched.
+      # Prerelease builds get "x-alpha-build-<8-char commit hash>" so the APK
+      # filename and the module.prop shipped inside it identify the exact
+      # commit. Stable builds keep module.prop's version untouched.
       - name: Stamp prerelease version (alpha only)
         if: github.ref == 'refs/heads/alpha'
         run: |
           set -e
-          xray=$(sed -n 's/^version=.*\(Xray-core@v[0-9.]*\).*/\1/p' module.prop | head -n 1)
-          [ -n "$xray" ] || { echo "::error::could not parse Xray-core version from module.prop"; exit 1; }
-          # "\&" because a bare & in a sed replacement means "the matched text"
-          sed -i "s|^version=.*|version=x-alpha-build-${GITHUB_SHA::8} \& ${xray}|" module.prop
+          sed -i "s|^version=.*|version=x-alpha-build-${GITHUB_SHA::8}|" module.prop
           grep '^version=' module.prop
 
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+
+      # xray is built from core/xray-core; Go version comes from its go.mod.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: core/xray-core/go.mod
+          cache-dependency-path: core/xray-core/go.sum
 
       # setup-gradle caches ~/.gradle (dependencies, wrapper, build cache).
       # By default only the default branch writes the cache; main and alpha
@@ -215,18 +218,9 @@ jobs:
           gradle-version: '8.9'
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/alpha' }}
 
-      # build.sh already skips the xray download and the helper build when the
-      # binaries in bin/<arch>/ match their .version stamps, so restoring those
-      # files is all that is needed. The key uses the Xray-core version and the
-      # native/ sources, not module.prop as a whole: alpha builds stamp the
-      # version= line with the commit hash, which would change the key every run.
-      - name: Get Xray-core version
-        id: xrayver
-        run: |
-          v=$(sed -n 's/^version=.*Xray-core@\(v[0-9.]*\).*/\1/p' module.prop | head -n 1)
-          [ -n "$v" ] || { echo "::error::could not parse Xray-core version from module.prop"; exit 1; }
-          echo "v=$v" >> "$GITHUB_OUTPUT"
-
+      # build.sh skips the xray and helper builds when the binaries in
+      # bin/<arch>/ match their .version stamps, so restoring those files is
+      # all that is needed. The key hashes the sources they are built from.
       - name: Cache xray + helper binaries
         uses: actions/cache@v4
         with:
@@ -235,9 +229,7 @@ jobs:
             bin/*/xray.version
             bin/*/xhuskydg_helper
             bin/*/xhuskydg_helper.version
-          key: bins-${{ steps.xrayver.outputs.v }}-xhuskydg-${{ hashFiles('native/**') }}
-          restore-keys: |
-            bins-${{ steps.xrayver.outputs.v }}-
+          key: bins-xray-${{ hashFiles('core/xray-core/**') }}-helper-${{ hashFiles('native/**') }}
 
       # GitHub secrets only hold text, so the keystore is stored base64-encoded
       # in MV_KEYSTORE_BASE64 and decoded to a temp file for build.sh.
@@ -319,7 +311,7 @@ jobs:
           run: |
             set -e
             version_line=$(grep -E '^version=' module.prop | cut -d= -f2-)
-            # "v1.x & Xray-core@v26.7.11" -> tag "v1.x"
+            # "v2.2-alpha" -> tag "v2.2-alpha"
             tag=$(echo "$version_line" | sed -E 's/^([^ ]+).*/\1/')
             if [ -z "$tag" ]; then
               echo "::error::could not parse tag from module.prop version= line"
@@ -372,10 +364,7 @@ jobs:
         - name: Derive prerelease name
           id: ver
           run: |
-            set -e
-            xray=$(sed -n 's/^version=.*\(Xray-core@v[0-9.]*\).*/\1/p' module.prop | head -n 1)
-            [ -n "$xray" ] || { echo "::error::could not parse Xray-core version from module.prop"; exit 1; }
-            echo "release_name=x-alpha-build-${GITHUB_SHA::8} & ${xray}" >> "$GITHUB_OUTPUT"
+            echo "release_name=x-alpha-build-${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
 
         # tag_name is fixed, so every push to alpha lands on the same
         # "x-alpha-pre-release" tag/release instead of piling up new ones.

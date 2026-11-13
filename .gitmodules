@@ -1,0 +1,4 @@
+[submodule "core/xray-core"]
+	path = core/xray-core
+	url = https://github.com/vincentng295/Xray-core.git
+	branch = huskydg/xhuskydg
