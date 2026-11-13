@@ -67,19 +67,25 @@ function _loadInstalledApps(callback) {
     if (Array.isArray(names) && names.length) {
         const unique = Array.from(new Set(names.filter(n => EXCLUDE_PKG_RE.test(n))));
         const infoByPkg = {};
-        for (let i = 0; i < unique.length; i += 200) {
-            const chunk = unique.slice(i, i + 200);
+        // Chunks are processed on separate ticks so the "loading" indicator keeps painting/animating.
+        const step = (i) => {
+            if (i >= unique.length) {
+                callback(unique.map(pkg => {
+                    const x = infoByPkg[pkg] || {};
+                    return {
+                        packageName: pkg,
+                        appLabel: x.appLabel || pkg,
+                        isSystem: x.isSystem === true
+                    };
+                }));
+                return;
+            }
+            const chunk = unique.slice(i, i + 100);
             const infos = _ksuCall('getPackagesInfo', JSON.stringify(chunk));
             if (Array.isArray(infos)) infos.forEach(x => { if (x && x.packageName) infoByPkg[x.packageName] = x; });
-        }
-        callback(unique.map(pkg => {
-            const x = infoByPkg[pkg] || {};
-            return {
-                packageName: pkg,
-                appLabel: x.appLabel || pkg,
-                isSystem: x.isSystem === true
-            };
-        }));
+            setTimeout(() => step(i + 100), 0);
+        };
+        step(0);
         return;
     }
 
@@ -97,6 +103,14 @@ function _loadInstalledApps(callback) {
 // Tab lifecycle
 // ---------------------------------------------------------------------------
 
+// "Loading apps..." row: shown until the installed-app list is fully loaded.
+function _setExcludeLoading(on) {
+    const el = document.getElementById('exclude-loading');
+    if (el) el.style.display = on ? 'flex' : 'none';
+    const empty = document.getElementById('exclude-empty-state');
+    if (on && empty) empty.style.display = 'none';
+}
+
 function onExcludeTabOpened() {
     if (_exclude.inited) return;
     _exclude.inited = true;
@@ -106,14 +120,19 @@ function onExcludeTabOpened() {
     document.getElementById('set-exclude-autoapply').checked = advSettings.excludeAutoApply === true;
     _syncExcludeChrome();
 
-    execShell(`cat ${shQuote(EXCLUDE_LIST_FILE)} 2>/dev/null`, (raw) => {
-        _exclude.set = new Set(_parseExcludeList(raw));
-        _loadInstalledApps((apps) => {
-            _exclude.apps = apps.sort((a, b) =>
-                a.appLabel.localeCompare(b.appLabel, undefined, { sensitivity: 'base' }));
-            renderExcludeList();
+    _setExcludeLoading(true);
+    // Let the loading indicator paint before the (synchronous) package queries start.
+    setTimeout(() => {
+        execShell(`cat ${shQuote(EXCLUDE_LIST_FILE)} 2>/dev/null`, (raw) => {
+            _exclude.set = new Set(_parseExcludeList(raw));
+            _loadInstalledApps((apps) => {
+                _exclude.apps = apps.sort((a, b) =>
+                    a.appLabel.localeCompare(b.appLabel, undefined, { sensitivity: 'base' }));
+                _setExcludeLoading(false);
+                renderExcludeList();
+            });
         });
-    });
+    }, 50);
 }
 
 function _parseExcludeList(text) {

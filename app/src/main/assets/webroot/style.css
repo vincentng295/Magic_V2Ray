@@ -2813,3 +2813,20 @@ html.has-bg header h1 {
 .bg-actions { display: flex; gap: 8px; align-items: center; }
 #app-bg-dim { width: 140px; }
 html.has-bg .category-group { border-radius: var(--md-shape-xl); overflow: hidden; }
+
+.exclude-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 28px 0;
+    color: var(--md-on-surface-variant);
+    font-weight: 600;
+}
+.exclude-loading-spinner {
+    width: 22px; height: 22px;
+    border: 3px solid var(--md-outline-variant);
+    border-top-color: var(--md-primary);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+}

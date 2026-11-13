@@ -449,6 +449,10 @@
                             <button class="log-filter-chip" onclick="excludeSelectVisible(false)" data-i18n="exclude_clear_visible">Clear shown</button>
                         </span>
                     </div>
+                    <div id="exclude-loading" class="exclude-loading" style="display:none;">
+                        <span class="exclude-loading-spinner"></span>
+                        <span data-i18n="exclude_loading">Loading apps...</span>
+                    </div>
                     <div id="exclude-list-container" class="exclude-list-container" onscroll="onExcludeListScroll()"></div>
                     <div id="exclude-empty-state" class="hosts-empty-state" style="display:none;">
                         <span data-i18n="exclude_empty">No apps to show.</span>
