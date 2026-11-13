@@ -45,7 +45,7 @@ MODID=$(sed -n 's/^id=//p' module.prop | head -n 1 | tr -d '\r')
 XRAY_VERSION=$(sed -n 's/^version=//p' module.prop | head -n 1 | tr -d '\r' | sed -n 's/.*Xray-core@\(v[0-9.]*\).*/\1/p')
 [[ -n "$XRAY_VERSION" ]] || { echo "could not parse Xray-core version from module.prop" >&2; exit 1; }
 
-XRAY_BASE_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}"
+XRAY_BASE_URL="https://github.com/vincentng295/Xray-core/releases/download/${XRAY_VERSION}-xhuskydg"
 
 need() {
     for f in "$@"; do

@@ -3,6 +3,6 @@ name=Magic V2Ray
 version=v2.2-alpha & Xray-core@v26.11.9
 versionCode=184
 author=HuskyDG @vincentng295
-description=A system-level transparent proxy routing engine using Xray-core. Manage your configurations in KSU webui!
+description=A system-level transparent proxy routing engine using Xray-core
 updateJson=https://vincentng295.github.io/magic-v2ray-site/update.json
 debug=0

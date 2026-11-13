@@ -1535,11 +1535,15 @@ async function selectNode(category, id) {
         return;
     }
 
-    // Plaintext VLESS (no TLS/REALITY, no VLESS Encryption): swap the usual
-    // confirmation for an explicit warning, so it is a deliberate choice.
+    // Plaintext VLESS (no TLS/REALITY, no VLESS Encryption) or plaintext Trojan
+    // (no TLS): swap the usual confirmation for an explicit warning, so it is a
+    // deliberate choice. A chain with both kinds of hop shows both warnings.
     const nodeName = node.name || node.address || id;
-    const confirmed = isPlainVlessUri(node.rawUri)
-        ? await showConfirm(t('warn_plain_vless', { name: nodeName }), { okText: t('warn_plain_vless_ok') })
+    const plainWarnings = [];
+    if (isPlainVlessUri(node.rawUri)) plainWarnings.push(t('warn_plain_vless', { name: nodeName }));
+    if (isPlainTrojanUri(node.rawUri)) plainWarnings.push(t('warn_plain_trojan', { name: nodeName }));
+    const confirmed = plainWarnings.length
+        ? await showConfirm(plainWarnings.join('\n\n'), { okText: t('warn_plain_vless_ok') })
         : await showConfirm(t('confirm_connect_node', { name: nodeName }));
     if (!confirmed) return;
 
@@ -4860,21 +4864,13 @@ function _buildXrayTestInbound(node, slot) {
     const rawConfigStr = _resolveXrayConfig(node.rawUri);
     const xrayConfigObj = JSON.parse(rawConfigStr);
     if (xrayConfigObj.error) throw new Error(xrayConfigObj.error);
-    // A plaintext VLESS node reaches its server through a loopback
-    // dokodemo-door tunnel (helper.js: applyPlainVlessLoopback). Keep those
-    // inbounds, but move them to this slot's own 127.18.<1+slot>.x block: the
-    // device-wide xray already listens on 127.18.0.x:80, and up to
-    // NODE_TEST_CONCURRENCY probes run at once.
-    relocatePlainVlessPool(xrayConfigObj, 1 + slot);
-    const plainTunnels = (Array.isArray(xrayConfigObj.inbounds) ? xrayConfigObj.inbounds : [])
-        .filter(i => i && typeof i.tag === 'string' && i.tag.indexOf(PLAIN_TUN_TAG_PREFIX) === 0);
     xrayConfigObj.inbounds = [{
         tag: "socks-test-in",
         port: testPort,
         listen: testIp,
         protocol: "socks",
         settings: { auth: "noauth", udp: true }
-    }, ...plainTunnels];
+    }];
     // The probe only needs to reach the node: the user's (possibly huge) custom hosts list is
     // dropped and only the built-in resolver pins stay. The probe script passes the whole config
     // to `sh -c` as ONE argument, which fails outright beyond ~128 KB.

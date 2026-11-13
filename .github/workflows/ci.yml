@@ -235,7 +235,7 @@ jobs:
             bin/*/xray.version
             bin/*/xhuskydg_helper
             bin/*/xhuskydg_helper.version
-          key: bins-${{ steps.xrayver.outputs.v }}-${{ hashFiles('native/**') }}
+          key: bins-${{ steps.xrayver.outputs.v }}-xhuskydg-${{ hashFiles('native/**') }}
           restore-keys: |
             bins-${{ steps.xrayver.outputs.v }}-
 
