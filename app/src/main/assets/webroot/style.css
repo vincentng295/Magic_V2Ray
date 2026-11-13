@@ -2812,7 +2812,15 @@ html.has-bg header h1 {
 }
 .bg-actions { display: flex; gap: 8px; align-items: center; }
 #app-bg-dim { width: 140px; }
-html.has-bg .category-group { border-radius: var(--md-shape-xl); overflow: hidden; }
+html.has-bg .category-group { border-radius: var(--md-shape-xl); overflow: visible; }
+html.has-bg .category-group .category-header { border-radius: var(--md-shape-xl) var(--md-shape-xl) 0 0; }
+html.has-bg .category-group .category-header:last-child { border-radius: var(--md-shape-xl); border-bottom-color: transparent; }
+html.has-bg .category-group .config-item:last-child { border-bottom: none; border-radius: 0 0 var(--md-shape-xl) var(--md-shape-xl); }
+/* Menus must stay opaque even though --md-surface-3 is translucent over a wallpaper */
+html.has-bg .category-dropdown-menu,
+html.has-bg .node-dropdown-menu {
+    background: linear-gradient(var(--md-surface-3), var(--md-surface-3)), var(--md-surface);
+}
 
 .exclude-loading {
     display: flex;
@@ -2836,4 +2844,9 @@ html.has-bg .config-item.builtin-node {
 }
 html.has-bg .config-item.builtin-node.selected {
     background: linear-gradient(rgba(var(--md-primary-rgb), 0.16), rgba(var(--md-primary-rgb), 0.16)), var(--md-surface-1);
+}
+/* Collapsed category: the hidden .nodes-list is the last child, so round the header on all sides */
+html.has-bg .category-group:has(> .nodes-list[style*="display: none"]) > .category-header {
+    border-radius: var(--md-shape-xl);
+    border-bottom-color: transparent;
 }
