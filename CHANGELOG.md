@@ -1,12 +1,10 @@
-# Magic V2Ray v2.2 Release Notes
+# Magic V2Ray v2.3 Release Notes
 
-Magic V2Ray v2.2 introduces proxy sharing without root via Shizuku. In Non-Root mode on Android 13 and newer, users can now route traffic from Wi-Fi hotspot and USB-tethering clients directly through the active proxy using a fail-closed test-network bridge that automatically stops sharing if the proxy or upstream disconnects.
+This release transitions the core engine to a custom Xray-core source submodule, allowing direct connections to plaintext VLESS and Trojan nodes without needing the previous loopback tunnel workaround. To keep connections secure, the app now displays explicit security warnings before connecting to unencrypted VLESS or Trojan nodes, enables Hijack DNS by default, and warns you whenever DNS settings leave queries vulnerable to leaking outside the proxy.
 
-A new App Settings tab allows full appearance customization. You can switch between Light, Dark, and System themes, or personalize the interface with dynamic system colors or a custom color picker on Android 13+. System bars and native dialogs automatically adapt to match your chosen theme.
+You can now personalize the interface with custom app wallpapers in App settings. When a background image is active, the app can automatically extract its dominant color to generate a matching theme, apply an adjustable readability overlay, and adapt card transparency while keeping dropdown menus opaque. Light theme Start and Stop buttons have also been updated with higher-contrast styling, and the Exclude apps tab now loads installed applications in smoother asynchronous batches with a loading indicator.
 
-Custom Hosts management has been expanded with tools to import entries from files or the clipboard, export your list via Android's document picker, and clear all entries at once. A new notice clarifies when DNS hijacking is required, while chunked file writing, entry validation, and memoized parsing ensure large hosts lists load and save reliably without hitting shell argument limits.
-
-This release also adds support for importing subscriptions via `v2rayng://` and `magicv2ray://` deep links with a confirmation prompt, resolves DNS server hostnames alongside outbound domains using the system DNS, and includes full Russian, Simplified Chinese, and Traditional Chinese translations for the native app.
+For troubleshooting and bug reports, a new Export app logs option in App settings packages application logs, Xray logs, active settings, sanitized configurations with credentials redacted, device specifications, and network routing details into a single ZIP file. On Android 10 and newer, this archive saves directly to Download/MagicV2Ray, while older Android versions open the system file picker.
 
 ---
 
