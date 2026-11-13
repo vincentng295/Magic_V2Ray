@@ -76,6 +76,7 @@ const i18n = {
         desc_dnsviaproxy: "Wrap and route all DNS resolver via server",
         lbl_hijackdns: "Hijack DNS",
         desc_hijackdns: "Route DNS query to Xray's DNS module",
+        warn_dns_leak: "DNS leak warning: with Hijack DNS or Resolve DNS via Proxy turned off, your DNS queries may leak outside the proxy and expose the sites you visit.",
         lbl_fakedns: "Enable Fake DNS",
         desc_fakedns: "Use pool 198.19.0.0/16 to map domains onto virtual IPs instantly",
         // Local DNS group
@@ -694,6 +695,7 @@ const i18n = {
         desc_dnsviaproxy: "将所有 DNS 解析请求封装并通过服务器转发",
         lbl_hijackdns: "劫持 DNS",
         desc_hijackdns: "将 DNS 查询交给 Xray 的 DNS 模块处理",
+        warn_dns_leak: "DNS 泄漏警告：关闭“劫持 DNS”或“通过代理解析 DNS”后，您的 DNS 查询可能在代理之外泄漏，暴露您访问的网站。",
         lbl_fakedns: "启用 Fake DNS",
         desc_fakedns: "使用 198.19.0.0/16 地址池即时将域名映射为虚拟 IP",
         // Local DNS group
@@ -1312,6 +1314,7 @@ const i18n = {
         desc_dnsviaproxy: "將所有 DNS 解析請求封裝並透過伺服器轉發",
         lbl_hijackdns: "劫持 DNS",
         desc_hijackdns: "將 DNS 查詢交給 Xray 的 DNS 模組處理",
+        warn_dns_leak: "DNS 洩漏警告：關閉「劫持 DNS」或「透過代理解析 DNS」後，您的 DNS 查詢可能在代理之外洩漏，暴露您造訪的網站。",
         lbl_fakedns: "啟用 Fake DNS",
         desc_fakedns: "使用 198.19.0.0/16 位址池即時將網域對應為虛擬 IP",
         // Local DNS group
@@ -1930,6 +1933,7 @@ const i18n = {
         desc_dnsviaproxy: "Đóng gói và định tuyến tất cả truy vấn DNS qua server",
         lbl_hijackdns: "Hijack DNS",
         desc_hijackdns: "Chuyển truy vấn DNS sang DNS module của Xray",
+        warn_dns_leak: "Cảnh báo rò rỉ DNS: nếu tắt Hijack DNS hoặc tắt Resolve DNS via Proxy, truy vấn DNS của bạn có thể bị rò rỉ ra ngoài proxy và lộ các trang web bạn truy cập.",
         lbl_fakedns: "Bật cơ chế Fake DNS",
         desc_fakedns: "Sử dụng dải 198.19.0.0/16 để bẫy IP ảo cho tên miền ngay lập tức",
         // Local DNS group
@@ -2548,6 +2552,7 @@ const i18n = {
         desc_dnsviaproxy: "Оборачивать и направлять все DNS-запросы через сервер",
         lbl_hijackdns: "Перехватывать DNS",
         desc_hijackdns: "Направлять DNS-запросы в DNS-модуль Xray",
+        warn_dns_leak: "Предупреждение об утечке DNS: при отключении Hijack DNS или Resolve DNS via Proxy DNS-запросы могут утекать мимо прокси и раскрывать посещаемые вами сайты.",
         lbl_fakedns: "Включить Fake DNS",
         desc_fakedns: "Использовать пул 198.19.0.0/16 для мгновенного сопоставления доменов с виртуальными IP",
         group_dns: "Конфигурация DNS",

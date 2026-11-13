@@ -227,9 +227,11 @@
                     </div>
                     <div id="dns-sub-fields" class="sub-setting-panel" style="display:none;">
 
+                        <div class="hosts-panel-warn" id="dns-leak-warning" style="display:none;" data-i18n="warn_dns_leak">DNS leak warning: with Hijack DNS or Resolve DNS via Proxy turned off, your DNS queries may leak outside the proxy and expose the sites you visit.</div>
+
                         <div class="setting-item-row toggle-row">
                             <label for="set-dnsviaproxy"><span data-i18n="lbl_dnsviaproxy">Resolve DNS via Proxy</span><small data-i18n="desc_dnsviaproxy">Wrap and route all DNS resolver via Server</small></label>
-                            <input type="checkbox" id="set-dnsviaproxy">
+                            <input type="checkbox" id="set-dnsviaproxy" onchange="updateDnsGroupVisibility()">
                         </div>
 
                         <div class="setting-item-row toggle-row">

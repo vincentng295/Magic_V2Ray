@@ -3696,6 +3696,9 @@ function toggleSubSettingField(triggerId, subPanelId) {
 function updateDnsGroupVisibility() {
     const localDnsOn = document.getElementById('set-localdns').checked;
     const hijackDnsOn = document.getElementById('set-hijackdns').checked;
+    const dnsViaProxyOn = document.getElementById('set-dnsviaproxy').checked;
+    const dnsLeakWarn = document.getElementById('dns-leak-warning');
+    if (dnsLeakWarn) dnsLeakWarn.style.display = (localDnsOn && (!hijackDnsOn || !dnsViaProxyOn)) ? '' : 'none';
 
     const subFields = document.getElementById('dns-sub-fields');
     subFields.style.display = localDnsOn ? '' : 'none';

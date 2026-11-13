@@ -2743,3 +2743,5 @@ textarea.pro-config-input {
     white-space: pre-line;
     word-break: break-all;
 }
+
+#dns-leak-warning { margin-bottom: 16px; }
