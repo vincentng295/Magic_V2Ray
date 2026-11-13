@@ -2830,3 +2830,10 @@ html.has-bg .category-group { border-radius: var(--md-shape-xl); overflow: hidde
     border-radius: 50%;
     animation: spin .8s linear infinite;
 }
+html.has-bg .config-item.builtin-node {
+    background: var(--md-surface-1);
+    border-radius: var(--md-shape-xl);
+}
+html.has-bg .config-item.builtin-node.selected {
+    background: linear-gradient(rgba(var(--md-primary-rgb), 0.16), rgba(var(--md-primary-rgb), 0.16)), var(--md-surface-1);
+}
