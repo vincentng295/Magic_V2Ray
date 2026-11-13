@@ -622,6 +622,14 @@
                         <button type="button" class="btn btn-secondary" id="app-color-change" data-i18n="btn_change_color">Change</button>
                     </div>
                 </div>
+
+                <div class="settings-group-box">
+                    <h4 data-i18n="grp_logs">Logs &amp; diagnostics</h4>
+                    <div class="setting-item-row">
+                        <label for="btn-export-logs"><span data-i18n="lbl_export_logs">Export app logs</span><small data-i18n="desc_export_logs">Saves a zip with app and Xray logs, settings, config (UUIDs hidden) and device info to Download/MagicV2Ray. Attach it when reporting a bug.</small></label>
+                        <button type="button" class="btn btn-secondary" id="btn-export-logs" data-i18n="btn_export_logs">Export</button>
+                    </div>
+                </div>
             </section>
         </div>
 
@@ -746,6 +754,7 @@
     <script src="main.js"></script>
     <script src="excludeapps.js"></script>
     <script src="appsettings.js"></script>
+    <script src="exportlogs.js"></script>
     <div id="toast-container" class="toast-container"></div>
 
     <!-- Confirm Modal (KSU webui does not support window.confirm()) -->

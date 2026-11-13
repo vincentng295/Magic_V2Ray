@@ -149,6 +149,39 @@ final class KsuBridge {
         activity.runOnUiThread(() -> ((MainActivity) activity).saveTextFile(safe, text == null ? "" : text, callback));
     }
 
+    /**
+     * "Export app logs": builds the zip (LogExporter) from the files the WebUI composed
+     * ({name: text} JSON: settings.txt, config.txt) plus the logs / device info collected here,
+     * then saves it to Download/MagicV2Ray. Callback gets (0, "Download/MagicV2Ray/<file>", "") on
+     * success, (1, "", reason) on failure, (1, "", "cancelled") when the save dialog was dismissed
+     * (Android 9 and older only).
+     */
+    @JavascriptInterface
+    public void exportLogs(final String filesJson, final String callback) {
+        if (callback == null || !CB_RE.matcher(callback).matches()) return;
+        POOL.execute(() -> {
+            java.io.File zip = null;
+            try {
+                zip = LogExporter.build(activity.getApplicationContext(), filesJson);
+                String where = LogExporter.saveToDownloads(activity.getApplicationContext(), zip);
+                if (where == null && activity instanceof MainActivity) {   // Android 9-: ask where to save
+                    final java.io.File pending = zip;
+                    zip = null;                                            // MainActivity deletes it
+                    activity.runOnUiThread(() -> ((MainActivity) activity).saveZipFile(pending, callback));
+                    return;
+                }
+                deliver(callback, 0, where == null ? "" : where, "");
+            } catch (Exception e) {
+                deliver(callback, 1, "", String.valueOf(e.getMessage()));
+            } finally {
+                if (zip != null) {
+                    //noinspection ResultOfMethodCallIgnored
+                    zip.delete();
+                }
+            }
+        });
+    }
+
     /** The URL of a pending deep link ("" if none); returns it once. */
     @JavascriptInterface
     public String takePendingLink() {

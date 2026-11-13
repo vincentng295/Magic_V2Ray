@@ -56,6 +56,9 @@ public class MainActivity extends Activity {
     private static final int REQ_SAVE = 3;
     private String pendingSaveText;
     private String pendingSaveCb;
+    private static final int REQ_SAVE_ZIP = 4;
+    private java.io.File pendingZip;
+    private String pendingZipCb;
     private static final Pattern PKG_RE = Pattern.compile("^[A-Za-z0-9_.]+$");
 
     private final LruCache<String, byte[]> icons = new LruCache<>(400);
@@ -463,6 +466,49 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** Android 9 and older: asks where to save the exported logs zip; reports back to JS as (code, "", reason). */
+    void saveZipFile(java.io.File zip, String callback) {
+        pendingZip = zip;
+        pendingZipCb = callback;
+        Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                .addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("application/zip")
+                .putExtra(Intent.EXTRA_TITLE, zip.getName());
+        try {
+            startActivityForResult(i, REQ_SAVE_ZIP);
+        } catch (ActivityNotFoundException e) {
+            finishSaveZip(null);
+        }
+    }
+
+    private void finishSaveZip(Uri uri) {
+        java.io.File zip = pendingZip;
+        String cb = pendingZipCb;
+        pendingZip = null;
+        pendingZipCb = null;
+        int code = 1;
+        String err = "cancelled";
+        if (uri != null && zip != null) {
+            try (java.io.OutputStream o = getContentResolver().openOutputStream(uri, "wt")) {
+                if (o != null) {
+                    LogExporter.copy(zip, o);
+                    code = 0;
+                    err = "";
+                }
+            } catch (java.io.IOException | RuntimeException e) {
+                err = String.valueOf(e.getMessage());
+            }
+        }
+        if (zip != null) {
+            //noinspection ResultOfMethodCallIgnored
+            zip.delete();
+        }
+        if (cb != null && web != null) {
+            final String js = "window['" + cb + "']&&window['" + cb + "'](" + code + ",\"\"," + org.json.JSONObject.quote(err) + ")";
+            web.post(() -> web.evaluateJavascript(js, null));
+        }
+    }
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode == VpnController.REQ_VPN) {
@@ -471,6 +517,10 @@ public class MainActivity extends Activity {
         }
         if (requestCode == REQ_SAVE) {
             finishSave(resultCode == RESULT_OK && data != null ? data.getData() : null);
+            return;
+        }
+        if (requestCode == REQ_SAVE_ZIP) {
+            finishSaveZip(resultCode == RESULT_OK && data != null ? data.getData() : null);
             return;
         }
         if (requestCode == REQ_FILE && filePathCallback != null) {
