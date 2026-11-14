@@ -12,14 +12,14 @@
 *.java      text eol=lf
 *.gradle    text eol=lf
 *.xml       text eol=lf
-module.prop text eol=lf
-META-INF/com/google/android/update-binary  text eol=lf
-META-INF/com/google/android/updater-script text eol=lf
+module/module.prop text eol=lf
+module/META-INF/com/google/android/update-binary  text eol=lf
+module/META-INF/com/google/android/updater-script text eol=lf
 
 # Prebuilt binaries and databases must never be touched by EOL conversion.
-bin/arm64-v8a/*  binary
-bin/x86_64/*     binary
-bin/*.dat        binary
+module/bin/arm64-v8a/*  binary
+module/bin/x86_64/*     binary
+module/bin/*.dat        binary
 *.jpg            binary
 *.png            binary
 *.zip            binary

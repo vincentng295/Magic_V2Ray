@@ -14,14 +14,14 @@
 # Needs JDK 17, Gradle 8.7+, Go (version from core/xray-core/go.mod) and an
 # Android SDK (see check_apk_tools below).
 #
-# xray is built from source in core/xray-core (GOOS=android, cgo with the NDK clang). The result is cached per-arch in bin/<arch>/xray, stamped in
-# bin/<arch>/xray.version with a hash of the sources, and rebuilt whenever
+# xray is built from source in core/xray-core (GOOS=android, cgo with the NDK clang). The result is cached per-arch in module/bin/<arch>/xray, stamped in
+# module/bin/<arch>/xray.version with a hash of the sources, and rebuilt whenever
 # they change or --update-xray was passed.
 #
 # xhuskydg_helper is built from source in native/ (C++ applets in native/jni,
 # the C service daemon in native/jni/service) with the Android NDK. The result
-# is cached per-arch in bin/<arch>/xhuskydg_helper, stamped in
-# bin/<arch>/xhuskydg_helper.version with a hash of native/ + build settings, and
+# is cached per-arch in module/bin/<arch>/xhuskydg_helper, stamped in
+# module/bin/<arch>/xhuskydg_helper.version with a hash of native/ + build settings, and
 # rebuilt whenever the sources change or --update-helper is passed.
 #
 # APK: build_apk stages xray/helper/curl as app/src/main/jniLibs/<abi>/lib*.so and runs
@@ -37,8 +37,8 @@ cd "$(dirname "$0")"
 OUT="dist"
 mkdir -p "$OUT"
 
-VERSION=$(sed -n 's/^version=//p' module.prop | head -n 1 | tr ' /&' '_' | tr -d '\r')
-MODID=$(sed -n 's/^id=//p' module.prop | head -n 1 | tr -d '\r')
+VERSION=$(sed -n 's/^version=//p' module/module.prop | head -n 1 | tr ' /&' '_' | tr -d '\r')
+MODID=$(sed -n 's/^id=//p' module/module.prop | head -n 1 | tr -d '\r')
 
 need() {
     for f in "$@"; do
@@ -54,16 +54,16 @@ xray_src_hash() {
     } | sha256sum | cut -d' ' -f1
 }
 
-# Builds bin/<arch>/xray from core/xray-core, skipping the build if the cached
+# Builds module/bin/<arch>/xray from core/xray-core, skipping the build if the cached
 # binary matches the hash of the current sources and Go toolchain.
 build_xray() {
     local arch="$1"
     local root="$PWD"
-    local dest="bin/${arch}"
+    local dest="module/bin/${arch}"
     local vfile="${dest}/xray.version"
     local hash; hash=$(xray_src_hash)
     if [[ "$FORCE_UPDATE_XRAY" != "1" && -x "${dest}/xray" && -f "$vfile" && "$(cat "$vfile")" == "$hash" ]]; then
-        echo "==> bin/${arch}/xray is up to date, skipping build"
+        echo "==> module/bin/${arch}/xray is up to date, skipping build"
         return
     fi
     local goarch triple
@@ -88,7 +88,7 @@ build_xray() {
     echo "    built ${dest}/xray ($(du -h "${dest}/xray" | cut -f1))"
 }
 
-# Builds bin/<arch>/xhuskydg_helper from native/. The service daemon is plain C
+# Builds module/bin/<arch>/xhuskydg_helper from native/. The service daemon is plain C
 # (compiled with the C driver, clang) and the applets are C++ (clang++); both are
 # linked statically by clang++. Skipped when the cached binary matches the hash
 # of the current sources and build settings.
@@ -110,11 +110,11 @@ helper_src_hash() {
 
 build_helper() {
     local arch="$1"
-    local dest="bin/${arch}"
+    local dest="module/bin/${arch}"
     local vfile="${dest}/xhuskydg_helper.version"
     local hash; hash=$(helper_src_hash)
     if [[ "$FORCE_UPDATE_HELPER" != "1" && -x "${dest}/xhuskydg_helper" && -f "$vfile" && "$(cat "$vfile")" == "$hash" ]]; then
-        echo "==> bin/${arch}/xhuskydg_helper is up to date, skipping build"
+        echo "==> module/bin/${arch}/xhuskydg_helper is up to date, skipping build"
         return
     fi
     local triple
@@ -158,17 +158,17 @@ build_helper() {
 # into files/module/bin at runtime (NonRootEnv). Committed like curl; fetched only if missing.
 fetch_busybox() {
     local arch="$1" name
-    [[ -x "bin/${arch}/busybox" ]] && return
+    [[ -x "module/bin/${arch}/busybox" ]] && return
     case "$arch" in
         arm64-v8a) name=busybox-arm64-selinux ;;
         x86_64)    name=busybox-x86_64-selinux ;;
         *) echo "unknown arch: $arch" >&2; exit 1 ;;
     esac
     echo "==> fetching busybox (${arch})"
-    mkdir -p "bin/${arch}"
-    curl -fsSL -o "bin/${arch}/busybox" \
+    mkdir -p "module/bin/${arch}"
+    curl -fsSL -o "module/bin/${arch}/busybox" \
         "https://github.com/Magisk-Modules-Repo/busybox-ndk/raw/refs/heads/master/${name}"
-    chmod 0755 "bin/${arch}/busybox"
+    chmod 0755 "module/bin/${arch}/busybox"
 }
 
 # Stages the executables as fake JNI libs so the APK can carry them per
@@ -177,12 +177,12 @@ fetch_busybox() {
 stage_jnilibs() {
     local arch="$1"
     local dst="app/src/main/jniLibs/${arch}"
-    need "bin/${arch}/xray" "bin/${arch}/xhuskydg_helper" "bin/${arch}/curl" "bin/${arch}/busybox"
+    need "module/bin/${arch}/xray" "module/bin/${arch}/xhuskydg_helper" "module/bin/${arch}/curl" "module/bin/${arch}/busybox"
     mkdir -p "$dst"
-    install -m 0755 "bin/${arch}/xray"             "$dst/libxray.so"
-    install -m 0755 "bin/${arch}/xhuskydg_helper"  "$dst/libxhuskydg_helper.so"
-    install -m 0755 "bin/${arch}/curl"             "$dst/libcurl.so"
-    install -m 0755 "bin/${arch}/busybox"          "$dst/libbusybox.so"
+    install -m 0755 "module/bin/${arch}/xray"             "$dst/libxray.so"
+    install -m 0755 "module/bin/${arch}/xhuskydg_helper"  "$dst/libxhuskydg_helper.so"
+    install -m 0755 "module/bin/${arch}/curl"             "$dst/libcurl.so"
+    install -m 0755 "module/bin/${arch}/busybox"          "$dst/libbusybox.so"
     echo "    staged $dst"
 }
 

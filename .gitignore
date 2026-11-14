@@ -1,9 +1,9 @@
 /dist
-/bin/*/xray
-/bin/*/xray.version
-/bin/*/xhuskydg_helper
-/bin/*/xhuskydg_helper.version
-/bin/*/busybox
+/module/bin/*/xray
+/module/bin/*/xray.version
+/module/bin/*/xhuskydg_helper
+/module/bin/*/xhuskydg_helper.version
+/module/bin/*/busybox
 
 # Android app
 /app/src/main/jniLibs/

@@ -5,7 +5,7 @@ plugins {
 // Version comes from the module's own module.prop so the APK and the module
 // payload it installs can never disagree.
 def modProp = { String key ->
-    def m = file("$rootDir/module.prop").text =~ /(?m)^${key}=(.*)$/
+    def m = file("$rootDir/module/module.prop").text =~ /(?m)^${key}=(.*)$/
     return m.find() ? m.group(1).trim() : null
 }
 
@@ -97,21 +97,21 @@ dependencies {
 
 // The APK doubles as a flashable module zip (rename .apk -> .zip). Magisk,
 // KernelSU and APatch look for these at the zip root, so they are packaged as Java
-// resources, straight from the repo root (single source of truth for the module):
+// resources, straight from module/ (single source of truth for the module):
 //   META-INF/com/google/android/{update-binary,updater-script}, customize.sh,
 //   module.prop, service.sh, proxy_control.sh, uninstall.sh, action.sh,
 //   bin/geoip.dat, bin/geosite.dat
 // The executables are the lib/<abi>/lib*.so entries (see jniLibs below).
 tasks.register('stageModuleAssets', Sync) {
     into genRes
-    from(rootDir) {
+    from("$rootDir/module") {
         include 'customize.sh', 'service.sh', 'proxy_control.sh', 'uninstall.sh', 'action.sh', 'module.prop'
     }
-    from("$rootDir/META-INF") {
+    from("$rootDir/module/META-INF") {
         include 'com/google/android/update-binary', 'com/google/android/updater-script'
         into 'META-INF'
     }
-    from("$rootDir/bin") {
+    from("$rootDir/module/bin") {
         include 'geoip.dat', 'geosite.dat'
         into 'bin'
     }
@@ -132,7 +132,7 @@ tasks.register('checkNativeLibs') {
                     "Run ./build.sh first.")
         }
         ['geoip.dat', 'geosite.dat'].each { f ->
-            if (!file("$rootDir/bin/$f").isFile()) throw new GradleException("Missing bin/$f")
+            if (!file("$rootDir/module/bin/$f").isFile()) throw new GradleException("Missing module/bin/$f")
         }
     }
 }

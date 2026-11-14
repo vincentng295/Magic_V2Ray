@@ -21,6 +21,7 @@ jobs:
       # others — the class of bug that only shows up on one user's ROM.
       - name: POSIX parse check (dash)
         run: |
+          cd module
           for f in service.sh proxy_control.sh uninstall.sh customize.sh action.sh; do
             echo "== $f"
             dash -n "$f"
@@ -28,6 +29,7 @@ jobs:
 
       - name: shellcheck
         run: |
+          cd module
           shellcheck --shell=dash --severity=warning \
             service.sh proxy_control.sh uninstall.sh action.sh
           # customize.sh is sourced by the root manager, which predefines
@@ -143,6 +145,7 @@ jobs:
       - name: Every extracted path exists in the repo
         run: |
           set -e
+          cd module
           fail=0
           for f in $(grep -oE '"[a-zA-Z0-9_./*-]+"' customize.sh \
                      | tr -d '"' | grep -E '^(bin|[a-z_]+\.sh|module\.prop)' \
@@ -154,6 +157,7 @@ jobs:
       - name: Required files are in the manifest
         run: |
           set -e
+          cd module
           fail=0
           for f in service.sh proxy_control.sh uninstall.sh action.sh module.prop; do
             grep -q "\"$f\"" customize.sh || { echo "::error::$f is never extracted by customize.sh"; fail=1; }
@@ -162,7 +166,7 @@ jobs:
 
       - name: updateJson must be https
         run: |
-          grep -q '^updateJson=https://' module.prop \
+          grep -q '^updateJson=https://' module/module.prop \
             || { echo "::error::updateJson must use https"; exit 1; }
 
   build:
@@ -196,8 +200,8 @@ jobs:
         if: github.ref == 'refs/heads/alpha'
         run: |
           set -e
-          sed -i "s|^version=.*|version=x-alpha-build-${GITHUB_SHA::8}|" module.prop
-          grep '^version=' module.prop
+          sed -i "s|^version=.*|version=x-alpha-build-${GITHUB_SHA::8}|" module/module.prop
+          grep '^version=' module/module.prop
 
       - uses: actions/setup-java@v4
         with:
@@ -219,16 +223,16 @@ jobs:
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/alpha' }}
 
       # build.sh skips the xray and helper builds when the binaries in
-      # bin/<arch>/ match their .version stamps, so restoring those files is
+      # module/bin/<arch>/ match their .version stamps, so restoring those files is
       # all that is needed. The key hashes the sources they are built from.
       - name: Cache xray + helper binaries
         uses: actions/cache@v4
         with:
           path: |
-            bin/*/xray
-            bin/*/xray.version
-            bin/*/xhuskydg_helper
-            bin/*/xhuskydg_helper.version
+            module/bin/*/xray
+            module/bin/*/xray.version
+            module/bin/*/xhuskydg_helper
+            module/bin/*/xhuskydg_helper.version
           key: bins-xray-${{ hashFiles('core/xray-core/**') }}-helper-${{ hashFiles('native/**') }}
 
       # GitHub secrets only hold text, so the keystore is stored base64-encoded
@@ -310,7 +314,7 @@ jobs:
           id: ver
           run: |
             set -e
-            version_line=$(grep -E '^version=' module.prop | cut -d= -f2-)
+            version_line=$(grep -E '^version=' module/module.prop | cut -d= -f2-)
             # "v2.2-alpha" -> tag "v2.2-alpha"
             tag=$(echo "$version_line" | sed -E 's/^([^ ]+).*/\1/')
             if [ -z "$tag" ]; then
