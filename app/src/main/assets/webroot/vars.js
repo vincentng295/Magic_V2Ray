@@ -69,14 +69,10 @@ const DEFAULT_SUB_USERAGENT = "v2rayNG/2.2.3";
 // +50000 in non-root mode, see convert_uri_to_xray_json(..., is_nonroot).
 const SOCKS_TEST_ADDR = "127.17.1.3";
 const SOCKS_TEST_PORT = 808 + (MV_NONROOT ? NONROOT_PORT_OFFSET : 0);
-// Addresses shown under "Expose SOCKS5 port to LAN". The first two are the
-// gateway addresses on the tun interface (see configure_tun_iface() in
-// routing.c / MagicVpnService.java); the host name resolves to them through
-// DEFAULT_DNS_HOSTS (helper.js). The IPv6 one is only reachable while
-// "Enable IPv6" is on (Network Settings).
-const EXPOSE_SOCKS_HOST_V4 = "198.18.0.1";
-const EXPOSE_SOCKS_HOST_V6 = "2001:db8:7872:6179::1";
-const EXPOSE_SOCKS_HOST_DOMAIN = "hakumaworld.dpdns.org";
+// Host name injected into dns.hosts (see injectGatewayLocalHosts() in main.js) pointing at
+// every local address of this device (e.g. 192.168.43.1 on a hotspot). Shown under
+// "Expose SOCKS5 port to LAN" next to the raw addresses.
+const GATEWAY_LOCAL_HOST = "gateway.local";
 const EXPOSE_SOCKS_PORT_MIN = 1024;
 const EXPOSE_SOCKS_PORT_MAX = 65535;
 const STUB_DIR = MV_NONROOT ? ksu.stubdir() : "/dev/sysctl_stubs";

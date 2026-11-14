@@ -472,7 +472,7 @@ function applyActiveConfig(options = {}) {
     }
     showLoading(t("toast_reload_xray"));
 
-    resolveOutboundViaSystemDns(res.config).then(finalConfig => writeFileB64(CONFIG_JSON, finalConfig, () => {
+    resolveOutboundViaSystemDns(res.config).then(injectGatewayLocalHosts).then(finalConfig => writeFileB64(CONFIG_JSON, finalConfig, () => {
         if (force) {
             _forceRestart(options, onDone);
             return;
@@ -3626,6 +3626,10 @@ function switchTab(tabId, evt) {
         renderRoutingRules();
     }
 
+    if (tabId === 'tab-settings' && document.getElementById('set-exposesocks')?.checked) {
+        refreshExposeSocksInfo();
+    }
+
     // Interfaces come and go (Wi-Fi off, hotspot on), so re-list them each
     // time the Network tab is opened.
     if (tabId === 'tab-network' && prevTabId !== 'tab-network') {
@@ -3729,27 +3733,89 @@ function updateExposeSocksVisibility() {
     const auth = document.getElementById('set-exposesocks-auth').checked;
     document.getElementById('exposesocks-sub-fields').style.display = on ? 'block' : 'none';
     document.getElementById('exposesocks-auth-fields').style.display = (on && auth) ? 'block' : 'none';
+    if (on) refreshExposeSocksInfo();
+}
+
+// ----- Local addresses of this device (hotspot / Wi-Fi / USB tethering ...) -----
+
+// Interfaces whose addresses never help a LAN client: loopback and Xray's own tun.
+const LOCAL_ADDR_SKIP_IFACE_RE = /^(lo|xraytun\d*|tun\d*)$/i;
+let _localAddrCache = [];
+
+// Parses `ip -o addr show`:  "12: ap0    inet 192.168.43.1/24 brd ... scope global ap0\"
+function parseLocalAddrs(raw) {
+    const out = [];
+    const seen = new Set();
+    String(raw || '').split('\n').forEach(line => {
+        const m = line.match(/^\d+:\s+([^\s:@]+)\S*\s+(inet6?)\s+([0-9a-fA-F.:]+)\/\d+.*?\bscope\s+(\w+)/);
+        if (!m) return;
+        const [, iface, fam, addr, scope] = m;
+        if (LOCAL_ADDR_SKIP_IFACE_RE.test(iface)) return;
+        if (scope === 'host' || scope === 'link') return;      // loopback, fe80::
+        if (seen.has(addr)) return;
+        seen.add(addr);
+        out.push({ iface, addr, v6: fam === 'inet6' });
+    });
+    return out;
+}
+
+// Every non-loopback, non-link-local address on the device except the tun interface.
+// The APK bridge answers directly (works without root); the module WebUI falls back to `ip`.
+function getLocalAddresses() {
+    return new Promise(resolve => {
+        try {
+            if (typeof ksu === 'object' && typeof ksu.localAddresses === 'function') {
+                const arr = JSON.parse(ksu.localAddresses() || '[]');
+                resolve(arr.filter(x => x && x.addr && !LOCAL_ADDR_SKIP_IFACE_RE.test(x.iface || ''))
+                           .map(x => ({ iface: x.iface || '', addr: x.addr, v6: x.addr.indexOf(':') >= 0 })));
+                return;
+            }
+        } catch (e) { /* fall through to the shell */ }
+        execShell('ip -o addr show 2>/dev/null', (out) => resolve(parseLocalAddrs(out)));
+    });
+}
+
+// Adds `gateway.local` -> all local addresses to dns.hosts of a generated config, so a
+// client that uses this device as its DNS (hotspot) resolves it to an address it can reach.
+// A user / built-in entry with the same name wins; nothing is added when no address is found.
+async function injectGatewayLocalHosts(configStr) {
+    try {
+        const addrs = await getLocalAddresses();
+        _localAddrCache = addrs;
+        if (!addrs.length) return configStr;
+        const cfg = JSON.parse(configStr);
+        if (!cfg.dns || typeof cfg.dns !== 'object') return configStr;
+        const hosts = (cfg.dns.hosts && typeof cfg.dns.hosts === 'object') ? cfg.dns.hosts : {};
+        if (Object.prototype.hasOwnProperty.call(hosts, GATEWAY_LOCAL_HOST)) return configStr;
+        hosts[GATEWAY_LOCAL_HOST] = addrs.map(a => a.addr);
+        cfg.dns.hosts = hosts;
+        return JSON.stringify(cfg);
+    } catch (e) {
+        console.warn('[gateway.local] inject failed, config left unchanged', e);
+        return configStr;
+    }
+}
+
+// Connection info under the toggle: gateway.local first, then each local address. Rows copy
+// to the clipboard when tapped. Addresses are re-read each time the tab / toggle is touched.
+async function refreshExposeSocksInfo() {
+    _localAddrCache = await getLocalAddresses();
     updateExposeSocksInfo();
 }
 
-// Connection info under the toggle. Rows copy to the clipboard when tapped.
 function updateExposeSocksInfo() {
     const box = document.getElementById('exposesocks-conn-info');
     if (!box) return;
     const portRaw = document.getElementById('set-exposesocks-port').value.trim();
     const n = Number(portRaw);
     const port = (/^\d+$/.test(portRaw) && n >= EXPOSE_SOCKS_PORT_MIN && n <= EXPOSE_SOCKS_PORT_MAX) ? String(n) : 'xxxxx';
-    const rows = [
-        `${EXPOSE_SOCKS_HOST_V4}:${port}`,
-        `[${EXPOSE_SOCKS_HOST_V6}]:${port}`,
-        `${EXPOSE_SOCKS_HOST_DOMAIN}:${port}`
-    ];
     box.textContent = '';
-    rows.forEach(text => {
+    const addRow = (text, title) => {
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'exposesocks-conn-row';
         b.textContent = text;
+        if (title) b.title = title;
         b.onclick = () => {
             navigator.clipboard.writeText(text).then(
                 () => showToast(t('toast_exposesocks_copied'), 'success'),
@@ -3757,7 +3823,16 @@ function updateExposeSocksInfo() {
             );
         };
         box.appendChild(b);
-    });
+    };
+    if (!_localAddrCache.length) {
+        const p = document.createElement('p');
+        p.className = 'lan-bypass-desc';
+        p.textContent = t('desc_exposesocks_noaddr');
+        box.appendChild(p);
+        return;
+    }
+    addRow(`${GATEWAY_LOCAL_HOST}:${port}`);
+    _localAddrCache.forEach(a => addRow(a.v6 ? `[${a.addr}]:${port}` : `${a.addr}:${port}`, a.iface));
 }
 
 function toggleSubSettingField(triggerId, subPanelId) {
