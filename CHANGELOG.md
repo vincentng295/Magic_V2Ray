@@ -1,10 +1,12 @@
-# Magic V2Ray v2.4 Release Notes
+# Magic V2Ray v2.5 Release Notes
 
-You can now expose a SOCKS5 proxy port directly to your local network or hotspot via a new option in Traffic Settings. This feature supports custom port configuration, optional username and password authentication, and one-tap copyable connection details for IPv4, IPv6, and the local gateway domain.
+Magic V2Ray introduces major user interface enhancements, starting with a dedicated proxy connection information page that lets you view your exit IP, location details, network operator, and response times directly by tapping the status badge.
 
-To improve connection stability, WebSocket outbound connections now send keepalive heartbeats every 30 seconds by default. An alternative Magic gateway domain (`hakumaworld.dpdns.org`) has also been added to the default DNS overrides for easier local access.
+Subscription management has also been streamlined with inline loading indicators that display fetch progress neatly beneath each node category without disrupting your workflow or covering the screen.
 
-For troubleshooting and maintenance, exported bug-report archives in root mode now capture Xray logs directly from the service ring buffer, while the underlying flashable module files have been reorganized under a dedicated directory structure for cleaner packaging.
+For performance testing and diagnostics, this release brings native TCPing probes, an upgraded real-delay check powered by Xray's ObservatoryService, and non-blocking background tests that keep your results visible while re-rendering lists.
+
+Finally, version 2.5 adds scoped settings backup and restore functionality supporting selective JSON exports and clipboard imports, along with enhanced local address discovery to ensure non-root and hotspot setups work seamlessly.
 
 ---
 
