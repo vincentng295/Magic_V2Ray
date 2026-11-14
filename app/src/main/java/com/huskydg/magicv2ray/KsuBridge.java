@@ -253,6 +253,56 @@ final class KsuBridge {
         }
     }
 
+    /**
+     * Every usable local address of this device as a JSON array of {iface, addr}: what the
+     * "Expose SOCKS5 port to LAN" box lists. The WebUI used to fall back to `ip -o addr show`,
+     * which Android refuses to a normal app (no netlink), so non-root mode showed nothing.
+     * Two sources, merged: ConnectivityManager (Wi-Fi / mobile, works on every version) and
+     * NetworkInterface (also sees hotspot / USB-tether interfaces such as ap0 / rndis0, which
+     * are not Networks). Loopback, link-local, wildcard and VPN addresses are dropped.
+     */
+    @JavascriptInterface
+    public String localAddresses() {
+        JSONArray out = new JSONArray();
+        java.util.HashSet<String> seen = new java.util.HashSet<>();
+        try {
+            ConnectivityManager cm = (ConnectivityManager) activity.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm != null) {
+                for (Network n : cm.getAllNetworks()) {
+                    NetworkCapabilities c = cm.getNetworkCapabilities(n);
+                    if (c == null || c.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue;
+                    LinkProperties lp = cm.getLinkProperties(n);
+                    if (lp == null || lp.getInterfaceName() == null) continue;
+                    for (LinkAddress la : lp.getLinkAddresses()) {
+                        addLocalAddr(out, seen, lp.getInterfaceName(), la.getAddress());
+                    }
+                }
+            }
+        } catch (RuntimeException e) { /* fall through to NetworkInterface */ }
+        try {
+            java.util.Enumeration<java.net.NetworkInterface> ifs = java.net.NetworkInterface.getNetworkInterfaces();
+            while (ifs != null && ifs.hasMoreElements()) {
+                java.net.NetworkInterface ni = ifs.nextElement();
+                try { if (!ni.isUp()) continue; } catch (java.net.SocketException e) { continue; }
+                java.util.Enumeration<java.net.InetAddress> as = ni.getInetAddresses();
+                while (as.hasMoreElements()) addLocalAddr(out, seen, ni.getName(), as.nextElement());
+            }
+        } catch (java.net.SocketException | RuntimeException e) { /* keep what we have */ }
+        return out.toString();
+    }
+
+    private static void addLocalAddr(JSONArray out, java.util.Set<String> seen, String iface, java.net.InetAddress a) {
+        if (a == null || a.isLoopbackAddress() || a.isLinkLocalAddress() || a.isAnyLocalAddress()
+                || a.isMulticastAddress()) return;
+        String host = a.getHostAddress();
+        int pct = host.indexOf('%');
+        if (pct >= 0) host = host.substring(0, pct);
+        if (!seen.add(host)) return;
+        try {
+            out.put(new JSONObject().put("iface", iface == null ? "" : iface).put("addr", host));
+        } catch (JSONException e) { /* cannot happen for plain strings */ }
+    }
+
     private static boolean isPhysical(ConnectivityManager cm, Network n) {
         NetworkCapabilities c = cm.getNetworkCapabilities(n);
         return c != null && !c.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
