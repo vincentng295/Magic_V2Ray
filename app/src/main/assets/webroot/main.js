@@ -4996,6 +4996,16 @@ function showToast(message, type = 'success') {
 // `index % 250` scheme — cannot collide once a category exceeds 250 nodes.
 const NODE_TEST_CONCURRENCY = 10;
 const NODE_TEST_SLOTS = 16;
+
+// "Check HTTP" does not spawn curl any more: the probe xray carries an `observatory`
+// that dials OBS_PROBE_URL through the node's outbound by itself (routing bypassed), and
+// `xhuskydg_helper obsprobe` reads the result over xray's gRPC API (`api.listen`, only
+// ObservatoryService enabled). Observatory selectors match by tag PREFIX, so "proxy" also
+// observes a chain's "proxy-hop1"; the result is picked by exact tag. Xray's observatory
+// request has a fixed 5 s timeout, so OBS_WAIT_MS leaves room for xray start-up.
+const OBS_SUBJECT = 'proxy';
+const OBS_PROBE_URL = 'http://gstatic.com/generate_204';
+const OBS_WAIT_MS = 9000;
 const _nodeTestSlotBusy = new Array(NODE_TEST_SLOTS).fill(false);
 
 function _acquireTestSlot() {
@@ -5018,7 +5028,10 @@ function _stripSockoptMarks(o) {
     Object.keys(o).forEach(k => _stripSockoptMarks(o[k]));
 }
 
-function _buildXrayTestInbound(node, slot) {
+// mode 'socks' (Check IP): isolated xray with a throwaway socks-test-in inbound for curl.
+// mode 'obs'   (Check HTTP): no inbound at all; xray's gRPC API listens on the same
+//                            testIp:testPort and the observatory probes the node itself.
+function _buildXrayTestInbound(node, slot, mode = 'socks') {
     const testIp = `127.17.1.${10 + slot}`;
     const testPort = 21000 + slot;
     // Probe configs contain the node's full credentials. They used to be
@@ -5028,13 +5041,27 @@ function _buildXrayTestInbound(node, slot) {
     const rawConfigStr = _resolveXrayConfig(node.rawUri);
     const xrayConfigObj = JSON.parse(rawConfigStr);
     if (xrayConfigObj.error) throw new Error(xrayConfigObj.error);
-    xrayConfigObj.inbounds = [{
-        tag: "socks-test-in",
-        port: testPort,
-        listen: testIp,
-        protocol: "socks",
-        settings: { auth: "noauth", udp: true }
-    }];
+    if (mode === 'obs') {
+        xrayConfigObj.inbounds = [];
+        // Only ObservatoryService: HandlerService/StatsService would let any local process
+        // that can reach the loopback port reconfigure or inspect the probe instance.
+        xrayConfigObj.api = { tag: "api", listen: `${testIp}:${testPort}`, services: ["ObservatoryService"] };
+        xrayConfigObj.observatory = {
+            subjectSelector: [OBS_SUBJECT],
+            probeUrl: OBS_PROBE_URL,
+            probeInterval: "60s",
+            enableConcurrency: true
+        };
+        delete xrayConfigObj.burstObservatory;   // a leastLoad policy group may have added one
+    } else {
+        xrayConfigObj.inbounds = [{
+            tag: "socks-test-in",
+            port: testPort,
+            listen: testIp,
+            protocol: "socks",
+            settings: { auth: "noauth", udp: true }
+        }];
+    }
     // The probe only needs to reach the node: the user's (possibly huge) custom hosts list is
     // dropped and only the built-in resolver pins stay. The probe script passes the whole config
     // to `sh -c` as ONE argument, which fails outright beyond ~128 KB.
@@ -5049,7 +5076,9 @@ function _buildXrayTestInbound(node, slot) {
 // kill, a `trap` covering the abnormal-exit paths, and an outer `timeout` in
 // case the shell itself is torn down. Previously an interrupted probe left a
 // root xray running with the node's credentials in memory.
-function _buildProbeScript(tmpFile, configB64, innerCmd) {
+// settleSec: how long to wait after spawning xray before innerCmd runs (obsprobe retries the
+// connection itself, so the observatory path passes 0).
+function _buildProbeScript(tmpFile, configB64, innerCmd, settleSec = 1) {
     return `
         umask 077
         mkdir -p ${shQuote(STUB_DIR + '/run/nodetest')} 2>/dev/null
@@ -5061,7 +5090,7 @@ function _buildProbeScript(tmpFile, configB64, innerCmd) {
         ${MV_NONROOT ? `export XRAY_LOCATION_ASSET=${shQuote(MODDIR + '/bin')}` : ''}
         ${MODDIR}/bin/xray run -c ${shQuote(tmpFile)} >/dev/null 2>&1 &
         XPID=$!
-        sleep 1
+        ${settleSec > 0 ? `sleep ${settleSec}` : ''}
         ${innerCmd}
         cleanup
         trap - EXIT
@@ -5089,7 +5118,7 @@ async function _execNodeProbe(node, pingSpan, mode) {
     try {
         let built;
         try {
-            built = _buildXrayTestInbound(node, slot);
+            built = _buildXrayTestInbound(node, slot, mode === 'http' ? 'obs' : 'socks');
         } catch (e) {
             _setPingSpan(pingSpan, "?", "var(--red, #ff1744)");
             return;
@@ -5106,23 +5135,25 @@ async function _execNodeProbe(node, pingSpan, mode) {
         });
         const configB64 = utoa(finalConfig);
 
+        // http: lines of "<tag>\t<alive 0|1>\t<delay ms>" from the observatory.
+        // ip:   the egress address, still fetched with curl (observatory cannot return a body).
         const innerCmd = mode === 'http'
-            ? `RES=$(${MODDIR}/bin/curl --socks5-hostname ${testIp}:${testPort} -s ` +
-              `-w "%{time_starttransfer}" --max-time 3 -o /dev/null ` +
-              `http://gstatic.com/generate_204 2>/dev/null)`
+            ? `RES=$(${shQuote(MODDIR + '/bin/xhuskydg_helper')} obsprobe ${testIp}:${testPort} ` +
+              `${OBS_WAIT_MS} ${OBS_SUBJECT} 2>/dev/null)`
             : `RES=$(${MODDIR}/bin/curl --socks5-hostname ${testIp}:${testPort} -s ` +
               `--max-time 3 https://icanhazip.com 2>/dev/null)`;
 
         // Hard ceiling on the whole probe so a wedged xray or curl cannot
         // hold the slot — or a root process — indefinitely.
         const output = await execShellAsync(
-            `timeout 15 sh -c ${shQuote(_buildProbeScript(tmpFile, configB64, innerCmd))}`
+            `timeout 15 sh -c ${shQuote(_buildProbeScript(tmpFile, configB64, innerCmd, mode === 'http' ? 0 : 1))}`
         );
 
         if (mode === 'http') {
-            const val = parseFloat(output.trim());
-            if (!isNaN(val) && val > 0) {
-                _setPingSpan(pingSpan, `${Math.round(val * 1000)}ms`, "var(--green, #00e676)");
+            const row = output.split('\n').map(l => l.trim().split('\t')).find(f => f[0] === OBS_SUBJECT);
+            const ms = row ? parseInt(row[2], 10) : NaN;
+            if (row && row[1] === '1' && !isNaN(ms) && ms >= 0) {
+                _setPingSpan(pingSpan, `${Math.max(ms, 1)}ms`, "var(--green, #00e676)");
             } else {
                 _setPingSpan(pingSpan, "?", "var(--red, #ff1744)");
             }

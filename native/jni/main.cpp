@@ -12,14 +12,17 @@ int run_logservice(int argc, char* argv[]);
 extern "C" int run_service(int argc, char* argv[]);
 // Implemented in vpnrun.cpp (non-root mode: receive the VpnService tun fd, then exec xray).
 int run_vpnrun(int argc, char* argv[]);
+// Implemented in obsprobe.cpp (reads xray's ObservatoryService over h2c; node "Check HTTP" probe).
+int run_obsprobe(int argc, char* argv[]);
 
 static void print_usage(const char* prog) {
-    std::cerr << "Usage: " << prog << " <service|openxtun|dnsjson|logservice|vpnrun> [args...]\n"
+    std::cerr << "Usage: " << prog << " <service|openxtun|dnsjson|logservice|vpnrun|obsprobe> [args...]\n"
               << "  " << prog << " service -m <MODDIR> [-f]\n"
               << "  " << prog << " openxtun <tun_name> <xray_cmd> [args...]\n"
               << "  " << prog << " dnsjson <domain> [dns_server_ip]\n"
               << "  " << prog << " logservice <create|set|read|flush|stop> -c <control.pipe> [...]\n"
-              << "  " << prog << " vpnrun <abstract-socket-name> <program> [args...]\n";
+              << "  " << prog << " vpnrun <abstract-socket-name> <program> [args...]\n"
+              << "  " << prog << " obsprobe <ipv4:port> <timeout_ms> <tag> [<tag>...]\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -49,6 +52,8 @@ int main(int argc, char* argv[]) {
         return run_logservice(sub_argc, sub_argv.data());
     } else if (subcmd == "vpnrun") {
         return run_vpnrun(sub_argc, sub_argv.data());
+    } else if (subcmd == "obsprobe") {
+        return run_obsprobe(sub_argc, sub_argv.data());
     } else if (subcmd == "service") {
         return run_service(sub_argc, sub_argv.data());
     } else {
