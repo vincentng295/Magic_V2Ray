@@ -99,4 +99,4 @@ The Web UI assets are located at `app/src/main/assets/webroot`. The app exposes 
 
 By using this project, you agree to the terms and conditions set forth in the license. For more details, please refer to the [LICENSE](LICENSE) file in this repository.
 
-Essentially, you are free to use, modify, and distribute this software, provided that you include the same license and source code availability in your own project. No newline at end of file
+Essentially, you are free to use, modify, and distribute this software, provided that you include the same license and source code availability in your own project. Moreover, using its source code or replicating its features within closed-source software may constitute a violation of the license terms.

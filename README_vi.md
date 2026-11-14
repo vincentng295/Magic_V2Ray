@@ -99,4 +99,4 @@ Mã nguồn Web UI nằm tại `app/src/main/assets/webroot`. Ứng dụng cung 
 
 Dự án này được phát hành dưới giấy phép **GNU General Public License v3.0 (GPL-3.0)**. Bằng cách sử dụng dự án này, bạn đồng ý với các điều khoản và điều kiện được quy định trong giấy phép. Để biết thêm chi tiết, vui lòng xem tệp [LICENSE](LICENSE) trong kho lưu trữ này.
 
-Về cơ bản, bạn được tự do sử dụng, sửa đổi và phân phối phần mềm này, miễn là bạn giữ nguyên giấy phép và công khai mã nguồn trong dự án của chính bạn.
+Về cơ bản, bạn được tự do sử dụng, sửa đổi và phân phối phần mềm này, miễn là bạn giữ nguyên giấy phép và công khai mã nguồn trong dự án của chính bạn. Thêm nữa, việc sử dụng mã nguồn hoặc sao chép các tính năng của Magic V2Ray trong phần mềm nguồn đóng có thể vi phạm điều khoản giấy phép.

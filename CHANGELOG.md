@@ -1,14 +1,10 @@
-# Magic V2Ray v2.3.1 Release Notes
+# Magic V2Ray v2.4 Release Notes
 
-Fix cannot export `xray.log` when using Root mode.
+You can now expose a SOCKS5 proxy port directly to your local network or hotspot via a new option in Traffic Settings. This feature supports custom port configuration, optional username and password authentication, and one-tap copyable connection details for IPv4, IPv6, and the local gateway domain.
 
-## Magic V2Ray v2.3 Release Notes
+To improve connection stability, WebSocket outbound connections now send keepalive heartbeats every 30 seconds by default. An alternative Magic gateway domain (`hakumaworld.dpdns.org`) has also been added to the default DNS overrides for easier local access.
 
-This release transitions the core engine to a custom Xray-core source submodule, allowing direct connections to plaintext VLESS and Trojan nodes without needing the previous loopback tunnel workaround. To keep connections secure, the app now displays explicit security warnings before connecting to unencrypted VLESS or Trojan nodes, enables Hijack DNS by default, and warns you whenever DNS settings leave queries vulnerable to leaking outside the proxy.
-
-You can now personalize the interface with custom app wallpapers in App settings. When a background image is active, the app can automatically extract its dominant color to generate a matching theme, apply an adjustable readability overlay, and adapt card transparency while keeping dropdown menus opaque. Light theme Start and Stop buttons have also been updated with higher-contrast styling, and the Exclude apps tab now loads installed applications in smoother asynchronous batches with a loading indicator.
-
-For troubleshooting and bug reports, a new Export app logs option in App settings packages application logs, Xray logs, active settings, sanitized configurations with credentials redacted, device specifications, and network routing details into a single ZIP file. On Android 10 and newer, this archive saves directly to Download/MagicV2Ray, while older Android versions open the system file picker.
+For troubleshooting and maintenance, exported bug-report archives in root mode now capture Xray logs directly from the service ring buffer, while the underlying flashable module files have been reorganized under a dedicated directory structure for cleaner packaging.
 
 ---
 
