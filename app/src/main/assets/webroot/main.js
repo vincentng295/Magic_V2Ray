@@ -881,14 +881,6 @@ function _setStatusBadge(text, nodeName) {
     }
 }
 
-function _clearStatusIp() {
-    const el = document.getElementById('status-ip');
-    if (!el) return;
-    el.hidden = true;
-    el.textContent = '';
-    el.classList.remove('error');
-}
-
 function updateStatusDisplay() {
     execShell(`sh ${MODDIR}/proxy_control.sh status`, (status, stderr, errno) => {
         const badge = document.getElementById('service-status');
@@ -904,56 +896,109 @@ function updateStatusDisplay() {
                 window.ksu.syncStatus(errno === 0, getActiveNodeLabel());
             }
         } catch (e) { /* not running inside the APK */ }
-        // A previously fetched IP may no longer be valid after a
-        // start/stop/node switch.
-        _clearStatusIp();
         if (errno == 2) {
             showToast(t('toast_xray_core_crash'), "error");
         }
     });
 }
 
-// Tap on the status chip: ask icanhazip.com which IP we currently exit from,
-// through the running service's socks-test-in inbound. Tapping again
-// re-checks (useful right after switching node).
-let _statusIpBusy = false;
-async function showCurrentIp() {
-    if (_statusIpBusy) return;
-    const el = document.getElementById('status-ip');
+// Tap on the status chip: open the "Proxy connection" page and look up the
+// exit IP through the running service's socks-test-in inbound (api.ip.sb/geoip).
+// Tapping "Check again" on that page re-checks (useful right after switching node).
+function openProxyInfo() {
     const badge = document.getElementById('service-status');
-    if (!el || !badge) return;
-
+    if (!badge) return;
     if (!badge.classList.contains('active')) {
         showToast(t('status_ip_not_running'), 'error');
         return;
     }
-    _statusIpBusy = true;
+    switchTab('tab-proxyinfo');
+    refreshProxyInfo();
+}
+
+const _PINFO_FIELDS = ['ip', 'isp', 'org', 'asn', 'node', 'latency', 'country', 'region', 'city',
+                       'timezone', 'postal', 'continent', 'lat', 'lon'];
+let _pinfoBusy = false;
+
+function _pinfoSet(field, value) {
+    const el = document.getElementById('pinfo-' + field);
+    if (!el) return;
+    const v = (value === undefined || value === null || value === '') ? '-' : String(value);
+    el.textContent = v;   // textContent only: the reply comes from a third-party API
+}
+
+function _pinfoState(text, kind) {
+    const el = document.getElementById('pinfo-state');
+    if (!el) return;
+    el.textContent = '';
+    el.className = 'pinfo-state' + (kind ? ' ' + kind : '');
+    if (!text) { el.hidden = true; return; }
+    if (kind === 'busy') {
+        const sp = document.createElement('div');
+        sp.className = 'spinner-sm';
+        el.appendChild(sp);
+    }
+    const tx = document.createElement('span');
+    tx.textContent = text;
+    el.appendChild(tx);
     el.hidden = false;
-    el.classList.remove('error');
-    el.textContent = t('status_ip_checking');
+}
+
+async function refreshProxyInfo() {
+    if (_pinfoBusy) return;
+    _pinfoBusy = true;
+    const panel = document.querySelector('.pinfo-panel');
+    const btn = document.getElementById('pinfo-refresh-btn');
+    if (btn) btn.disabled = true;
+    if (panel) panel.classList.add('loading');
+    _pinfoState(t('pinfo_checking'), 'busy');
     try {
         const out = await execShellAsync(
             `${MODDIR}/bin/curl --socks5-hostname ${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT} -s ` +
-            `--max-time 6 https://icanhazip.com 2>/dev/null`
+            `--max-time 8 -w '\\n__T__%{time_total}' https://api.ip.sb/geoip 2>/dev/null`
         );
-        const ip = out.trim();
-        if (/^[0-9a-fA-F:.]{3,45}$/.test(ip)) {
-            el.textContent = t('status_ip_label') + ip;
-        } else {
-            el.classList.add('error');
-            el.textContent = t('status_ip_failed');
+        const raw = String(out || '');
+        const cut = raw.lastIndexOf('\n__T__');
+        const body = (cut >= 0 ? raw.slice(0, cut) : raw).trim();
+        const secs = cut >= 0 ? parseFloat(raw.slice(cut + 6)) : NaN;
+        const ms = isFinite(secs) ? Math.round(secs * 1000) : null;
+
+        let d = null;
+        try { d = JSON.parse(body); } catch (e) { /* handled below */ }
+        if (!d || typeof d !== 'object' || !d.ip || !/^[0-9a-fA-F:.]{3,45}$/.test(String(d.ip))) {
+            _PINFO_FIELDS.forEach(f => _pinfoSet(f, null));
+            _pinfoState(t('pinfo_failed'), 'error');
+            return;
         }
+        const isp = d.isp || '';
+        const org = d.organization || d.asn_organization || '';
+        _pinfoSet('ip', d.ip);
+        _pinfoSet('isp', isp);
+        _pinfoSet('org', org);
+        _pinfoSet('asn', d.asn ? 'AS' + d.asn : '');
+        _pinfoSet('node', getActiveNodeLabel());
+        _pinfoSet('latency', ms !== null ? ms + ' ms' : '');
+        _pinfoSet('country', d.country ? (d.country + (d.country_code ? ' (' + d.country_code + ')' : '')) : d.country_code);
+        _pinfoSet('region', d.region ? (d.region + (d.region_code ? ' (' + d.region_code + ')' : '')) : d.region_code);
+        _pinfoSet('city', d.city);
+        _pinfoSet('timezone', d.timezone);
+        _pinfoSet('postal', d.postal_code);
+        _pinfoSet('continent', d.continent_code);
+        _pinfoSet('lat', d.latitude);
+        _pinfoSet('lon', d.longitude);
+        _pinfoState(ms !== null ? t('pinfo_check_ok', { ms }) : '', ms !== null ? 'ok' : '');
     } finally {
-        _statusIpBusy = false;
+        _pinfoBusy = false;
+        if (btn) btn.disabled = false;
+        if (panel) panel.classList.remove('loading');
     }
 }
- 
+
 function _markStatusPending() {
     const badge = document.getElementById('service-status');
     if (!badge) return;
     _setStatusBadge(t('status_loading'), '');
     badge.className = 'status-badge active';
-    _clearStatusIp();
     setTimeout(updateStatusDisplay, 1200);
 }
 
@@ -1056,7 +1101,21 @@ function processImport() {
     document.getElementById('import-input').value = "";
 }
 
+// Categories whose subscription is being fetched right now. Shown by
+// renderProfiles() as a category with a loading row under it, instead of a
+// full-screen overlay: the page stays usable while the fetch runs.
+const _subFetching = new Set();
+
+function _endSubFetch(category, render = true) {
+    _subFetching.delete(category);
+    if (render) renderProfiles();
+}
+
 async function fetchSubscription(category, url, isReload = false) {
+    if (_subFetching.has(category)) return;   // this category is already being fetched
+    _subFetching.add(category);
+    renderProfiles();
+
     const status = await execShellAsync(`sh ${MODDIR}/proxy_control.sh status`);
     const viaProxy = (status === 'running') ? `--socks5-hostname ${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT}` : "";
 
@@ -1070,8 +1129,6 @@ async function fetchSubscription(category, url, isReload = false) {
         showToast(t('toast_sub_insecure_warn'), 'info');
     }
 
-    await asyncShowLoading(`${t("toast_fetch_sub")}${category}...`);
-
     const userAgent = (profiles[category]?.useragent || "").trim() || DEFAULT_SUB_USERAGENT;
 
     const cmd = `${MODDIR}/bin/curl ${viaProxy} ${tlsArgs} -sSL -f --max-redirs 3 ` +
@@ -1080,12 +1137,12 @@ async function fetchSubscription(category, url, isReload = false) {
                 `--max-time 15 ${shQuote(url)}`;
 
     execShell(cmd, (res) => {
-        hideLoading();
-
         if (!res || res.trim() === "") {
+            _endSubFetch(category);
             return showToast(t('toast_fetch_failed'), "error");
         }
         if (res.includes("Failed to connect") || res.includes("Could not resolve")) {
+            _endSubFetch(category);
             return showToast(t('toast_fetch_reason') + res.split('\n')[0], "error");
         }
 
@@ -1100,7 +1157,14 @@ async function fetchSubscription(category, url, isReload = false) {
             }
         }
 
-        parseAndAppendNodes(category, extractUrisFromText(parsedContent), url, isReload);
+        // Drop the loading row first; parseAndAppendNodes renders the result
+        // (or, when nothing usable came back, the placeholder just disappears).
+        _endSubFetch(category, false);
+        categoryExpandedState[category] = true;   // show the full node list
+        if (!parseAndAppendNodes(category, extractUrisFromText(parsedContent), url, isReload)) {
+            categoryExpandedState[category] = false;
+            renderProfiles();
+        }
     });
 }
  
@@ -1626,12 +1690,26 @@ function _mkDirectNodeItem() {
     return item;
 }
 
+function _mkCategoryLoadingRow() {
+    const row = document.createElement('div');
+    row.className = 'category-loading';
+    const sp = document.createElement('div');
+    sp.className = 'spinner-sm';
+    const tx = document.createElement('span');
+    tx.textContent = t('sub_fetching_row');
+    row.appendChild(sp);
+    row.appendChild(tx);
+    return row;
+}
+
 function renderProfiles() {
     _migrateLegacyPolicyGroups();
     const container = document.getElementById('profiles-container');
     container.innerHTML = "";
     container.appendChild(_mkDirectNodeItem());
-    const categories = Object.keys(profiles).filter(c => profiles[c]?.nodes?.length > 0 || profiles[c]?.custom);
+    const categories = Object.keys(profiles).filter(c => profiles[c]?.nodes?.length > 0 || profiles[c]?.custom || _subFetching.has(c));
+    // A brand-new subscription has no entry in `profiles` until its nodes arrive.
+    _subFetching.forEach(c => { if (!categories.includes(c)) categories.push(c); });
     if (categories.length === 0) {
         const p = document.createElement('p');
         p.style.cssText = "color: var(--text-muted); font-size:14px; text-align:center; padding: 24px 0;";
@@ -1642,7 +1720,9 @@ function renderProfiles() {
     for (const category of categories) {
         const group = document.createElement('div');
         group.className = "category-group";
-        const hasUrl = !!profiles[category].url;
+        const catData = profiles[category] || { nodes: [] };
+        const fetching = _subFetching.has(category);
+        const hasUrl = !!catData.url;
         const isExpanded = categoryExpandedState[category] || false;
 
         const header = document.createElement('div');
@@ -1650,8 +1730,15 @@ function renderProfiles() {
         header.style.cssText = "position: relative; display: flex; justify-content: space-between; align-items: center;";
 
         const title = document.createElement('strong');
-        title.textContent = `${category} (${profiles[category].nodes.length})`;
+        title.textContent = `${category} (${catData.nodes.length})`;
         header.appendChild(title);
+
+        if (fetching && !profiles[category]) {
+            group.appendChild(header);
+            group.appendChild(_mkCategoryLoadingRow());
+            container.appendChild(group);
+            continue;
+        }
 
         const menuWrap = document.createElement('div');
         menuWrap.className = 'category-menu-container';
@@ -1687,12 +1774,13 @@ function renderProfiles() {
 
         header.appendChild(menuWrap);
         group.appendChild(header);
+        if (fetching) group.appendChild(_mkCategoryLoadingRow());
 
         const listNode = document.createElement('div');
         listNode.className = 'nodes-list';
         listNode.style.display = isExpanded ? "block" : "none";
         group.appendChild(listNode);
-        profiles[category].nodes.forEach(node => {
+        catData.nodes.forEach(node => {
             const isSelected = activeConfig === `${category}:${node.id}`;
             const isChain = node.protocol === 'chain';
             const item = document.createElement('div');

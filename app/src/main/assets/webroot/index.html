@@ -49,9 +49,9 @@
             <div class="header-top-row">
               <div style="flex: 1; min-width: 0;">
                 <div class="status-badge" id="service-status" role="button" tabindex="0"
-                        onclick="showCurrentIp()"
-                        onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();showCurrentIp();}">Status: Checking...</div>
-                <div class="status-ip" id="status-ip" hidden></div>
+                        onclick="openProxyInfo()"
+                        onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openProxyInfo();}">Status: Checking...</div>
+                <div class="status-ip" id="status-ip" data-i18n="status_ip_hint">Tap the status to check</div>
               </div>
             </div>
             <section class="control-actions header-control-actions">
@@ -723,6 +723,44 @@
                     <a class="about-link" data-about-link="openxtun" href="#" target="_blank" rel="noopener noreferrer" onclick="openExternalLink(event, this)"><span>openxtun</span><svg class="about-link-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></a>
                     <a class="about-link" data-about-link="curl" href="#" target="_blank" rel="noopener noreferrer" onclick="openExternalLink(event, this)"><span>curl-android</span><svg class="about-link-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></a>
                     <p class="about-license" data-i18n="about_license">Open source under the GNU General Public License v3.0.</p>
+                </div>
+            </section>
+        </div>
+
+        <!-- ===== Proxy connection info page (opened from the status badge) ===== -->
+        <div id="tab-proxyinfo" class="tab-content">
+            <section class="settings-form-panel pinfo-panel">
+                <div class="pinfo-toolbar settings-group-box">
+                    <button type="button" class="modal-icon-btn pinfo-back" onclick="switchTab('tab-dashboard')" data-i18n-aria="pinfo_back" aria-label="Back">&#8592;</button>
+                    <h3 data-i18n="pinfo_title">Proxy connection</h3>
+                    <button type="button" class="btn btn-secondary pinfo-refresh" id="pinfo-refresh-btn" onclick="refreshProxyInfo()" data-i18n="pinfo_refresh">Check again</button>
+                </div>
+                <div class="pinfo-state" id="pinfo-state" hidden></div>
+
+                <div class="settings-group-box" id="pinfo-box-conn">
+                    <h4 data-i18n="pinfo_sec_conn">Connection</h4>
+                    <div class="pinfo-row"><span data-i18n="pinfo_ip">IP</span><b id="pinfo-ip">-</b></div>
+                    <div class="pinfo-row"><span data-i18n="pinfo_isp">ISP</span><b id="pinfo-isp">-</b></div>
+                    <div class="pinfo-row"><span data-i18n="pinfo_org">Organization</span><b id="pinfo-org">-</b></div>
+                    <div class="pinfo-row"><span data-i18n="pinfo_asn">ASN</span><b id="pinfo-asn">-</b></div>
+                    <div class="pinfo-row"><span data-i18n="pinfo_node">Node</span><b id="pinfo-node">-</b></div>
+                    <div class="pinfo-row"><span data-i18n="pinfo_latency">Response time</span><b id="pinfo-latency">-</b></div>
+                </div>
+
+                <div class="settings-group-box" id="pinfo-box-loc">
+                    <h4 data-i18n="pinfo_sec_loc">Location</h4>
+                    <div class="pinfo-row"><span data-i18n="pinfo_country">Country</span><b id="pinfo-country">-</b></div>
+                    <div class="pinfo-row"><span data-i18n="pinfo_region">Region</span><b id="pinfo-region">-</b></div>
+                    <div class="pinfo-row"><span data-i18n="pinfo_city">City</span><b id="pinfo-city">-</b></div>
+                    <div class="pinfo-row"><span data-i18n="pinfo_timezone">Timezone</span><b id="pinfo-timezone">-</b></div>
+                    <div class="pinfo-row"><span data-i18n="pinfo_postal">Postal code</span><b id="pinfo-postal">-</b></div>
+                    <div class="pinfo-row"><span data-i18n="pinfo_continent">Continent</span><b id="pinfo-continent">-</b></div>
+                </div>
+
+                <div class="settings-group-box" id="pinfo-box-coord">
+                    <h4 data-i18n="pinfo_sec_coord">Coordinates</h4>
+                    <div class="pinfo-row"><span data-i18n="pinfo_lat">Latitude</span><b id="pinfo-lat">-</b></div>
+                    <div class="pinfo-row"><span data-i18n="pinfo_lon">Longitude</span><b id="pinfo-lon">-</b></div>
                 </div>
             </section>
         </div>
