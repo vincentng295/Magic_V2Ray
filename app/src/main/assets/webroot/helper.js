@@ -9,6 +9,7 @@ const DEFAULT_DNS_HOSTS = {
     "ip6-localhost": ["::1"], // Localhost IPv6
     "domain:gateway-magic.huskydg.dpdns.org" : ["198.18.0.1", "fdfe:dcba:9876::1", "2001:db8:7872:6179::1"], // Magic gateway IP
     "domain:googleapis.cn": "googleapis.com",
+    "hakumaworld.dpdns.org": ["198.18.0.1", "2001:db8:7872:6179::1"], // Alternative Magic gateway IP
     "dns.alidns.com": ["223.5.5.5", "223.6.6.6", "2400:3200::1", "2400:3200:baba::1"],
     "dns.sse.cisco.com": ["208.67.220.220", "208.67.222.222", "2620:119:35::35", "2620:119:53::53"],
     "dns.umbrella.com": ["208.67.220.220", "208.67.222.222", "2620:119:35::35", "2620:119:53::53"],
