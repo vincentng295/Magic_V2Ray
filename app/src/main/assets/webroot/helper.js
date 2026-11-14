@@ -1033,7 +1033,8 @@ function convert_uri_to_xray_json(uri, optional_settings, is_nonroot = false) {
             } else if (vmessNet === 'ws') {
                 outbound.streamSettings.wsSettings = {
                     path: c.path || "/",
-                    headers: { Host: c.host || "" }
+                    headers: { Host: c.host || "" },
+                    heartbeatPeriod: 30
                 };
             } else if (vmessNet === 'httpupgrade') {
                 outbound.streamSettings.httpupgradeSettings = {
@@ -1142,7 +1143,8 @@ function convert_uri_to_xray_json(uri, optional_settings, is_nonroot = false) {
             } else if (net === 'ws') {
                 outbound.streamSettings.wsSettings = {
                     path: p.get('path') || "/",
-                    host: p.get('host') || ""
+                    host: p.get('host') || "",
+                    heartbeatPeriod: 30
                 };
             } else if (net === 'httpupgrade') {
                 outbound.streamSettings.httpupgradeSettings = {
@@ -1314,7 +1316,8 @@ function convert_uri_to_xray_json(uri, optional_settings, is_nonroot = false) {
                     } else if (net === 'ws') {
                         outbound.streamSettings.wsSettings = {
                             path: ssParams.get('path') || "/",
-                            host: ssParams.get('host') || ""
+                            host: ssParams.get('host') || "",
+                            heartbeatPeriod: 30
                         };
                     } else if (net === 'httpupgrade') {
                         outbound.streamSettings.httpupgradeSettings = {
@@ -1381,7 +1384,8 @@ function convert_uri_to_xray_json(uri, optional_settings, is_nonroot = false) {
                             if (pluginNet === 'ws') {
                                 outbound.streamSettings.wsSettings = {
                                     path: pOpts.path || '/',
-                                    headers: pOpts.host ? { Host: pOpts.host } : {}
+                                    headers: pOpts.host ? { Host: pOpts.host } : {},
+                                    heartbeatPeriod: 30
                                 };
                             } else if (pluginNet === 'quic') {
                                 outbound.streamSettings.quicSettings = {
