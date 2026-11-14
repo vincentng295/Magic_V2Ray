@@ -914,6 +914,35 @@ function _buildDnsUpstreamRoutingRules(settings) {
     return rules;
 }
 
+// "Expose SOCKS5 port to LAN" (Traffic Settings): the extra inbound that lets other
+// devices on the LAN / hotspot use this phone as a SOCKS5 proxy. Returns [] while the
+// option is off or its settings are unusable (bad port, auth on without credentials -
+// fail closed rather than silently opening an unauthenticated port).
+// A single inbound is enough for both families: Go listens on "::" dual-stack, so a
+// second inbound on "0.0.0.0" with the same port would fail with "address in use" and
+// take Xray down with it. "::" needs a working IPv6 stack, so it is only used while
+// Enable IPv6 is on; otherwise the inbound binds 0.0.0.0 (IPv4 only).
+const EXPOSE_SOCKS_TAG = "socks-in";
+function buildExposedSocksInbounds(settings, sniffing) {
+    if (!settings || settings.exposeSocks !== true) return [];
+    const port = parseInt(settings.exposeSocksPort, 10);
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) return [];
+    const user = String(settings.exposeSocksUser || "");
+    const pass = String(settings.exposeSocksPass || "");
+    const useAuth = settings.exposeSocksAuth === true;
+    if (useAuth && (!user || !pass)) return [];
+    return [{
+        "tag": EXPOSE_SOCKS_TAG,
+        "port": port,
+        "listen": settings.enableIPv6 === true ? "::" : "0.0.0.0",
+        "protocol": "socks",
+        "settings": useAuth
+            ? { "auth": "password", "accounts": [{ "user": user, "pass": pass }], "udp": true }
+            : { "auth": "noauth", "udp": true },
+        "sniffing": sniffing
+    }];
+}
+
 // is_nonroot: the config is for the VpnService engine. An unprivileged process cannot bind ports
 // below 1024, so the local listeners (socks-test-in 808, plain-VLESS pool 80) get +50000.
 function convert_uri_to_xray_json(uri, optional_settings, is_nonroot = false) {
@@ -1671,6 +1700,9 @@ function convert_uri_to_xray_json(uri, optional_settings, is_nonroot = false) {
     // `dns` outbound so Xray's DNS module resolves it; the module's own
     // upstream queries (tagless, port 53) then leave via proxy/direct.
     const hijackDns = settings.hijackDns !== false;
+    // Expose SOCKS5 port to LAN: true when the extra socks-in inbound will exist, so
+    // its DNS / default-route rules below can reference it.
+    const exposeSocksOn = buildExposedSocksInbounds(settings, null).length > 0;
 
     // Client DNS rule (port 53 from tun-in / socks-test-in). Defined once so it
     // can be placed either at the very top of routing.rules (hijack ON) or at
@@ -1680,6 +1712,7 @@ function convert_uri_to_xray_json(uri, optional_settings, is_nonroot = false) {
         "inboundTag": [
             "socks-test-in",
             "tun-in",
+            ...(exposeSocksOn ? [EXPOSE_SOCKS_TAG] : []),
         ],
         "port": 53,
         // Hijack ON: hand the query to Xray's DNS module (dns-out).
@@ -1830,6 +1863,11 @@ function convert_uri_to_xray_json(uri, optional_settings, is_nonroot = false) {
                     "routeOnly": settings.routeOnly
                 }
             },
+            ...buildExposedSocksInbounds(settings, {
+                "enabled": settings.sniffing,
+                "destOverride": sniffDestOverride,
+                "routeOnly": settings.routeOnly
+            }),
         ],
         outbounds: [
             outbound, 
@@ -1933,6 +1971,7 @@ function convert_uri_to_xray_json(uri, optional_settings, is_nonroot = false) {
                     "inboundTag": [
                         "socks-test-in",
                         "tun-in",
+                        ...(exposeSocksOn ? [EXPOSE_SOCKS_TAG] : []),
                     ],
                     "network": "tcp,udp",
                     "outboundTag": "proxy"

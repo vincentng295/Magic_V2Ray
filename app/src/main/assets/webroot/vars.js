@@ -69,6 +69,16 @@ const DEFAULT_SUB_USERAGENT = "v2rayNG/2.2.3";
 // +50000 in non-root mode, see convert_uri_to_xray_json(..., is_nonroot).
 const SOCKS_TEST_ADDR = "127.17.1.3";
 const SOCKS_TEST_PORT = 808 + (MV_NONROOT ? NONROOT_PORT_OFFSET : 0);
+// Addresses shown under "Expose SOCKS5 port to LAN". The first two are the
+// gateway addresses on the tun interface (see configure_tun_iface() in
+// routing.c / MagicVpnService.java); the host name resolves to them through
+// DEFAULT_DNS_HOSTS (helper.js). The IPv6 one is only reachable while
+// "Enable IPv6" is on (Network Settings).
+const EXPOSE_SOCKS_HOST_V4 = "198.18.0.1";
+const EXPOSE_SOCKS_HOST_V6 = "2001:db8:7872:6179::1";
+const EXPOSE_SOCKS_HOST_DOMAIN = "hakumaworld.dpdns.org";
+const EXPOSE_SOCKS_PORT_MIN = 1024;
+const EXPOSE_SOCKS_PORT_MAX = 65535;
 const STUB_DIR = MV_NONROOT ? ksu.stubdir() : "/dev/sysctl_stubs";
 // Must match TUN_NAME in service.sh; only used to hide it from the
 // upstream-interface list.
@@ -149,6 +159,17 @@ let advSettings = {
     fragment_length: "50-100",
     fragment_interval: "10-20",
     mtu: 1350,
+    // Traffic Settings > "Expose SOCKS5 port to LAN". When on, Xray gets one
+    // extra `socks` inbound (tag socks-in) listening on 0.0.0.0 and :: at
+    // exposeSocksPort (1024-65535), so other devices on the LAN / hotspot can
+    // use this phone as a SOCKS5 proxy. exposeSocksAuth adds username/password
+    // authentication (exposeSocksUser / exposeSocksPass). Built into the
+    // config by buildExposedSocksInbounds() in helper.js.
+    exposeSocks: false,
+    exposeSocksPort: 10808,
+    exposeSocksAuth: false,
+    exposeSocksUser: "",
+    exposeSocksPass: "",
     pinnedPeerCertSha256: "",
     dnsViaProxy: true,
     // Hijack DNS (Traffic Settings). When true, port-53 traffic from tun-in /
@@ -342,6 +363,7 @@ const TRAFFIC_SETTING_KEYS = [
     "mux", "mux_connections",
     "fragment", "fragment_packets", "fragment_length", "fragment_interval",
     "mtu",
+    "exposeSocks", "exposeSocksPort", "exposeSocksAuth", "exposeSocksUser", "exposeSocksPass",
     "localDns", "fakeDnsLocal", "foreignDns", "directDns", "directDnsDomains",
     "dnsDisableCache", "dnsServeStale", "dnsServeExpiredTTL",
     "dnsDisableFallback", "dnsDisableFallbackIfMatch",

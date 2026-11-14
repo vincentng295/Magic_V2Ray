@@ -3688,6 +3688,78 @@ function openExternalLink(event, el) {
     );
 }
 
+// ----- Traffic Settings: Expose SOCKS5 port to LAN -----
+
+// Returns a usable port (1024-65535); anything else falls back to the default.
+function sanitizeExposeSocksPort(v) {
+    const n = parseInt(v, 10);
+    return (Number.isInteger(n) && n >= EXPOSE_SOCKS_PORT_MIN && n <= EXPOSE_SOCKS_PORT_MAX) ? n : 10808;
+}
+
+// Copies the form into advSettings. Returns false (after a toast) when the option is on
+// and the port or the credentials are invalid, so the caller can abort the save.
+function readExposeSocksForm() {
+    const on = document.getElementById('set-exposesocks').checked;
+    const auth = document.getElementById('set-exposesocks-auth').checked;
+    const portRaw = document.getElementById('set-exposesocks-port').value.trim();
+    const portNum = Number(portRaw);
+    const user = document.getElementById('set-exposesocks-user').value.trim();
+    const pass = document.getElementById('set-exposesocks-pass').value;
+
+    if (on) {
+        if (!/^\d+$/.test(portRaw) || portNum < EXPOSE_SOCKS_PORT_MIN || portNum > EXPOSE_SOCKS_PORT_MAX) {
+            showToast(t('toast_exposesocks_port_invalid'), 'error');
+            return false;
+        }
+        if (auth && (!user || !pass)) {
+            showToast(t('toast_exposesocks_auth_empty'), 'error');
+            return false;
+        }
+    }
+    advSettings.exposeSocks = on;
+    advSettings.exposeSocksPort = sanitizeExposeSocksPort(portRaw);
+    advSettings.exposeSocksAuth = auth;
+    advSettings.exposeSocksUser = user;
+    advSettings.exposeSocksPass = pass;
+    return true;
+}
+
+function updateExposeSocksVisibility() {
+    const on = document.getElementById('set-exposesocks').checked;
+    const auth = document.getElementById('set-exposesocks-auth').checked;
+    document.getElementById('exposesocks-sub-fields').style.display = on ? 'block' : 'none';
+    document.getElementById('exposesocks-auth-fields').style.display = (on && auth) ? 'block' : 'none';
+    updateExposeSocksInfo();
+}
+
+// Connection info under the toggle. Rows copy to the clipboard when tapped.
+function updateExposeSocksInfo() {
+    const box = document.getElementById('exposesocks-conn-info');
+    if (!box) return;
+    const portRaw = document.getElementById('set-exposesocks-port').value.trim();
+    const n = Number(portRaw);
+    const port = (/^\d+$/.test(portRaw) && n >= EXPOSE_SOCKS_PORT_MIN && n <= EXPOSE_SOCKS_PORT_MAX) ? String(n) : 'xxxxx';
+    const rows = [
+        `${EXPOSE_SOCKS_HOST_V4}:${port}`,
+        `[${EXPOSE_SOCKS_HOST_V6}]:${port}`,
+        `${EXPOSE_SOCKS_HOST_DOMAIN}:${port}`
+    ];
+    box.textContent = '';
+    rows.forEach(text => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'exposesocks-conn-row';
+        b.textContent = text;
+        b.onclick = () => {
+            navigator.clipboard.writeText(text).then(
+                () => showToast(t('toast_exposesocks_copied'), 'success'),
+                () => showToast(t('toast_log_copy_fail'), 'error')
+            );
+        };
+        box.appendChild(b);
+    });
+}
+
 function toggleSubSettingField(triggerId, subPanelId) {
     const isChecked = document.getElementById(triggerId).checked;
     document.getElementById(subPanelId).style.display = isChecked ? 'block' : 'none';
@@ -4023,6 +4095,15 @@ function bindSettingsToFormView() {
     toggleSubSettingField('set-fragment', 'fragment-sub-fields');
 
     document.getElementById('set-mtu').value = advSettings.mtu || 1350;
+
+    // Expose SOCKS5 port to LAN
+    document.getElementById('set-exposesocks').checked = advSettings.exposeSocks === true;
+    document.getElementById('set-exposesocks-port').value = sanitizeExposeSocksPort(advSettings.exposeSocksPort);
+    document.getElementById('set-exposesocks-auth').checked = advSettings.exposeSocksAuth === true;
+    document.getElementById('set-exposesocks-user').value = advSettings.exposeSocksUser || "";
+    document.getElementById('set-exposesocks-pass').value = advSettings.exposeSocksPass || "";
+    updateExposeSocksVisibility();
+
     document.getElementById('set-networkmode').value = advSettings.networkMode ?? 0;
     refreshUpstreamIfaceOptions(advSettings.upstreamIface);
     document.getElementById('set-allowtether').checked = advSettings.allowTether !== false;
@@ -4038,7 +4119,12 @@ function bindSettingsToFormView() {
     bindProModeToFormView();
 }
 
-function saveAdvancedSettingsForm(isLangOnly = false) {    advSettings.loglevel = document.getElementById('set-loglevel').value;
+function saveAdvancedSettingsForm(isLangOnly = false) {
+    // Validate the Expose SOCKS5 fields first: a bad port or empty credentials must not
+    // be saved (and must not silently drop the listener). Skipped for the language-only
+    // save, which only persists what is already in memory.
+    if (!isLangOnly && !readExposeSocksForm()) return;
+    advSettings.loglevel = document.getElementById('set-loglevel').value;
     advSettings.sniffing = document.getElementById('set-sniffing').checked;
     advSettings.routeOnly = document.getElementById('set-routeonly').checked;
     {

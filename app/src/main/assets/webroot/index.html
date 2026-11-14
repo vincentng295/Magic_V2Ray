@@ -222,6 +222,36 @@
 
                 <div class="settings-group-box">
                     <div class="setting-item-row toggle-row">
+                        <label for="set-exposesocks"><span data-i18n="lbl_exposesocks">Expose SOCKS5 port to LAN</span><small data-i18n="desc_exposesocks">Open a SOCKS5 proxy on this device so other devices on the same network or hotspot can use it.</small></label>
+                        <input type="checkbox" id="set-exposesocks" onchange="updateExposeSocksVisibility()">
+                    </div>
+                    <div id="exposesocks-sub-fields" class="sub-setting-panel" style="display:none;">
+                        <div class="setting-item-row">
+                            <label for="set-exposesocks-port"><span data-i18n="lbl_exposesocks_port">Port</span><small data-i18n="desc_exposesocks_port">1024 - 65535</small></label>
+                            <input type="number" id="set-exposesocks-port" min="1024" max="65535" step="1" value="10808" inputmode="numeric" oninput="updateExposeSocksInfo()">
+                        </div>
+                        <div class="setting-item-row toggle-row">
+                            <label for="set-exposesocks-auth"><span data-i18n="lbl_exposesocks_auth">Authentication</span><small data-i18n="desc_exposesocks_auth">Require a username and password to connect.</small></label>
+                            <input type="checkbox" id="set-exposesocks-auth" onchange="updateExposeSocksVisibility()">
+                        </div>
+                        <div id="exposesocks-auth-fields" class="sub-setting-panel" style="display:none;">
+                            <div class="setting-item-row">
+                                <label for="set-exposesocks-user" data-i18n="lbl_exposesocks_user">Username</label>
+                                <input type="text" id="set-exposesocks-user" autocomplete="off" autocapitalize="off" spellcheck="false">
+                            </div>
+                            <div class="setting-item-row">
+                                <label for="set-exposesocks-pass" data-i18n="lbl_exposesocks_pass">Password</label>
+                                <input type="text" id="set-exposesocks-pass" autocomplete="off" autocapitalize="off" spellcheck="false">
+                            </div>
+                        </div>
+                        <p class="lan-bypass-desc" data-i18n="lbl_exposesocks_conn">Connection info (tap to copy)</p>
+                        <div id="exposesocks-conn-info" class="exposesocks-conn-info"></div>
+                        <p class="lan-bypass-desc" id="exposesocks-v6-note" data-i18n="desc_exposesocks_v6">The IPv6 address only works while Enable IPv6 is on in Network Settings.</p>
+                    </div>
+                </div>
+
+                <div class="settings-group-box">
+                    <div class="setting-item-row toggle-row">
                         <h4 style="margin:0;" data-i18n="group_dns">DNS Configuration</h4>
                         <input type="checkbox" id="set-localdns" onchange="updateDnsGroupVisibility()">
                     </div>
