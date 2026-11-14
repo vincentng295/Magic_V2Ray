@@ -927,8 +927,6 @@ async function showCurrentIp() {
         showToast(t('status_ip_not_running'), 'error');
         return;
     }
-    await asyncShowLoading(t('status_ip_checking'));
-
     _statusIpBusy = true;
     el.hidden = false;
     el.classList.remove('error');
@@ -947,7 +945,6 @@ async function showCurrentIp() {
         }
     } finally {
         _statusIpBusy = false;
-        hideLoading();
     }
 }
  
@@ -1678,10 +1675,12 @@ function renderProfiles() {
             () => { openEditSubModal(category); closeAllMenus(); }));
         dropdown.appendChild(_mkButton(t('menu_deduplicate'), '',
             () => { deduplicateCategory(category); closeAllMenus(); }));
+        dropdown.appendChild(_mkButton(t('menu_tcping'), 'btn-ping-category',
+            (e) => runCategoryTest(e, category, 'tcp')));
         dropdown.appendChild(_mkButton(t('menu_check_http'), 'btn-ping-category',
-            (e) => checkHttpWithClose(e, category)));
+            (e) => runCategoryTest(e, category, 'http')));
         dropdown.appendChild(_mkButton(t('menu_check_ip'), 'btn-ping-category',
-            (e) => checkIpWithClose(e, category)));
+            (e) => runCategoryTest(e, category, 'ip')));
         dropdown.appendChild(_mkButton(t('menu_delete'), 'btn-delete-item',
             () => { removeCategory(category); closeAllMenus(); }));
         menuWrap.appendChild(dropdown);
@@ -1752,6 +1751,7 @@ function renderProfiles() {
             pingSpan.id = `ping-${category}-${node.id}`;
             pingSpan.className = 'ping-info';
             pingSpan.style.cssText = "text-align: right; white-space: nowrap;";
+            _restorePingResult(pingSpan, category, node.id);
             if (!isGroup) nodeMenuWrap.appendChild(pingSpan);
 
             const nodeKebab = _mkButton("⋮", 'btn-menu-trigger', function (e) { toggleNodeMenu(e, this); });
@@ -1781,10 +1781,12 @@ function renderProfiles() {
                 (e) => copyNodePayloadUrl(e, category, node.id)));
             nodeDropdown.appendChild(_mkButton(t('menu_copy_full_config'), '',
                 (e) => copyNodeFullConfig(e, category, node.id)));
+            nodeDropdown.appendChild(_mkButton(t('menu_tcping'), 'btn-ping-category',
+                (e) => runNodeTest(e, category, node.id, 'tcp')));
             nodeDropdown.appendChild(_mkButton(t('menu_check_http'), 'btn-ping-category',
-                (e) => checkSingleHttpWithClose(e, category, node.id)));
+                (e) => runNodeTest(e, category, node.id, 'http')));
             nodeDropdown.appendChild(_mkButton(t('menu_check_ip'), 'btn-ping-category',
-                (e) => checkSingleIpWithClose(e, category, node.id)));
+                (e) => runNodeTest(e, category, node.id, 'ip')));
             nodeDropdown.appendChild(_mkButton(t('menu_delete'), 'btn-delete-item',
                 (e) => deleteNode(e, category, node.id)));
             nodeMenuWrap.appendChild(nodeDropdown);
@@ -4991,32 +4993,53 @@ function showToast(message, type = 'success') {
     }, 3000);
 }
 
-// Probe slots. Only NODE_TEST_CONCURRENCY probes run at once, so a small pool
-// of listen address/port pairs is enough and — unlike the old
-// `index % 250` scheme — cannot collide once a category exceeds 250 nodes.
+// Probe slots. Only NODE_TEST_CONCURRENCY probes of one category run at once, so a small pool
+// of listen address/port pairs is enough and — unlike the old `index % 250` scheme — cannot
+// collide once a category exceeds 250 nodes. The tests no longer put an overlay over the page,
+// so runs can overlap (a category HTTP check and a single-node IP check, say): a probe that
+// finds every slot busy waits for one to be freed instead of failing.
 const NODE_TEST_CONCURRENCY = 10;
 const NODE_TEST_SLOTS = 16;
 
-// "Check HTTP" does not spawn curl any more: the probe xray carries an `observatory`
-// that dials OBS_PROBE_URL through the node's outbound by itself (routing bypassed), and
-// `xhuskydg_helper obsprobe` reads the result over xray's gRPC API (`api.listen`, only
-// ObservatoryService enabled). Observatory selectors match by tag PREFIX, so "proxy" also
-// observes a chain's "proxy-hop1"; the result is picked by exact tag. Xray's observatory
-// request has a fixed 5 s timeout, so OBS_WAIT_MS leaves room for xray start-up.
+// "TCPing" — v2rayNG's RealPingWorkerService.startTcping / SpeedtestManager.socketConnectTime:
+// one plain TCP handshake to the node's server, 1 s timeout, and (being cheap) twice the
+// concurrency of the real-delay test.
+const TCPING_TIMEOUT_MS = 1000;
+const TCPING_CONCURRENCY = NODE_TEST_CONCURRENCY * 2;
+
+// "Check HTTP" = real delay, modelled on v2rayNG's RealPingWorkerService.startRealPing:
+//   1. TCP pre-check (1 s) of the node's server. A dead server is reported at once instead of
+//      starting xray and waiting out the probe. Skipped for UDP transports (hysteria2,
+//      wireguard, masque, kcp/quic, h3), exactly like v2rayNG skips hysteria2/wireguard/h3.
+//   2. An isolated xray with no inbound. Its `observatory` dials the test URL through the node's
+//      outbound by itself (routing bypassed) and `xhuskydg_helper obsprobe` reads the result over
+//      xray's gRPC API (`api.listen`, only ObservatoryService enabled). Observatory selectors
+//      match by tag PREFIX, so "proxy" also observes a chain's "proxy-hop1"; the result is picked
+//      by exact tag. Xray's observatory request has a fixed 5 s timeout, so OBS_WAIT_MS leaves
+//      room for xray start-up.
+//   3. The test URLs are v2rayNG's defaults (AppConfig.DELAY_TEST_URL / DELAY_TEST_URL2): an
+//      HTTPS generate_204, so the number includes the TLS handshake like v2rayNG's. A single-node
+//      check retries with the second URL when the first fails (measureV2rayDelay's fallback); a
+//      category check uses the first URL only, as v2rayNG's batch test does.
 const OBS_SUBJECT = 'proxy';
-const OBS_PROBE_URL = 'http://gstatic.com/generate_204';
+const DELAY_TEST_URL = 'https://www.gstatic.com/generate_204';
+const DELAY_TEST_URL2 = 'https://www.google.com/generate_204';
 const OBS_WAIT_MS = 9000;
 const _nodeTestSlotBusy = new Array(NODE_TEST_SLOTS).fill(false);
+const _nodeTestSlotWaiters = [];
 
 function _acquireTestSlot() {
     for (let i = 0; i < NODE_TEST_SLOTS; i++) {
-        if (!_nodeTestSlotBusy[i]) { _nodeTestSlotBusy[i] = true; return i; }
+        if (!_nodeTestSlotBusy[i]) { _nodeTestSlotBusy[i] = true; return Promise.resolve(i); }
     }
-    return -1;
+    return new Promise(resolve => _nodeTestSlotWaiters.push(resolve));
 }
 
 function _releaseTestSlot(slot) {
-    if (slot >= 0 && slot < NODE_TEST_SLOTS) _nodeTestSlotBusy[slot] = false;
+    if (slot < 0 || slot >= NODE_TEST_SLOTS) return;
+    const next = _nodeTestSlotWaiters.shift();
+    if (next) next(slot);                       // hand the slot straight to the next waiter
+    else _nodeTestSlotBusy[slot] = false;
 }
 
 // Non-root: a process without CAP_NET_ADMIN cannot set SO_MARK (EPERM on every dial), and the
@@ -5028,18 +5051,87 @@ function _stripSockoptMarks(o) {
     Object.keys(o).forEach(k => _stripSockoptMarks(o[k]));
 }
 
-// mode 'socks' (Check IP): isolated xray with a throwaway socks-test-in inbound for curl.
+// The node's generated xray config as text. Throws when the node cannot be converted.
+function _resolveNodeConfigStr(node) {
+    const s = _resolveXrayConfig(node.rawUri);
+    const o = JSON.parse(s);
+    if (o.error) throw new Error(o.error);
+    return s;
+}
+
+// Where the node's traffic first leaves the device: { host, port, udp } or null.
+// A chain's first hop is the one dialed directly, so that is the one tested.
+// udp = the transport is not TCP (TCPing does not apply and the real-delay pre-check is skipped).
+const _UDP_PROTOCOLS = ['wireguard', 'hysteria', 'masque'];
+const _UDP_NETWORKS = ['kcp', 'mkcp', 'quic', 'hysteria', 'masque'];
+function _nodeProbeTarget(cfg) {
+    const outs = Array.isArray(cfg && cfg.outbounds) ? cfg.outbounds : [];
+    const o = outs.find(x => x && x.tag === 'proxy-hop1') || outs.find(x => x && x.tag === OBS_SUBJECT) || outs[0];
+    if (!o || !o.settings || typeof o.settings !== 'object') return null;
+    const s = o.settings;
+    let host, port, udp = false;
+    if (Array.isArray(s.vnext) && s.vnext[0]) {
+        host = s.vnext[0].address; port = s.vnext[0].port;
+    } else if (Array.isArray(s.servers) && s.servers[0]) {
+        host = s.servers[0].address; port = s.servers[0].port;
+    } else if (Array.isArray(s.peers) && s.peers[0] && s.peers[0].endpoint) {
+        const m = String(s.peers[0].endpoint).match(/^(.*):(\d+)$/);
+        if (m) { host = m[1]; port = m[2]; }
+        udp = true;
+    } else if (s.address && s.port) {
+        host = s.address; port = s.port;
+    }
+    host = unwrapIPv6(String(host || ''));
+    port = parseInt(port, 10);
+    if (!host || !(port > 0 && port < 65536)) return null;
+    const ss = o.streamSettings || {};
+    if (_UDP_PROTOCOLS.includes(o.protocol) || _UDP_NETWORKS.includes(ss.network)) udp = true;
+    const alpn = ss.tlsSettings && ss.tlsSettings.alpn;
+    if (Array.isArray(alpn) && alpn.length && alpn.every(a => String(a).trim().startsWith('h3'))) udp = true;
+    return { host, port, udp };
+}
+
+// The address(es) to time. With "Use system DNS resolver to resolve outbound domain" on, the
+// server domain is resolved the same way xray will resolve it (and the lookup is shared with
+// the probe that follows); the helper then times a handshake to those IPs. Otherwise — or when
+// nothing could be resolved — the helper resolves the name itself.
+async function _resolveDialHosts(baseCfgStr, target) {
+    try {
+        const cfg = JSON.parse(baseCfgStr);
+        if (cfg.dns && typeof cfg.dns === 'object') cfg.dns.hosts = { ...DEFAULT_DNS_HOSTS };
+        const out = await resolveOutboundViaSystemDns(JSON.stringify(cfg), {
+            cache: true,
+            timeoutMs: SYSDNS_PROBE_TIMEOUT_MS
+        });
+        const h = JSON.parse(out).dns?.hosts?.[target.host];
+        const ips = (Array.isArray(h) ? h : [h]).filter(x => typeof x === 'string' && /^[0-9a-fA-F:.]+$/.test(x));
+        if (ips.length) return ips.join(',');
+    } catch (e) { /* fall through to the plain name */ }
+    return target.host;
+}
+
+// One TCP handshake timed by `xhuskydg_helper tcping`. Returns ms (>= 1), or -1 on failure.
+async function _tcpPing(host, port, timeoutMs = TCPING_TIMEOUT_MS) {
+    const out = await execShellAsync(
+        `timeout ${Math.ceil(timeoutMs / 1000) + 4} ${shQuote(MODDIR + '/bin/xhuskydg_helper')} ` +
+        `tcping ${shQuote(host)} ${port} ${timeoutMs} 2>/dev/null`
+    );
+    const ms = parseInt(out.split('\n').pop(), 10);
+    return isNaN(ms) ? -1 : ms;
+}
+
+// Probe config for one isolated xray.
+// mode 'socks' (Check IP): a throwaway socks-test-in inbound for curl.
 // mode 'obs'   (Check HTTP): no inbound at all; xray's gRPC API listens on the same
 //                            testIp:testPort and the observatory probes the node itself.
-function _buildXrayTestInbound(node, slot, mode = 'socks') {
+function _buildXrayTestInbound(baseCfgStr, slot, mode = 'socks', probeUrl = DELAY_TEST_URL) {
     const testIp = `127.17.1.${10 + slot}`;
     const testPort = 21000 + slot;
     // Probe configs contain the node's full credentials. They used to be
     // written to /dev at the default umask (0644, world-traversable dir);
     // they now live in the module's private tmpfs, 0600.
     const tmpFile = `${STUB_DIR}/run/nodetest/${slot}.json`;
-    const rawConfigStr = _resolveXrayConfig(node.rawUri);
-    const xrayConfigObj = JSON.parse(rawConfigStr);
+    const xrayConfigObj = JSON.parse(baseCfgStr);
     if (xrayConfigObj.error) throw new Error(xrayConfigObj.error);
     if (mode === 'obs') {
         xrayConfigObj.inbounds = [];
@@ -5048,7 +5140,7 @@ function _buildXrayTestInbound(node, slot, mode = 'socks') {
         xrayConfigObj.api = { tag: "api", listen: `${testIp}:${testPort}`, services: ["ObservatoryService"] };
         xrayConfigObj.observatory = {
             subjectSelector: [OBS_SUBJECT],
-            probeUrl: OBS_PROBE_URL,
+            probeUrl: probeUrl,
             probeInterval: "60s",
             enableConcurrency: true
         };
@@ -5098,31 +5190,56 @@ function _buildProbeScript(tmpFile, configB64, innerCmd, settleSec = 1) {
     `;
 }
 
-function _setPingSpan(pingSpan, text, colorVar) {
-    if (!pingSpan) return;
-    pingSpan.innerText = text;
-    pingSpan.style.color = colorVar;
+// ---------------------------------------------------------------------------
+// Per-node results. The tests no longer block the page, so the list can be re-rendered
+// (expand/collapse, edit, reload...) while probes are still running. Results are therefore kept
+// here and looked up by id when written, instead of holding on to a <span> that may already
+// have been replaced; renderProfiles() restores them into the fresh spans.
+// ---------------------------------------------------------------------------
+const PING_MUTED = "var(--text-muted)";
+const PING_GREEN = "var(--green, #00e676)";
+const PING_RED = "var(--red, #ff1744)";
+
+const _probeResults = new Map();   // "<category>\0<nodeId>" -> { text, color }
+const _probeRun = new Map();       // same key -> id of the newest run (an older run's result is dropped)
+let _probeRunCounter = 0;
+const _runningCategoryTests = new Set();   // "<mode>\0<category>"
+
+function _pingKey(category, nodeId) { return category + '\u0000' + nodeId; }
+
+function _setPingResult(category, nodeId, text, color) {
+    const r = { text, color };
+    _probeResults.set(_pingKey(category, nodeId), r);
+    const span = document.getElementById(`ping-${category}-${nodeId}`);
+    if (span) { span.innerText = r.text; span.style.color = r.color; }
 }
 
-// Runs one probe against a node in an isolated xray instance.
-// `mode` is 'http' (latency in ms) or 'ip' (egress IP address).
-async function _execNodeProbe(node, pingSpan, mode) {
-    _setPingSpan(pingSpan, "...", "var(--text-muted)");
+function _restorePingResult(span, category, nodeId) {
+    const r = _probeResults.get(_pingKey(category, nodeId));
+    if (r) { span.innerText = r.text; span.style.color = r.color; }
+}
 
-    const slot = _acquireTestSlot();
-    if (slot === -1) {
-        _setPingSpan(pingSpan, "?", "var(--red, #ff1744)");
-        return;
-    }
+// TCPing: one handshake to the node's server. UDP-based nodes have no TCP port to time -> N/A.
+async function _runTcping(node, show) {
+    let baseCfgStr, target;
+    try {
+        baseCfgStr = _resolveNodeConfigStr(node);
+        target = _nodeProbeTarget(JSON.parse(baseCfgStr));
+    } catch (e) { show("?", PING_RED); return; }
+    if (!target || target.udp) { show("N/A", PING_MUTED); return; }
+    const host = await _resolveDialHosts(baseCfgStr, target);
+    const ms = await _tcpPing(host, target.port, TCPING_TIMEOUT_MS);
+    if (ms >= 0) show(`${ms}ms`, PING_GREEN); else show("?", PING_RED);
+}
 
+// One real-delay attempt against one URL. Returns ms, or -1.
+async function _runObsProbe(baseCfgStr, probeUrl) {
+    const slot = await _acquireTestSlot();
     try {
         let built;
         try {
-            built = _buildXrayTestInbound(node, slot, mode === 'http' ? 'obs' : 'socks');
-        } catch (e) {
-            _setPingSpan(pingSpan, "?", "var(--red, #ff1744)");
-            return;
-        }
+            built = _buildXrayTestInbound(baseCfgStr, slot, 'obs', probeUrl);
+        } catch (e) { return -1; }
         const { testIp, testPort, tmpFile, configStr } = built;
 
         // If "system DNS resolver for outbound" is enabled, resolve the node's server
@@ -5135,125 +5252,129 @@ async function _execNodeProbe(node, pingSpan, mode) {
         });
         const configB64 = utoa(finalConfig);
 
-        // http: lines of "<tag>\t<alive 0|1>\t<delay ms>" from the observatory.
-        // ip:   the egress address, still fetched with curl (observatory cannot return a body).
-        const innerCmd = mode === 'http'
-            ? `RES=$(${shQuote(MODDIR + '/bin/xhuskydg_helper')} obsprobe ${testIp}:${testPort} ` +
-              `${OBS_WAIT_MS} ${OBS_SUBJECT} 2>/dev/null)`
-            : `RES=$(${MODDIR}/bin/curl --socks5-hostname ${testIp}:${testPort} -s ` +
-              `--max-time 3 https://icanhazip.com 2>/dev/null)`;
+        // obsprobe prints lines of "<tag>\t<alive 0|1>\t<delay ms>" from the observatory.
+        const innerCmd = `RES=$(${shQuote(MODDIR + '/bin/xhuskydg_helper')} obsprobe ${testIp}:${testPort} ` +
+            `${OBS_WAIT_MS} ${OBS_SUBJECT} 2>/dev/null)`;
 
-        // Hard ceiling on the whole probe so a wedged xray or curl cannot
-        // hold the slot — or a root process — indefinitely.
+        // Hard ceiling on the whole probe so a wedged xray cannot hold the slot — or a root
+        // process — indefinitely.
         const output = await execShellAsync(
-            `timeout 15 sh -c ${shQuote(_buildProbeScript(tmpFile, configB64, innerCmd, mode === 'http' ? 0 : 1))}`
+            `timeout 15 sh -c ${shQuote(_buildProbeScript(tmpFile, configB64, innerCmd, 0))}`
         );
-
-        if (mode === 'http') {
-            const row = output.split('\n').map(l => l.trim().split('\t')).find(f => f[0] === OBS_SUBJECT);
-            const ms = row ? parseInt(row[2], 10) : NaN;
-            if (row && row[1] === '1' && !isNaN(ms) && ms >= 0) {
-                _setPingSpan(pingSpan, `${Math.max(ms, 1)}ms`, "var(--green, #00e676)");
-            } else {
-                _setPingSpan(pingSpan, "?", "var(--red, #ff1744)");
-            }
-        } else {
-            const ip = output.trim();
-            if (ip) {
-                _setPingSpan(pingSpan, ip, "var(--green, #00e676)");
-            } else {
-                _setPingSpan(pingSpan, "?", "var(--red, #ff1744)");
-            }
-        }
+        const row = output.split('\n').map(l => l.trim().split('\t')).find(f => f[0] === OBS_SUBJECT);
+        const ms = row ? parseInt(row[2], 10) : NaN;
+        return (row && row[1] === '1' && !isNaN(ms) && ms >= 0) ? Math.max(ms, 1) : -1;
     } finally {
         _releaseTestSlot(slot);
     }
 }
 
+// Check HTTP (real delay): TCP pre-check, then the observatory probe (see the block comment above).
+async function _runRealDelay(node, show, fallback) {
+    let baseCfgStr, target;
+    try {
+        baseCfgStr = _resolveNodeConfigStr(node);
+        target = _nodeProbeTarget(JSON.parse(baseCfgStr));
+    } catch (e) { show("?", PING_RED); return; }
 
+    if (target && !target.udp) {
+        const host = await _resolveDialHosts(baseCfgStr, target);
+        if (await _tcpPing(host, target.port, TCPING_TIMEOUT_MS) < 0) { show("?", PING_RED); return; }
+    }
+
+    const urls = fallback ? [DELAY_TEST_URL, DELAY_TEST_URL2] : [DELAY_TEST_URL];
+    let ms = -1;
+    for (const url of urls) {
+        ms = await _runObsProbe(baseCfgStr, url);
+        if (ms >= 0) break;
+    }
+    if (ms >= 0) show(`${ms}ms`, PING_GREEN); else show("?", PING_RED);
+}
+
+// Check IP: the egress address, fetched with curl through a throwaway socks inbound
+// (the observatory cannot return a body).
+async function _runIpCheck(node, show) {
+    let baseCfgStr;
+    try { baseCfgStr = _resolveNodeConfigStr(node); } catch (e) { show("?", PING_RED); return; }
+
+    const slot = await _acquireTestSlot();
+    try {
+        let built;
+        try {
+            built = _buildXrayTestInbound(baseCfgStr, slot, 'socks');
+        } catch (e) { show("?", PING_RED); return; }
+        const { testIp, testPort, tmpFile, configStr } = built;
+
+        const finalConfig = await resolveOutboundViaSystemDns(configStr, {
+            cache: true,
+            timeoutMs: SYSDNS_PROBE_TIMEOUT_MS
+        });
+        const configB64 = utoa(finalConfig);
+        const innerCmd = `RES=$(${MODDIR}/bin/curl --socks5-hostname ${testIp}:${testPort} -s ` +
+            `--max-time 3 https://icanhazip.com 2>/dev/null)`;
+        const output = await execShellAsync(
+            `timeout 15 sh -c ${shQuote(_buildProbeScript(tmpFile, configB64, innerCmd, 1))}`
+        );
+        const ip = output.trim();
+        if (/^[0-9a-fA-F:.]{3,45}$/.test(ip)) show(ip, PING_GREEN); else show("?", PING_RED);
+    } finally {
+        _releaseTestSlot(slot);
+    }
+}
+
+// Runs one test against a node. mode: 'tcp' (TCPing) | 'http' (real delay) | 'ip' (egress IP).
+// opts.fallback: real delay also tries the second URL.
+// Starting a test on a node that is still being tested replaces the older run's result.
+async function _execNodeProbe(node, category, mode, opts = {}) {
+    const key = _pingKey(category, node.id);
+    const run = ++_probeRunCounter;
+    _probeRun.set(key, run);
+    const show = (text, color) => {
+        if (_probeRun.get(key) === run) _setPingResult(category, node.id, text, color);
+    };
+    show("...", PING_MUTED);
+    try {
+        if (mode === 'tcp') await _runTcping(node, show);
+        else if (mode === 'http') await _runRealDelay(node, show, !!opts.fallback);
+        else await _runIpCheck(node, show);
+    } catch (e) {
+        console.warn('[probe] failed', mode, e);
+        show("?", PING_RED);
+    }
+}
+
+const _TEST_TOAST_KEY = { tcp: 'toast_tcping', http: 'toast_check_http', ip: 'toast_check_ip' };
+
+// Whole category. A category already running the same test is left alone.
 async function _pingCategory(category, mode) {
     const catData = profiles[category];
     if (!catData || !catData.nodes || catData.nodes.length === 0) return;
-
-    await parallelWithLimit(catData.nodes.filter(n => !_isGroupNode(n)), NODE_TEST_CONCURRENCY, async (node) => {
-        const pingSpan = document.getElementById(`ping-${category}-${node.id}`);
-        await _execNodeProbe(node, pingSpan, mode);
-    });
+    const guard = mode + '\u0000' + category;
+    if (_runningCategoryTests.has(guard)) return;
+    _runningCategoryTests.add(guard);
+    try {
+        const limit = mode === 'tcp' ? TCPING_CONCURRENCY : NODE_TEST_CONCURRENCY;
+        await parallelWithLimit(catData.nodes.filter(n => !_isGroupNode(n)), limit,
+            (node) => _execNodeProbe(node, category, mode, { fallback: false }));
+    } finally {
+        _runningCategoryTests.delete(guard);
+    }
 }
 
-const pingCategoryCheckHttp = (category) => _pingCategory(category, 'http');
-const pingCategoryCheckIp = (category) => _pingCategory(category, 'ip');
+// Menu entry points. No overlay: the page stays usable, each node shows "..." until its
+// result arrives, and a category run announces itself with a toast.
+async function runCategoryTest(event, category, mode) {
+    closeAllMenus();
+    if (_runningCategoryTests.has(mode + '\u0000' + category)) return;
+    showToast(`${t(_TEST_TOAST_KEY[mode])}${category}...`, 'info');
+    await _pingCategory(category, mode);
+}
 
-// --- Single-node (per-config) HTTP / IP checks ---
-
-async function _checkSingleNode(category, nodeId, mode) {
+async function runNodeTest(event, category, nodeId, mode) {
+    closeAllMenus();
     const node = profiles[category]?.nodes?.find(n => n.id === nodeId);
-    if (!node) return;
-    const pingSpan = document.getElementById(`ping-${category}-${node.id}`);
-    await _execNodeProbe(node, pingSpan, mode);
-}
-
-const checkSingleNodeHttp = (category, nodeId) => _checkSingleNode(category, nodeId, 'http');
-const checkSingleNodeIp = (category, nodeId) => _checkSingleNode(category, nodeId, 'ip');
-
-async function checkHttpWithClose(event, category) {
-    showLoading(`${t("toast_check_http")}${category}...`);
-    const btn = event.currentTarget;
-    closeAllMenus();
-    btn.disabled = true;
-    await new Promise(r => setTimeout(r, 150));
-    try {
-        await pingCategoryCheckHttp(category);
-    } finally {
-        btn.disabled = false;
-        hideLoading();
-    }
-}
-
-async function checkIpWithClose(event, category) {
-    showLoading(`${t("toast_check_ip")}${category}...`);
-    const btn = event.currentTarget;
-    closeAllMenus();
-    btn.disabled = true;
-    await new Promise(r => setTimeout(r, 150));
-    try {
-        await pingCategoryCheckIp(category);
-    } finally {
-        btn.disabled = false;
-        hideLoading();
-    }
-}
-
-async function checkSingleHttpWithClose(event, category, nodeId) {
-    const catData = profiles[category];
-    const node = catData?.nodes?.find(n => n.id === nodeId);
-    showLoading(`${t("toast_check_http")}${node ? node.name : ''}...`);
-    const btn = event.currentTarget;
-    closeAllMenus();
-    btn.disabled = true;
-    await new Promise(r => setTimeout(r, 150));
-    try {
-        await checkSingleNodeHttp(category, nodeId);
-    } finally {
-        btn.disabled = false;
-        hideLoading();
-    }
-}
-
-async function checkSingleIpWithClose(event, category, nodeId) {
-    const catData = profiles[category];
-    const node = catData?.nodes?.find(n => n.id === nodeId);
-    showLoading(`${t("toast_check_ip")}${node ? node.name : ''}...`);
-    const btn = event.currentTarget;
-    closeAllMenus();
-    btn.disabled = true;
-    await new Promise(r => setTimeout(r, 150));
-    try {
-        await checkSingleNodeIp(category, nodeId);
-    } finally {
-        btn.disabled = false;
-        hideLoading();
-    }
+    if (!node || _isGroupNode(node)) return;
+    await _execNodeProbe(node, category, mode, { fallback: true });
 }
 
 async function parallelWithLimit(items, limit, fn) {
