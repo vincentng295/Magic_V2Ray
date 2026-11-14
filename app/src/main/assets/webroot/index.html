@@ -681,6 +681,18 @@
                 </div>
 
                 <div class="settings-group-box">
+                    <h4 data-i18n="grp_backup">Backup &amp; restore</h4>
+                    <div class="setting-item-row">
+                        <label for="btn-settings-export"><span data-i18n="lbl_settings_export">Export settings</span><small data-i18n="desc_settings_export">Choose which parts of the app's settings to save to a file or copy.</small></label>
+                        <button type="button" class="btn btn-secondary" id="btn-settings-export" onclick="openSettingsExport()" data-i18n="btn_settings_export">Export</button>
+                    </div>
+                    <div class="setting-item-row">
+                        <label for="btn-settings-import"><span data-i18n="lbl_settings_import">Import settings</span><small data-i18n="desc_settings_import">Load a settings file or clipboard text and choose which parts to apply.</small></label>
+                        <button type="button" class="btn btn-secondary" id="btn-settings-import" onclick="openSettingsImport()" data-i18n="btn_settings_import">Import</button>
+                    </div>
+                </div>
+
+                <div class="settings-group-box">
                     <h4 data-i18n="grp_logs">Logs &amp; diagnostics</h4>
                     <div class="setting-item-row">
                         <label for="btn-export-logs"><span data-i18n="lbl_export_logs">Export app logs</span><small data-i18n="desc_export_logs">Saves a zip with app and Xray logs, settings, config (UUIDs hidden) and device info to Download/MagicV2Ray. Attach it when reporting a bug.</small></label>
@@ -850,6 +862,7 @@
     <script src="excludeapps.js"></script>
     <script src="appsettings.js"></script>
     <script src="exportlogs.js"></script>
+    <script src="settingsio.js"></script>
     <div id="toast-container" class="toast-container"></div>
 
     <!-- Confirm Modal (KSU webui does not support window.confirm()) -->
@@ -1614,6 +1627,40 @@
             </div>
         </div>
     </div>
+    <!-- Settings export / import modal -->
+    <div id="sio-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-window">
+            <header class="modal-header">
+                <button class="modal-icon-btn" onclick="closeSettingsIoModal()" data-i18n-aria="pinfo_back" aria-label="Back">←</button>
+                <h2 id="sio-title">Export settings</h2>
+                <span style="width:46px"></span>
+            </header>
+            <div class="modal-body sio-body">
+                <p class="sio-hint" id="sio-hint"></p>
+                <div id="sio-source-actions" class="sio-actions" hidden>
+                    <button type="button" class="btn btn-secondary" onclick="sioImportFromFile()" data-i18n="sio_btn_from_file">From file</button>
+                    <button type="button" class="btn btn-secondary" onclick="sioImportFromClipboard()" data-i18n="sio_btn_from_clip">From clipboard</button>
+                    <input type="file" id="sio-file" accept=".json,application/json,text/plain,*/*" style="display:none;">
+                </div>
+                <div id="sio-scope-wrap">
+                    <div class="sio-selectrow">
+                        <button type="button" class="sio-link" onclick="sioToggleAll(true)" data-i18n="sio_select_all">Select all</button>
+                        <button type="button" class="sio-link" onclick="sioToggleAll(false)" data-i18n="sio_select_none">Select none</button>
+                    </div>
+                    <div id="sio-scopes" class="sio-scopes"></div>
+                    <p class="sio-warn" data-i18n="sio_warn">The file can contain node credentials and passwords. Keep it private.</p>
+                </div>
+                <div id="sio-actions-export" class="sio-actions" hidden>
+                    <button type="button" class="btn btn-primary" id="sio-save" onclick="sioSave()" data-i18n="sio_btn_save">Save to file</button>
+                    <button type="button" class="btn btn-secondary" id="sio-copy" onclick="sioCopy()" data-i18n="sio_btn_copy">Copy</button>
+                </div>
+                <div id="sio-actions-apply" class="sio-actions" hidden>
+                    <button type="button" class="btn btn-primary" id="sio-apply" onclick="sioApply()" data-i18n="sio_btn_apply">Apply selected</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="loading-overlay" class="modal-overlay" style="display: none; justify-content: center; align-items: center; z-index: 9999; backdrop-filter: blur(3px);">
         <div style="background: rgba(0, 0, 0, 0.85); padding: 24px 40px; border-radius: 12px; display: flex; flex-direction: column; align-items: center; gap: 16px; border: 1px solid #333; box-shadow: 0 8px 32px rgba(0,0,0,0.5);">
             <div class="spinner"></div>
