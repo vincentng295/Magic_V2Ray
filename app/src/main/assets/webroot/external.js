@@ -16,7 +16,8 @@
 //                                that port is kept out of the VPN (exclude=<package>, or the caller itself when
 //                                it is a verified native app), otherwise its own traffic would loop back into it.
 //
-// A connect is ALWAYS confirmed, with the full uri and who asked, except for an app the user chose to
+// A connect is ALWAYS confirmed, showing who asked and the server (the full uri is under "Details", open by default
+// when anything is unusual), except for an app the user chose to
 // "always trust" (only offered for explicit intents from verified native apps, never for links or browsers),
 // and even then a plaintext VLESS / Trojan node, or an exclusion that is not the caller itself, is confirmed.
 
@@ -148,51 +149,78 @@ function _extAppLabels(pkgs) {
 // the confirmation dialog
 // ---------------------------------------------------------------------------
 
+// Like Shizuku's permission dialog: who asks, three buttons (always / once / deny).
+// Resolves {ok, trust}. Tapping outside the dialog counts as Deny.
 function _extConfirm(info) {
     return new Promise(resolve => {
-        const overlay = document.getElementById('ext-modal-overlay');
-        const ok = document.getElementById('ext-modal-ok');
-        const cancel = document.getElementById('ext-modal-cancel');
-        if (!overlay || !ok || !cancel) { resolve({ ok: false, trust: false }); return; }   // never connect without asking
+        const $ = id => document.getElementById(id);
+        const overlay = $('ext-modal-overlay');
+        const always = $('ext-modal-always');
+        const once = $('ext-modal-ok');
+        const deny = $('ext-modal-cancel');
+        if (!overlay || !always || !once || !deny) { resolve({ ok: false, trust: false }); return; }   // never connect without asking
 
         const { req, node, name, excludes, warnings } = info;
-        const set = (id, text) => { document.getElementById(id).textContent = text; };
+        const set = (id, text) => { $(id).textContent = text; };
+        const native = !!(req.caller && !req.browser);
 
+        // full description of the caller (Details)
         let caller;
-        if (req.caller && !req.browser) caller = `${req.callerLabel || req.caller} (${req.caller})`;
+        if (native) caller = `${req.callerLabel || req.caller} (${req.caller})`;
         else if (req.caller) caller = t('ext_caller_browser', { app: req.callerLabel || req.caller });
         else caller = t('ext_caller_unknown');
         set('ext-caller', caller);
         set('ext-name', name);
-        set('ext-node', `${node.protocol} · ${node.address}:${node.port}`);
         set('ext-uri', req.uri);
+
+        // the question, with the app name in bold: "Allow <b>app</b> to connect through Magic V2Ray?"
+        const who = native ? (req.callerLabel || req.caller)
+            : req.caller ? t('ext_who_web') : t('ext_who_unknown');
+        const q = $('ext-question');
+        q.textContent = '';
+        const MARK = '\u0001';
+        t('ext_question', { app: MARK }).split(MARK).forEach((part, i, arr) => {
+            q.append(document.createTextNode(part));
+            if (i < arr.length - 1) { const b = document.createElement('strong'); b.textContent = who; q.append(b); }
+        });
+        set('ext-caller-pkg', native ? req.caller : '');
+        $('ext-caller-pkg').style.display = native ? '' : 'none';
+        set('ext-node', `${node.protocol} · ${node.address}:${node.port}`);
+
+        // icon of a verified native app; anything else gets the generic one
+        const icon = $('ext-icon'), fallback = $('ext-icon-fallback');
+        icon.style.display = 'none'; fallback.style.display = '';
+        icon.onload = () => { icon.style.display = ''; fallback.style.display = 'none'; };
+        icon.onerror = () => { icon.style.display = 'none'; fallback.style.display = ''; icon.onerror = null; };
+        icon.removeAttribute('src');
+        if (native) icon.src = 'ksu://icon/' + req.caller;
 
         const labels = excludes.length ? _extAppLabels(excludes) : {};
         set('ext-exclude', excludes.length
             ? excludes.map(p => (labels[p] && labels[p] !== p) ? `${labels[p]} (${p})` : p).join('\n')
             : t('ext_none'));
 
-        const warn = document.getElementById('ext-warnings');
+        const warn = $('ext-warnings');
         warn.textContent = warnings.join('\n\n');
         warn.style.display = warnings.length ? '' : 'none';
 
-        const trustRow = document.getElementById('ext-trust-row');
-        const trustBox = document.getElementById('ext-trust');
-        trustBox.checked = false;
-        trustRow.style.display = (req.trustable && req.caller) ? '' : 'none';
+        // anything beyond "this app asks for its own server" is shown right away, not hidden behind a tap
+        $('ext-details').open = warnings.length > 0 || excludes.some(p => p !== req.caller);
 
-        ok.textContent = t('ext_btn_connect');
+        always.style.display = (req.trustable && req.caller) ? '' : 'none';
+
         overlay.style.display = 'flex';
         overlay.scrollTop = 0;
 
-        const cleanup = (result) => {
+        const cleanup = (ok, trust) => {
             overlay.style.display = 'none';
-            ok.onclick = null;
-            cancel.onclick = null;
-            resolve({ ok: result, trust: result && trustBox.checked });
+            always.onclick = once.onclick = deny.onclick = overlay.onclick = null;
+            resolve({ ok, trust });
         };
-        ok.onclick = () => cleanup(true);
-        cancel.onclick = () => cleanup(false);
+        always.onclick = () => cleanup(true, true);
+        once.onclick = () => cleanup(true, false);
+        deny.onclick = () => cleanup(false, false);
+        overlay.onclick = (e) => { if (e.target === overlay) cleanup(false, false); };
     });
 }
 
@@ -388,43 +416,64 @@ function renderAccessTab() {
     const empty = document.getElementById('access-trusted-empty');
     if (!box) return;
     box.textContent = '';
-    if (empty) empty.style.display = list.length ? 'none' : '';
     list.sort((a, b) => String(a.label).localeCompare(String(b.label)));
 
-    list.forEach(app => {
-        const row = document.createElement('div');
-        row.className = 'setting-item-row exclude-row';
+    const q = (document.getElementById('access-search-input')?.value || '').trim().toLowerCase();
+    const shown = q ? list.filter(a => `${a.label || ''} ${a.pkg}`.toLowerCase().includes(q)) : list;
+    if (empty) empty.style.display = shown.length ? 'none' : '';
 
-        const label = document.createElement('div');
-        label.className = 'exclude-label';
+    // One card per app, like Shizuku's list: icon, name, package, badges and a switch. Switching it off revokes the trust
+    // (the app has to ask again); an app can only be trusted again from its own connection request.
+    shown.forEach(app => {
+        const row = document.createElement('div');
+        row.className = 'setting-item-row access-card';
+
         const icon = document.createElement('img');
-        icon.className = 'exclude-icon';
+        icon.className = 'access-icon';
         icon.alt = '';
         icon.src = 'ksu://icon/' + app.pkg;
         icon.onerror = () => { icon.style.visibility = 'hidden'; icon.onerror = null; };
-        const text = document.createElement('span');
-        text.className = 'exclude-text';
-        const name = document.createElement('span');
-        name.className = 'exclude-name';
-        name.textContent = app.label || app.pkg;
-        const pkg = document.createElement('small');
-        const since = app.since ? new Date(app.since).toLocaleDateString() : '';
-        pkg.textContent = app.installed === false
-            ? `${app.pkg} · ${t('access_not_installed')}`
-            : (since ? `${app.pkg} · ${t('access_since', { date: since })}` : app.pkg);
-        text.append(name, pkg);
-        label.append(icon, text);
 
-        const btn = document.createElement('button');
-        btn.className = 'log-filter-chip';
-        btn.textContent = t('access_revoke');
-        btn.addEventListener('click', async () => {
-            if (!await showConfirm(t('access_revoke_confirm', { name: app.label || app.pkg }))) return;
+        const text = document.createElement('div');
+        text.className = 'access-text';
+        const name = document.createElement('div');
+        name.className = 'access-name';
+        name.textContent = app.label || app.pkg;
+        const pkg = document.createElement('div');
+        pkg.className = 'access-pkg';
+        pkg.textContent = app.pkg;
+        const badges = document.createElement('div');
+        badges.className = 'access-badges';
+        const badge = (cls, txt) => { const b = document.createElement('span'); b.className = 'access-badge ' + cls; b.textContent = txt; badges.appendChild(b); };
+        badge('ok', t('access_badge_allowed'));
+        if (app.installed === false) badge('warn', t('access_not_installed'));
+        const since = app.since ? new Date(app.since).toLocaleDateString() : '';
+        if (since) badge('', t('access_since', { date: since }));
+        text.append(name, pkg, badges);
+
+        const sw = document.createElement('input');
+        sw.type = 'checkbox';
+        sw.checked = true;
+        sw.setAttribute('aria-label', app.label || app.pkg);
+        sw.addEventListener('change', () => {
+            if (sw.checked) { sw.checked = false; return; }       // cannot be re-granted from here
             k.trustRemove(app.pkg);
-            renderAccessTab();
+            showToast(t('access_revoked', { name: app.label || app.pkg }), 'success');
+            row.classList.add('access-card-leaving');
+            setTimeout(renderAccessTab, 220);
         });
 
-        row.append(label, btn);
+        row.append(icon, text, sw);
         box.appendChild(row);
     });
 }
+
+function openAccessHelp() {
+    const o = document.getElementById('access-help-overlay');
+    if (!o) return;
+    const close = () => { o.style.display = 'none'; o.onclick = null; };
+    document.getElementById('access-help-close').onclick = close;
+    o.onclick = (e) => { if (e.target === o) close(); };
+    o.style.display = 'flex';
+}
+window.openAccessHelp = openAccessHelp;
