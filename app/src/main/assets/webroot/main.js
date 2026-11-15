@@ -207,6 +207,28 @@ function writeFileB64(path, content, callback) {
 function saveProfiles() {
     writeFileB64(PROFILES_FILE, utoa(JSON.stringify(profiles)));
     syncAutocheckList();
+    syncProviderNodesToNative();
+}
+
+// Keeps the native "saved nodes" list of every provider site current, so the home-screen shortcut
+// (which opens the mini browser without the WebUI) shows the same nodes as the in-app entry.
+function _providerNodeList(cat) {
+    return (cat.nodes || []).filter(n => !_isGroupNode(n)).map(n => ({
+        n: _nodeRemark(n),
+        i: n.id,
+        p: n.protocol || '',
+        a: n.address ? (n.address + (n.port ? ':' + n.port : '')) : ''
+    }));
+}
+function syncProviderNodesToNative() {
+    const k = window.ksu;
+    if (!k || typeof k.storeProviderNodes !== 'function') return;
+    try {
+        Object.keys(profiles || {}).forEach(name => {
+            const cat = profiles[name];
+            if (cat && cat.website) k.storeProviderNodes(name, JSON.stringify(_providerNodeList(cat)));
+        });
+    } catch (e) { /* best effort */ }
 }
 
 function saveActiveConfig() {
@@ -761,6 +783,7 @@ function loadState(callback) {
                     execShell(`cat '${HOSTS_FILE}' 2>/dev/null || echo ''`, (hostsRaw) => {
                         initHostsFileIfNeeded(hostsRaw || '', (finalText) => {
                             hostsFileText = finalText;
+                            syncProviderNodesToNative();
                             bindSettingsToFormView();
                             if (callback) callback();
                         });
@@ -6654,12 +6677,7 @@ function openProviderSite(category) {
     const cat = profiles[category];
     const k = window.ksu;
     if (!cat || !cat.website || !k || typeof k.openProvider !== 'function') return;
-    const nodes = (cat.nodes || []).filter(n => !_isGroupNode(n)).map(n => ({
-        n: _nodeRemark(n),
-        i: n.id,
-        p: n.protocol || '',
-        a: n.address ? (n.address + (n.port ? ':' + n.port : '')) : ''
-    }));
+    const nodes = _providerNodeList(cat);
     if (!cat.icon || !cat.siteTitle) refreshProviderInfo(category);
     k.openProvider(cat.website, category, JSON.stringify(nodes));
 }
@@ -6668,6 +6686,7 @@ function pinProviderShortcut(category) {
     const cat = profiles[category];
     const k = window.ksu;
     if (!cat || !cat.website || !k || typeof k.pinProviderShortcut !== 'function') return;
+    if (typeof k.storeProviderNodes === 'function') k.storeProviderNodes(category, JSON.stringify(_providerNodeList(cat)));
     if (!k.pinProviderShortcut(cat.website, category, cat.icon || '')) showToast(t('toast_provider_pin_unsupported'), 'error');
 }
 

@@ -72,6 +72,12 @@ public class ProviderBrowserActivity extends Activity {
         from.startActivity(i);
     }
 
+    /** Saves the node list to disk (and the in-memory copy) without opening anything. */
+    static void storeNodes(Context c, String category, String nodes) {
+        c.getSharedPreferences("provider_nodes", MODE_PRIVATE).edit().putString(category, nodes).apply();
+        if (category.equals(nodesCategory)) nodesJson = nodes;
+    }
+
     /** Pins a launcher shortcut that opens this category's website directly. */
     static boolean pinShortcut(Activity a, String url, String category, String iconDataUri) {
         ShortcutManager sm = a.getSystemService(ShortcutManager.class);
@@ -116,7 +122,6 @@ public class ProviderBrowserActivity extends Activity {
     }
 
     private String currentNodes() {
-        if (category.equals(nodesCategory)) return nodesJson;
         SharedPreferences sp = getSharedPreferences("provider_nodes", MODE_PRIVATE);
         return sp.getString(category, "[]");
     }

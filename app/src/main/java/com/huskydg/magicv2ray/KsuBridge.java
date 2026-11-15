@@ -197,6 +197,13 @@ final class KsuBridge {
         activity.runOnUiThread(() -> ProviderBrowserActivity.start(activity, url, category, nodesJson));
     }
 
+    /** Persists a provider category's node list so a home-screen shortcut can show it without the WebUI. */
+    @JavascriptInterface
+    public void storeProviderNodes(final String category, final String nodesJson) {
+        if (category == null || nodesJson == null) return;
+        ProviderBrowserActivity.storeNodes(activity, category, nodesJson);
+    }
+
     /** Asks the launcher to pin a home-screen shortcut that opens the provider mini browser. */
     @JavascriptInterface
     public boolean pinProviderShortcut(final String url, final String category, final String iconDataUri) {
