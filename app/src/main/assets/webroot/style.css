@@ -2877,6 +2877,42 @@ html.has-bg header h1 {
     paint-order: stroke fill;
     text-shadow: 0 0 3px var(--md-surface), 0 0 3px var(--md-surface);
 }
+/* Same outlined heading for the tabs whose <h3> sits in a header row (Access permissions, Custom Hosts, Routing). */
+html.has-bg .access-head h3,
+html.has-bg .hosts-panel-header h3,
+html.has-bg .routing-panel-header h3 {
+    color: var(--md-on-surface);
+    -webkit-text-stroke: 4px var(--md-surface);
+    paint-order: stroke fill;
+    text-shadow: 0 0 3px var(--md-surface), 0 0 3px var(--md-surface);
+}
+/* Loose small print is put in a box like .restart-notice, so it stays readable over the picture. */
+html.has-bg .hosts-panel-desc,
+html.has-bg .access-hint {
+    padding: 10px 14px;
+    margin: 0 0 12px;
+    background: var(--md-surface-2);
+    border-left: 3px solid var(--md-primary);
+    border-radius: var(--md-shape-xs);
+    color: var(--md-on-surface-variant);
+    font-size: 13px;
+    line-height: 1.5;
+}
+html.has-bg .hosts-panel-warn {
+    margin-top: 0;
+    background: color-mix(in srgb, var(--md-sys-color-error, #b3261e) 18%, var(--md-surface-2));
+    border-left-color: var(--md-sys-color-error, #b3261e);
+    /* the plain error red is too dark on the dark card: the red edge and tint carry the warning */
+    color: var(--md-on-surface);
+}
+/* "Nothing here yet" texts: a card of their own. (display is toggled by the script, so it is not set here.) */
+html.has-bg .hosts-empty-state,
+html.has-bg .routing-empty-state {
+    margin: 8px 0;
+    padding: 24px 16px;
+    background: var(--md-surface-2);
+    border-radius: var(--md-shape-lg);
+}
 .bg-preview {
     width: 56px; height: 40px; flex: none;
     border-radius: var(--md-shape-sm);
