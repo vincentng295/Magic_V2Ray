@@ -36,6 +36,7 @@
                         <button type="button" role="menuitem" class="tab-menu-item" data-tab="tab-settings" onclick="switchTab('tab-settings', event)" data-i18n="tab_settings">Traffic Settings</button>
                         <button type="button" role="menuitem" class="tab-menu-item" data-tab="tab-network" onclick="switchTab('tab-network', event)" data-i18n="tab_network">Network Settings</button>
                         <button type="button" role="menuitem" class="tab-menu-item" data-tab="tab-exclude" onclick="switchTab('tab-exclude', event)" data-i18n="tab_exclude">Exclude Apps</button>
+                        <button type="button" role="menuitem" class="tab-menu-item" data-tab="tab-access" onclick="switchTab('tab-access', event)" data-i18n="tab_access">Access permissions</button>
                         <button type="button" role="menuitem" class="tab-menu-item" data-tab="tab-routing" onclick="switchTab('tab-routing', event)" data-i18n="tab_routing">Routing Settings</button>
                         <button type="button" role="menuitem" class="tab-menu-item" data-tab="tab-hosts" onclick="switchTab('tab-hosts', event)" data-i18n="tab_hosts">Custom Hosts</button>
                         <button type="button" role="menuitem" class="tab-menu-item" data-tab="tab-log" onclick="switchTab('tab-log', event)" data-i18n="tab_log">Xray Log</button>
@@ -61,6 +62,13 @@
         </header>
 
         <div id="tab-dashboard" class="tab-content active">
+            <div id="ext-banner" class="ext-banner" style="display:none;">
+                <div class="ext-banner-text">
+                    <strong id="ext-banner-name"></strong>
+                    <small id="ext-banner-from"></small>
+                </div>
+                <button class="btn btn-stop" onclick="endExternalSession()" data-i18n="ext_btn_disconnect">Disconnect</button>
+            </div>
             <div class="dash-head">
                 <h3 id="dash-title" class="dash-title" data-i18n="categories_title">Connection categories</h3>
                 <div class="dash-more">
@@ -491,6 +499,41 @@
             </section>
         </div>
 
+        <!-- ===== Access permissions Tab: external control (magicv2ray://connect) ===== -->
+        <div id="tab-access" class="tab-content">
+            <section class="settings-form-panel">
+                <h3 data-i18n="access_title">Access permissions</h3>
+                <p class="restart-notice" data-i18n="access_notice">Other apps and websites can ask Magic V2Ray to route your traffic through a server of theirs. You are always asked first, and the connection only lasts until you disconnect: your own nodes are never changed.</p>
+
+                <div id="access-session-box" class="settings-group-box ext-session-box" style="display:none;">
+                    <div class="ext-banner-text">
+                        <strong id="access-session-name"></strong>
+                        <small id="access-session-from"></small>
+                    </div>
+                    <button class="btn btn-stop" onclick="endExternalSession()" data-i18n="ext_btn_disconnect">Disconnect</button>
+                </div>
+
+                <div class="settings-group-box">
+                    <h4 class="ext-sub" data-i18n="access_trusted_title">Always trusted apps</h4>
+                    <small class="ext-hint" data-i18n="access_trusted_hint">These apps connect without asking. Only apps that call Magic V2Ray directly can be trusted, never a browser or a link. Plaintext VLESS / Trojan nodes and extra exclusions are still confirmed.</small>
+                    <div id="access-trusted-list"></div>
+                    <div id="access-trusted-empty" class="hosts-empty-state">
+                        <span data-i18n="access_trusted_empty">No trusted apps yet. When an app asks to connect you can choose to always trust it.</span>
+                    </div>
+                </div>
+
+                <div class="settings-group-box">
+                    <h4 class="ext-sub" data-i18n="access_howto_title">How apps connect</h4>
+                    <small class="ext-hint" data-i18n="access_howto_text">Link (websites and apps), with the uri URL-encoded. exclude lists apps to keep out of the VPN, e.g. the app that serves a local SOCKS5 proxy. Native apps can send the same data with startActivity or sendBroadcast and the action CONNECT / DISCONNECT.</small>
+                    <pre class="ext-uri ext-code">magicv2ray://connect?uri=socks%3A%2F%2F127.0.0.1%3A4311&amp;name=My%20app&amp;exclude=com.example.app
+magicv2ray://disconnect
+
+action  com.huskydg.magicv2ray.action.CONNECT
+extras  uri, name, exclude</pre>
+                </div>
+            </section>
+        </div>
+
         <!-- ===== Routing Settings Tab ===== -->
         <div id="tab-routing" class="tab-content">
             <section class="routing-panel">
@@ -861,6 +904,7 @@
     <script src="vars.js"></script>
     <script src="main.js"></script>
     <script src="excludeapps.js"></script>
+    <script src="external.js"></script>
     <script src="appsettings.js"></script>
     <script src="exportlogs.js"></script>
     <script src="settingsio.js"></script>
@@ -875,6 +919,36 @@
             <div class="confirm-actions">
                 <button id="confirm-modal-cancel" class="btn btn-confirm-cancel" data-i18n="confirm_cancel">Cancel</button>
                 <button id="confirm-modal-ok" class="btn btn-confirm-ok" data-i18n="confirm_ok">OK</button>
+            </div>
+        </div>
+    </div>
+    <!-- External connect request (magicv2ray://connect): always shows who asks and the full uri -->
+    <div id="ext-modal-overlay" class="modal-overlay confirm-overlay" style="display: none;">
+        <div class="modal-window confirm-window ext-window">
+            <div class="modal-body confirm-body">
+                <h3 class="ext-title" data-i18n="ext_confirm_title">Connection request</h3>
+                <dl class="ext-facts">
+                    <dt data-i18n="ext_lbl_caller">Requested by</dt>
+                    <dd id="ext-caller"></dd>
+                    <dt data-i18n="ext_lbl_name">Shown as</dt>
+                    <dd id="ext-name"></dd>
+                    <dt data-i18n="ext_lbl_node">Server</dt>
+                    <dd id="ext-node"></dd>
+                    <dt data-i18n="ext_lbl_uri">Address (URI)</dt>
+                    <dd><pre id="ext-uri" class="ext-uri"></pre></dd>
+                    <dt data-i18n="ext_lbl_exclude">Kept out of the VPN</dt>
+                    <dd id="ext-exclude"></dd>
+                </dl>
+                <p id="ext-warnings" class="ext-warn" style="display:none;"></p>
+                <label id="ext-trust-row" class="ext-trust" style="display:none;">
+                    <input type="checkbox" id="ext-trust">
+                    <span data-i18n="ext_trust_label">Always trust this app</span>
+                </label>
+                <small class="ext-hint" data-i18n="ext_note_temp">Your traffic will go through this server until you disconnect. Your own nodes are not changed; disconnecting brings your previous node back.</small>
+            </div>
+            <div class="confirm-actions">
+                <button id="ext-modal-cancel" class="btn btn-confirm-cancel" data-i18n="confirm_cancel">Cancel</button>
+                <button id="ext-modal-ok" class="btn btn-confirm-ok" data-i18n="ext_btn_connect">Connect</button>
             </div>
         </div>
     </div>

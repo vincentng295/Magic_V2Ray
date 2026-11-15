@@ -131,6 +131,23 @@ magicv2ray://install-sub?url=https%3A%2F%2Fexample.com%2Fsub%2Ftoken
 
 ---
 
+## Kết nối từ ứng dụng và website khác
+
+Bất kỳ ứng dụng hoặc website nào cũng có thể yêu cầu Magic V2Ray đưa lưu lượng qua một máy chủ trong một lúc. Máy chủ này chỉ là **tạm thời**: node của bạn không bị đụng tới, và khi ngắt kết nối, node đã chọn trước đó được trả lại (chạy lại nếu trước đó đang chạy).
+
+| Cách | Định dạng |
+|---|---|
+| Liên kết | `magicv2ray://connect?uri=<uri mã hóa>&name=<tên>&exclude=<package,package>` |
+| Liên kết | `magicv2ray://disconnect` |
+| App native | `startActivity` với action `com.huskydg.magicv2ray.action.CONNECT` / `.DISCONNECT` và extras `uri`, `name`, `exclude` |
+| App native | `sendBroadcast` với cùng action và extras (connect sẽ hiện thông báo "chạm để xem xét", vì Android 10+ không cho mở hộp xác nhận từ nền) |
+
+- **SOCKS5 cục bộ**: gửi `uri=socks://127.0.0.1:4311`. Không cần cơ chế mới vì app đã hỗ trợ node SOCKS.
+- **Tên hiển thị** (thanh trạng thái, thông báo, tile: `RUNNING - <tên>`): tham số `name`, rồi tên app gọi, rồi remark trong URI, cuối cùng là hostname. Chỉ là nhãn, không dùng để tin tưởng ai.
+- **Chống vòng lặp**: app chạy SOCKS5 và ra mạng bằng chính thiết bị này phải được loại khỏi VPN, nếu không lưu lượng của nó quay vòng vào chính nó. Truyền `exclude=<package>`; app native đã xác minh mà phục vụ địa chỉ cục bộ sẽ được loại tự động. Chế độ non-root dùng danh sách disallowed-apps của VPN, chế độ root thêm uid vào chuỗi iptables `XRAY_EXCLUDE_APP`. Cả hai chỉ có hiệu lực trong lúc kết nối, bất kể công tắc Loại trừ ứng dụng.
+- **Ngắt**: `magicv2ray://disconnect`, nút trong thông báo, tile Cài đặt nhanh, nút Dừng / Ngắt kết nối trong app. Khởi động lại máy cũng kết thúc phiên.
+- **Bảo mật**: website nào cũng có thể bắn link `connect`, nên mọi kết nối đều phải xác nhận, hiện đủ uri, người gọi và app bị loại. Người gọi chỉ "đã xác minh" khi Android cung cấp (không bao giờ dùng `EXTRA_REFERRER` có thể giả mạo) và không phải trình duyệt. Node VLESS / Trojan không mã hóa vẫn giữ cảnh báo cũ. Tab **Cấp quyền truy cập** liệt kê các app "luôn tin"; tùy chọn này chỉ có với intent tường minh từ app native đã xác minh (không áp dụng cho link hay trình duyệt) và gắn với chứng chỉ ký của app. App đã tin vẫn bị hỏi với node không mã hóa và với mục loại trừ khác chính nó.
+
 ## Build từ mã nguồn
 
 ```sh

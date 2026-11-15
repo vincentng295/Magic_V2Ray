@@ -131,6 +131,23 @@ magicv2ray://install-sub?url=https%3A%2F%2Fexample.com%2Fsub%2Ftoken
 
 ---
 
+## Connect from other apps and websites
+
+Any app or website can ask Magic V2Ray to route traffic through a server for a while. The server is **temporary**: your own nodes are not touched, and ending the connection brings your previously selected node back (running again if it was running before).
+
+| How | Format |
+|---|---|
+| Link | `magicv2ray://connect?uri=<urlencoded uri>&name=<name>&exclude=<package,package>` |
+| Link | `magicv2ray://disconnect` |
+| Native app | `startActivity` with the action `com.huskydg.magicv2ray.action.CONNECT` / `.DISCONNECT` and the extras `uri`, `name`, `exclude` |
+| Native app | `sendBroadcast` with the same action and extras (a connect shows a "tap to review" notification, because Android 10+ blocks opening the confirmation from the background) |
+
+- **Local SOCKS5**: send `uri=socks://127.0.0.1:4311`. No new mechanism is needed, SOCKS nodes are already supported.
+- **Display name** (status chip, notification, tile: `RUNNING - <name>`): the `name` parameter, then the calling app's name, then the remark of the uri, then its host. It is only a label, nothing is trusted because of it.
+- **Loop prevention**: an app that serves the SOCKS5 port and reaches the internet through this device must be kept out of the VPN, otherwise its traffic loops back into it. Pass `exclude=<package>`; a verified native caller that serves a local address is excluded automatically. Non-root mode uses the VPN's disallowed-apps list, root mode adds the uid to the `XRAY_EXCLUDE_APP` iptables chain. Both apply only while the connection lasts, whatever the Exclude Apps switch says.
+- **Ending it**: `magicv2ray://disconnect`, the notification button, the Quick Settings tile, the Stop / Disconnect buttons in the app. A reboot also ends it.
+- **Security**: any website can fire a `connect` link, so every connect is confirmed, showing the full uri, the caller and the excluded apps. The caller is only "verified" when Android supplies it (never the spoofable `EXTRA_REFERRER`) and it is not a browser. A plaintext VLESS / Trojan node keeps its existing warning. The **Access permissions** tab lists the apps set to "always trust"; that option is only offered for explicit intents from verified native apps (never links or browsers) and is tied to the app's signing certificate. Even a trusted app is confirmed for plaintext nodes and for exclusions other than itself.
+
 ## Building from Source
 
 ```sh

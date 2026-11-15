@@ -58,9 +58,16 @@ final class ProxyNotifier {
 
     /** @param standby VPN up but the proxy idle on the unselected network (non-root "Apply proxy on") */
     static Notification build(Context c, boolean standby) {
+        // An external session (magicv2ray://connect) shows "RUNNING - <name>" instead of the selected node.
+        final String ext = ExternalSession.name(c);
+        final boolean external = !ext.isEmpty();
         String node = node(c);
         String text;
-        if (node.isEmpty()) {
+        if (external) {
+            String from = ExternalSession.callerLabel(c);
+            text = from.isEmpty() ? c.getString(R.string.ext_notif_text) : c.getString(R.string.ext_notif_text_from, from);
+            if (standby) text += "\n" + c.getString(R.string.vpn_notif_paused);
+        } else if (node.isEmpty()) {
             text = c.getString(standby ? R.string.vpn_notif_paused : R.string.vpn_notif_text);
         } else {
             text = c.getString(R.string.notif_node, node);
@@ -76,14 +83,16 @@ final class ProxyNotifier {
 
         Notification.Builder nb = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(c, CHANNEL)
                 : new Notification.Builder(c);
-        return nb.setContentTitle(c.getString(standby ? R.string.notif_title_paused : R.string.notif_title_on))
+        final String title = external ? c.getString(R.string.ext_notif_title, ext)
+                : c.getString(standby ? R.string.notif_title_paused : R.string.notif_title_on);
+        return nb.setContentTitle(title)
                 .setContentText(text.replace('\n', ' '))
                 .setStyle(new Notification.BigTextStyle().bigText(text))
                 .setSmallIcon(R.drawable.ic_tile)
                 .setContentIntent(open)
                 .addAction(new Notification.Action.Builder(
                         Icon.createWithResource(c, R.drawable.ic_tile),
-                        c.getString(R.string.notif_stop), stop).build())
+                        c.getString(external ? R.string.ext_notif_stop : R.string.notif_stop), stop).build())
                 .setCategory(Notification.CATEGORY_SERVICE)
                 .setShowWhen(false)
                 .setOnlyAlertOnce(true)
@@ -107,8 +116,20 @@ final class ProxyNotifier {
         }
     }
 
-    /** Turns the proxy off; blocks, call it from a worker thread. */
+    /**
+     * The "Turn off proxy" button. While an external session runs it ends that session instead,
+     * which puts the previously selected node back; blocks, call it from a worker thread.
+     */
     static void stopProxy(Context c) {
+        if (ExternalSession.isActive(c)) {
+            ExternalSession.end(c);
+            return;
+        }
+        stopEngine(c);
+    }
+
+    /** Stops the engine for real, whatever is selected; blocks, call it from a worker thread. */
+    static void stopEngine(Context c) {
         if (RunMode.isNonRoot(c)) {
             VpnController.stop();           // the service removes its own notification
             return;

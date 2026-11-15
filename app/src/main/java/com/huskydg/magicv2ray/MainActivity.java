@@ -86,6 +86,10 @@ public class MainActivity extends Activity {
         super.attachBaseContext(AppPrefs.wrap(base));
     }
 
+    /** The visible / alive instance, for the parts of the app that need to nudge the WebUI. */
+    static volatile MainActivity current;
+    static volatile boolean resumed;
+
     /** Subscription URL from a v2rayng:// / magicv2ray:// link, waiting for the WebUI to take it. */
     static volatile String pendingLink;
 
@@ -131,10 +135,48 @@ public class MainActivity extends Activity {
         return url.matches("(?i)^https?://\\S+$") ? url : null;
     }
 
+    /** Runs a JS snippet in the WebUI (if it is loaded). */
+    void pokeWeb(final String js) {
+        final WebView w = web;
+        if (w != null) w.post(() -> w.evaluateJavascript(js, null));
+    }
+
+    /**
+     * magicv2ray://connect | disconnect, or the CONNECT / DISCONNECT actions, or a tap on the
+     * "review request" notification. A connect is parked for the WebUI, which asks the user; a
+     * disconnect only ever ends the external session, which puts the user's own node back.
+     * Must run inside onCreate / onNewIntent: the system's referrer is only valid there.
+     * @return true when the intent was an external-control one
+     */
+    private boolean handleExternal(Intent intent) {
+        if (intent == null) return false;
+        if (ExternalSession.ACTION_REVIEW.equals(intent.getAction())) {
+            pokeWeb("window.checkExternalRequest&&window.checkExternalRequest()");
+            return true;
+        }
+        if ((intent.getFlags() & Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0) return false;   // do not replay
+        final org.json.JSONObject req = ExternalSession.request(this, intent, ExternalSession.callerOf(this, intent), false);
+        if (req == null) return false;
+        if ("disconnect".equals(req.optString("action"))) {
+            final Context app = getApplicationContext();
+            new Thread(() -> {
+                final boolean had = ExternalSession.isActive(app);
+                ExternalSession.end(app);
+                runOnUiThread(() -> Toast.makeText(this,
+                        had ? R.string.ext_ended : R.string.ext_no_session, Toast.LENGTH_SHORT).show());
+            }, "mv-ext-end").start();
+            return true;
+        }
+        ExternalSession.queue(this, req);
+        pokeWeb("window.checkExternalRequest&&window.checkExternalRequest()");
+        return true;
+    }
+
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        if (handleExternal(intent)) return;
         String add = providerAdd(intent);
         if (add != null) {
             pendingProviderAdd = add;
@@ -150,6 +192,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        current = this;
+        // not on recreate() / process-death restore: the same intent must not ask again
+        if (savedInstanceState == null) handleExternal(getIntent());
         pendingLink = linkUrl(getIntent());
         pendingProviderAdd = providerAdd(getIntent());
         // Until the WebUI reports its real surface colour, use the cached one (or the resource default).
@@ -636,6 +681,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        resumed = true;
+        ExternalSession.clearPendingNotification(this);
         // Back from the provider mini browser with a sync request: let the WebUI import it.
         if (pendingProviderConnect != null && web != null) {
             web.post(() -> web.evaluateJavascript("window.checkProviderConnect&&window.checkProviderConnect()", null));
@@ -646,6 +693,12 @@ public class MainActivity extends Activity {
         if (pendingProviderSync != null && web != null) {
             web.post(() -> web.evaluateJavascript("window.checkProviderSync&&window.checkProviderSync()", null));
         }
+    }
+
+    @Override
+    protected void onPause() {
+        resumed = false;
+        super.onPause();
     }
 
     @Override
@@ -662,6 +715,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (current == this) current = null;
         if (filePathCallback != null) {
             filePathCallback.onReceiveValue(null);
             filePathCallback = null;

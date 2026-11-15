@@ -2974,3 +2974,79 @@ html.has-bg .category-group:has(> .nodes-list[style*="display: none"]) > .catego
 
 /* The confirm dialog must sit above any other modal that opens it (e.g. settings import). */
 .modal-overlay.confirm-overlay { z-index: 2500; }
+
+
+/* ===== External control (magicv2ray://connect) ===== */
+.status-badge .status-node.ext::before { content: '-'; }
+
+.ext-banner,
+.ext-session-box {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+    background: var(--md-primary-container);
+    color: var(--md-on-primary-container);
+    border-radius: var(--md-shape-lg);
+}
+.ext-banner-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ext-banner-text strong,
+.ext-banner-text small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ext-banner .btn,
+.ext-session-box .btn { flex-shrink: 0; }
+
+.ext-window { max-height: 88vh; overflow-y: auto; }
+.ext-title { margin: 0 0 12px; font-size: 17px; }
+.ext-facts { margin: 0 0 12px; }
+.ext-facts dt {
+    margin-top: 10px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--md-on-surface-variant);
+}
+.ext-facts dd {
+    margin: 2px 0 0;
+    font-size: 14px;
+    word-break: break-word;
+    white-space: pre-line;
+}
+.ext-uri {
+    margin: 0;
+    padding: 8px 10px;
+    max-height: 120px;
+    overflow: auto;
+    font-family: var(--md-font-mono);
+    font-size: 12px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-all;
+    user-select: text;
+    background: var(--md-surface-3);
+    border-radius: var(--md-shape-sm);
+}
+.ext-code { max-height: none; margin-top: 8px; }
+.ext-warn {
+    margin: 0 0 12px !important;
+    padding: 10px 12px;
+    font-size: 13px !important;
+    color: var(--md-on-error-container, var(--md-error));
+    background: var(--md-error-container, rgba(179, 38, 30, .12));
+    border-radius: var(--md-shape-sm);
+}
+.ext-trust {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 4px 0 12px;
+    font-size: 14px;
+    cursor: pointer;
+}
+.ext-hint { display: block; color: var(--md-on-surface-variant); line-height: 1.5; }
+.ext-sub { margin: 0 0 6px; font-size: 14px; }

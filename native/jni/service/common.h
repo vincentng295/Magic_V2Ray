@@ -33,6 +33,9 @@
 #define BYPASS_IFACE_FILE DATADIR "/bypassIface.txt"
 #define ENABLED_FLAG   DATADIR "/enabled"
 #define EXCLUDE_LIST_FILE DATADIR "/excludelist.txt"
+/* Apps of a running external session (magicv2ray://connect, written by the WebUI): excluded whether or not
+ * the Exclude apps switch is on, e.g. the app that serves the SOCKS5 node the engine now dials. */
+#define EXCLUDE_SESSION_FILE DATADIR "/excludelist.session.txt"
 #define SETTINGS_FILE  DATADIR "/settings.base64"
 #define SUB_LOOP_PID_FILE DATADIR "/.sub_loop.pid"   /* service.sh subscription updater */
 

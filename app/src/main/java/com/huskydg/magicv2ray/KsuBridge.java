@@ -190,6 +190,66 @@ final class KsuBridge {
         return u == null ? "" : u;
     }
 
+    // ------------------------------------------------ external control (see ExternalSession)
+
+    /** The connect request parked by a deep link / intent / broadcast as JSON ("" if none); returns it once. */
+    @JavascriptInterface
+    public String takeExternalRequest() {
+        return ExternalSession.take(activity.getApplicationContext());
+    }
+
+    /** {"active":false} or the running external session (name, uri, caller, callerLabel, exclude, wasRunning). */
+    @JavascriptInterface
+    public String extState() {
+        return ExternalSession.state(activity.getApplicationContext()).toString();
+    }
+
+    /** The WebUI wrote the external config and the base copy: remember the session. */
+    @JavascriptInterface
+    public boolean extBegin(String json) {
+        return ExternalSession.begin(activity.getApplicationContext(), json);
+    }
+
+    /** Ends the session and puts the previous node back. Callback gets (0, "", ""). */
+    @JavascriptInterface
+    public void extEnd(final String callback) {
+        if (callback == null || !CB_RE.matcher(callback).matches()) return;
+        POOL.execute(() -> {
+            ExternalSession.end(activity.getApplicationContext());
+            deliver(callback, 0, "", "");
+        });
+    }
+
+    /** The session lost its engine: drop it without touching the engine. Callback gets (0|1, "", ""), 0 = dropped. */
+    @JavascriptInterface
+    public void extAbandon(final String callback) {
+        if (callback == null || !CB_RE.matcher(callback).matches()) return;
+        POOL.execute(() -> deliver(callback, ExternalSession.abandon(activity.getApplicationContext()) ? 0 : 1, "", ""));
+    }
+
+    /** Apps trusted to connect without a prompt, as JSON [{pkg,label,since,installed}]. */
+    @JavascriptInterface
+    public String trustList() {
+        return ExternalSession.trustedJson(activity.getApplicationContext()).toString();
+    }
+
+    /** "Always trust this app": only for the caller of the request that was just taken, and only if it is trustable. */
+    @JavascriptInterface
+    public boolean trustAdd(String pkg) {
+        return ExternalSession.trust(activity.getApplicationContext(), pkg);
+    }
+
+    @JavascriptInterface
+    public void trustRemove(String pkg) {
+        ExternalSession.untrust(activity.getApplicationContext(), pkg);
+    }
+
+    /** Sends the app to the background, which returns the user to the app that asked for a connection. */
+    @JavascriptInterface
+    public void moveToBack() {
+        activity.runOnUiThread(() -> activity.moveTaskToBack(true));
+    }
+
     /** Opens a provider website in the sandboxed mini browser (https only; the page gets no bridge). */
     @JavascriptInterface
     public void openProvider(final String url, final String category, final String nodesJson) {

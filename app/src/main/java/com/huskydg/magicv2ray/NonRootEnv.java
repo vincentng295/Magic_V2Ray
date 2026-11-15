@@ -246,11 +246,19 @@ final class NonRootEnv {
         }
     }
 
-    /** Packages of the Exclude Apps list, when that feature is switched on. */
+    /**
+     * Packages that skip the VPN: the Exclude Apps list when that feature is switched on, plus the
+     * apps of a running external session (magicv2ray://connect), which apply whatever the switch says
+     * (an app that serves the SOCKS5 node must not be captured by the tunnel that leads back to it).
+     */
     static List<String> excludedApps(Context c, JSONObject settings) {
         List<String> out = new ArrayList<>();
-        if (!settings.optBoolean("excludeApps", false)) return out;
-        File f = new File(datadir(c), "excludelist.txt");
+        if (settings.optBoolean("excludeApps", false)) readPkgList(new File(datadir(c), "excludelist.txt"), out);
+        readPkgList(new File(datadir(c), ExternalSession.SESSION_EXCLUDE_FILE), out);
+        return out;
+    }
+
+    private static void readPkgList(File f, List<String> out) {
         try (FileInputStream in = new FileInputStream(f)) {
             ByteArrayOutputStream bo = new ByteArrayOutputStream();
             byte[] b = new byte[8192];
@@ -258,11 +266,10 @@ final class NonRootEnv {
             while ((n = in.read(b)) > 0) bo.write(b, 0, n);
             for (String line : bo.toString("UTF-8").split("\n")) {
                 String p = line.trim();
-                if (p.matches("^[A-Za-z0-9_.]+$")) out.add(p);
+                if (p.matches("^[A-Za-z0-9_.]+$") && !out.contains(p)) out.add(p);
             }
         } catch (IOException ignored) {
         }
-        return out;
     }
 
     /** LAN ranges that skip the tunnel: all of them except the ones the user unticked. */

@@ -46,4 +46,16 @@
     <string name="provider_close">Đóng</string>
     <string name="provider_link_copied">Đã sao chép liên kết</string>
     <string name="provider_bad_sync">Liên kết đồng bộ không có URL hợp lệ</string>
+    <string name="ext_notif_title">RUNNING - %1$s</string>
+    <string name="ext_notif_text">Đang kết nối bởi ứng dụng ngoài</string>
+    <string name="ext_notif_text_from">Yêu cầu bởi %1$s</string>
+    <string name="ext_notif_stop">Ngắt kết nối</string>
+    <string name="tile_running_external">RUNNING - %1$s</string>
+    <string name="ext_review_channel">Yêu cầu kết nối</string>
+    <string name="ext_review_title">Yêu cầu kết nối</string>
+    <string name="ext_review_text">%1$s muốn dùng %2$s. Chạm để xem xét.</string>
+    <string name="ext_unknown_app">Một ứng dụng không xác định</string>
+    <string name="ext_unnamed">một kết nối chưa đặt tên</string>
+    <string name="ext_ended">Đã ngắt kết nối ngoài</string>
+    <string name="ext_no_session">Không có kết nối ngoài nào đang chạy</string>
 </resources>

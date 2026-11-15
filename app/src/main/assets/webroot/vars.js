@@ -61,6 +61,12 @@ const BYPASS_IFACE_FILE = `${DATADIR}/bypassIface.txt`;
 // Xray when advSettings.excludeApps is true (enforced by service.sh). The list
 // is kept even while the feature is switched off, so it survives a toggle.
 const EXCLUDE_LIST_FILE = `${DATADIR}/excludelist.txt`;
+// External control (magicv2ray://connect, see external.js). While an external session runs, CONFIG_JSON holds
+// the session's config, CONFIG_BASE_FILE the config of the node the user had selected (put back when the session
+// ends, also by the app's native side without the WebUI), and EXCLUDE_SESSION_FILE the apps the session keeps out
+// of the VPN (read by the engine whatever the Exclude apps switch says).
+const CONFIG_BASE_FILE = `${DATADIR}/config.base.json`;
+const EXCLUDE_SESSION_FILE = `${DATADIR}/excludelist.session.txt`;
 // Default User-Agent sent when fetching subscription links, so hosts that
 // gate content on the client (e.g. v2rayNG-only subs) still respond.
 // Per-subscription override lives in profiles[category].useragent.

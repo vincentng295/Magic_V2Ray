@@ -474,7 +474,13 @@ function applyActiveConfig(options = {}) {
     // selectable and always valid, so this is a normal path rather than a
     // bail-out.
     let rawUri;
-    if (!activeConfig) {
+    const ext = extState();
+    if (ext.active) {
+        // An external session (magicv2ray://connect) is running: the engine keeps using its node. The selected
+        // node's config is only refreshed on the side, for when the session ends.
+        rawUri = ext.uri;
+        extRefreshBase();
+    } else if (!activeConfig) {
         rawUri = DIRECT_NODE_URI;
     } else {
         const [category, id] = activeConfig.split(':');
@@ -808,6 +814,9 @@ document.addEventListener('DOMContentLoaded', () => {
         checkProviderAdd();
         checkProviderInfo();
         checkProviderConnect();
+        checkExternalRequest();
+        extReconcile();
+        renderExtBanner();
     });
 });
  
@@ -878,6 +887,8 @@ function changeRunMode(mode) {
 // chip. Mirrors the resolution order used when the config is generated:
 // professional mode > built-in direct node > selected profile node.
 function getActiveNodeLabel() {
+    const ext = extState();
+    if (ext.active) return ext.name || ext.callerLabel || t('ext_unnamed');
     if (advSettings.proMode) return t('status_node_pro');
     if (!activeConfig) return t('builtin_direct_name');
     const sep = activeConfig.indexOf(':');
@@ -889,7 +900,7 @@ function getActiveNodeLabel() {
 
 // Rebuilt with textContent (never innerHTML): node names come from
 // subscriptions and are untrusted.
-function _setStatusBadge(text, nodeName) {
+function _setStatusBadge(text, nodeName, isExternal = false) {
     const badge = document.getElementById('service-status');
     if (!badge) return;
     badge.textContent = '';
@@ -899,7 +910,7 @@ function _setStatusBadge(text, nodeName) {
     badge.appendChild(textEl);
     if (nodeName) {
         const nodeEl = document.createElement('span');
-        nodeEl.className = 'status-node';
+        nodeEl.className = 'status-node' + (isExternal ? ' ext' : '');
         nodeEl.textContent = nodeName;
         badge.appendChild(nodeEl);
         badge.title = nodeName;
@@ -912,10 +923,14 @@ function updateStatusDisplay() {
     execShell(`sh ${MODDIR}/proxy_control.sh status`, (status, stderr, errno) => {
         const badge = document.getElementById('service-status');
         const s = status || 'stopped';
+        // "RUNNING - <name>" while an external session (magicv2ray://connect) is on
         _setStatusBadge(
             t('status_prefix') + s.toUpperCase(),
-            errno === 0 ? getActiveNodeLabel() : ''
+            errno === 0 ? getActiveNodeLabel() : '',
+            errno === 0 && extState().active
         );
+        renderExtBanner();
+        if (errno !== 0) extReconcile();       // a session whose engine is gone is dropped
         badge.className = `status-badge ${errno === 0 ? 'active' : 'inactive'}`;
         // Tell the APK host, which shows the "proxy active" notification with the node name.
         try {
@@ -1039,6 +1054,11 @@ const PROXY_CONTROL_ACTIONS = [
 ];
 
 async function toggleService(action) {
+    // Stop while an external session runs = end it, which puts the node selected before it back.
+    if (action === 'stop' && extState().active) {
+        endExternalSession();
+        return;
+    }
     if (action === 'start' || action === 'restart') {
         if (advSettings.proMode) {
             const check = validateCustomConfig(customConfigText);
@@ -1638,6 +1658,13 @@ async function selectNode(category, id) {
     activeConfig = `${category}:${id}`;
     saveActiveConfig();
     renderProfiles();
+
+    // An external session owns the engine: the new selection is used when it ends.
+    if (extState().active) {
+        extRefreshBase();
+        showToast(t('ext_select_deferred'), 'info');
+        return true;
+    }
 
     // Write the config and restart only if the engine is already running.
     applyActiveConfig();
@@ -3798,6 +3825,10 @@ function switchTab(tabId, evt) {
 
     if (tabId === 'tab-exclude') {
         onExcludeTabOpened();
+    }
+
+    if (tabId === 'tab-access') {
+        renderAccessTab();
     }
 
     if (tabId === 'tab-about') {

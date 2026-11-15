@@ -47,9 +47,16 @@ public class CoreTileService extends TileService {
         new Thread(() -> {
             try {
                 RootShell.init(getApplicationContext());
-                RootShell.Result r = RunMode.isNonRoot(this)
-                        ? VpnController.handle(getApplicationContext(), null, turnOff ? "stop" : "start")
-                        : RootShell.run("sh " + RootShell.sq(CTL) + (turnOff ? " stop" : " start") + " 2>&1", 60_000);
+                RootShell.Result r;
+                if (turnOff && ExternalSession.isActive(this)) {
+                    // an external session (magicv2ray://connect) is running: ending it puts the old node back
+                    ExternalSession.end(getApplicationContext());
+                    r = new RootShell.Result(0, "", "");
+                } else {
+                    r = RunMode.isNonRoot(this)
+                            ? VpnController.handle(getApplicationContext(), null, turnOff ? "stop" : "start")
+                            : RootShell.run("sh " + RootShell.sq(CTL) + (turnOff ? " stop" : " start") + " 2>&1", 60_000);
+                }
                 // "no config": nothing selected yet, let the user pick a node in the app.
                 boolean needApp = !turnOff && !r.ok();
                 State s = query();
@@ -115,7 +122,12 @@ public class CoreTileService extends TileService {
                 t.setState(Tile.STATE_UNAVAILABLE);
                 res = R.string.tile_unavailable;
         }
-        if (Build.VERSION.SDK_INT >= 29) t.setSubtitle(subtitle != null ? subtitle : getString(res));
+        String sub = subtitle != null ? subtitle : getString(res);
+        // "RUNNING - <name>" while an external session is on
+        if (subtitle == null && s == State.ON && ExternalSession.isActive(this)) {
+            sub = getString(R.string.tile_running_external, ExternalSession.name(this));
+        }
+        if (Build.VERSION.SDK_INT >= 29) t.setSubtitle(sub);
         t.updateTile();
     }
 

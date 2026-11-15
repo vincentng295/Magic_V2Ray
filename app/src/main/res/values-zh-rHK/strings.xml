@@ -46,4 +46,16 @@
     <string name="provider_close">關閉</string>
     <string name="provider_link_copied">連結已複製</string>
     <string name="provider_bad_sync">此同步連結沒有有效的 URL</string>
+    <string name="ext_notif_title">RUNNING - %1$s</string>
+    <string name="ext_notif_text">由外部應用程式連線</string>
+    <string name="ext_notif_text_from">請求來自 %1$s</string>
+    <string name="ext_notif_stop">中斷連線</string>
+    <string name="tile_running_external">RUNNING - %1$s</string>
+    <string name="ext_review_channel">連線請求</string>
+    <string name="ext_review_title">連線請求</string>
+    <string name="ext_review_text">%1$s 想使用 %2$s。點按查看。</string>
+    <string name="ext_unknown_app">未知應用程式</string>
+    <string name="ext_unnamed">未命名的連線</string>
+    <string name="ext_ended">已中斷外部連線</string>
+    <string name="ext_no_session">沒有正在執行的外部連線</string>
 </resources>

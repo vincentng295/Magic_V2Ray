@@ -46,4 +46,16 @@
     <string name="provider_close">关闭</string>
     <string name="provider_link_copied">链接已复制</string>
     <string name="provider_bad_sync">此同步链接没有有效的 URL</string>
+    <string name="ext_notif_title">RUNNING - %1$s</string>
+    <string name="ext_notif_text">由外部应用连接</string>
+    <string name="ext_notif_text_from">请求来自 %1$s</string>
+    <string name="ext_notif_stop">断开连接</string>
+    <string name="tile_running_external">RUNNING - %1$s</string>
+    <string name="ext_review_channel">连接请求</string>
+    <string name="ext_review_title">连接请求</string>
+    <string name="ext_review_text">%1$s 想使用 %2$s。点按查看。</string>
+    <string name="ext_unknown_app">未知应用</string>
+    <string name="ext_unnamed">未命名的连接</string>
+    <string name="ext_ended">已断开外部连接</string>
+    <string name="ext_no_session">没有正在运行的外部连接</string>
 </resources>

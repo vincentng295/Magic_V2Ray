@@ -46,4 +46,16 @@
     <string name="provider_close">Закрыть</string>
     <string name="provider_link_copied">Ссылка скопирована</string>
     <string name="provider_bad_sync">В ссылке синхронизации нет корректного URL</string>
+    <string name="ext_notif_title">RUNNING - %1$s</string>
+    <string name="ext_notif_text">Подключено внешним приложением</string>
+    <string name="ext_notif_text_from">Запрос от %1$s</string>
+    <string name="ext_notif_stop">Отключить</string>
+    <string name="tile_running_external">RUNNING - %1$s</string>
+    <string name="ext_review_channel">Запросы на подключение</string>
+    <string name="ext_review_title">Запрос на подключение</string>
+    <string name="ext_review_text">%1$s хочет использовать %2$s. Нажмите, чтобы посмотреть.</string>
+    <string name="ext_unknown_app">Неизвестное приложение</string>
+    <string name="ext_unnamed">безымянное подключение</string>
+    <string name="ext_ended">Внешнее подключение завершено</string>
+    <string name="ext_no_session">Внешних подключений нет</string>
 </resources>

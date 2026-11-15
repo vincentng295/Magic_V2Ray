@@ -31,24 +31,32 @@ static bool valid_pkg(const char *s)
  * must never be looped through the tunnel it controls. */
 #define SELF_PKG "com.huskydg.magicv2ray"
 
-/* Cleaned list: comments, CRs and blank lines removed, SELF_PKG always present.
- * Caller frees. */
-static char **read_list(int *n)
+/* Appends the entries of one list file: comments, CRs and blank lines removed. */
+static void read_file(const char *path, char ***v, int *n, bool *self)
 {
-    char *raw = malloc(1 << 20); char **v = NULL; *n = 0;
-    bool self = false;
-    if (raw && u_read(EXCLUDE_LIST_FILE, raw, 1 << 20) >= 0) {
+    char *raw = malloc(1 << 20);
+    if (raw && u_read(path, raw, 1 << 20) >= 0) {
         char *save = NULL;
         for (char *l = strtok_r(raw, "\n", &save); l; l = strtok_r(NULL, "\n", &save)) {
             char *h = strchr(l, '#'); if (h) *h = 0;
             u_trim(l);
             if (!*l) continue;
-            if (!strcmp(l, SELF_PKG)) self = true;
-            v = realloc(v, (*n + 1) * sizeof *v);
-            v[(*n)++] = strdup(l);
+            if (!strcmp(l, SELF_PKG)) *self = true;
+            *v = realloc(*v, (*n + 1) * sizeof **v);
+            (*v)[(*n)++] = strdup(l);
         }
     }
     free(raw);
+}
+
+/* The user's list (only while the switch is on, see sync_exclude_apps) plus the session list; SELF_PKG
+ * always present. Caller frees. */
+static char **read_list(int *n, bool with_user_list)
+{
+    char **v = NULL; *n = 0;
+    bool self = false;
+    if (with_user_list) read_file(EXCLUDE_LIST_FILE, &v, n, &self);
+    read_file(EXCLUDE_SESSION_FILE, &v, n, &self);
     if (!self) {
         v = realloc(v, (*n + 1) * sizeof *v);
         v[(*n)++] = strdup(SELF_PKG);
@@ -57,9 +65,22 @@ static char **read_list(int *n)
 }
 static void free_list(char **v, int n) { for (int i = 0; i < n; i++) free(v[i]); free(v); }
 
+/* Exclusion is on when the user switched it on, or while an external session has apps to keep out of the tunnel. */
+static bool session_has_apps(void)
+{
+    char buf[4096];
+    ssize_t r = u_read(EXCLUDE_SESSION_FILE, buf, sizeof buf - 1);
+    if (r <= 0) return false;
+    buf[r] = 0;
+    for (char *p = buf; *p; p++)
+        if (*p != ' ' && *p != '\t' && *p != '\r' && *p != '\n') return true;
+    return false;
+}
+static bool exclude_on(void) { return settings_is_true("excludeApps") || session_has_apps(); }
+
 static bool list_has(const char *pkg)
 {
-    int n; char **v = read_list(&n); bool r = false;
+    int n; char **v = read_list(&n, settings_is_true("excludeApps")); bool r = false;
     for (int i = 0; i < n; i++) if (!strcmp(v[i], pkg)) { r = true; break; }
     free_list(v, n);
     return r;
@@ -142,7 +163,7 @@ static int app_remove(const char *pkg, ipt_tx *t4, ipt_tx *t6)
 
 static void reconcile(ipt_tx *t4, ipt_tx *t6)
 {
-    int n; char **v = read_list(&n);
+    int n; char **v = read_list(&n, settings_is_true("excludeApps"));
     for (int i = 0; i < n; i++) {
         char p[300]; struct stat st;
         if (!valid_pkg(v[i])) continue;
@@ -167,7 +188,7 @@ void ensure_exclude_app_chain(void)
  * excluded apps are never briefly proxied. */
 void sync_exclude_apps(void)
 {
-    bool on = settings_is_true("excludeApps");
+    bool on = exclude_on();
     pthread_mutex_lock(&g_ex);
     ipt_tx *t4 = ipt_tx_begin(AF_INET, "mangle"), *t6 = ipt_tx_begin(AF_INET6, "mangle");
     ipt_tx *ts[2] = { t4, t6 };
@@ -224,6 +245,6 @@ void apps_monitor_stop(void) { worker_stop(&g_mon); }
 void apps_monitor_start(void)
 {
     apps_monitor_stop();
-    if (!settings_is_true("excludeApps")) { log_msg("apps monitor: Exclude apps is off, not started"); return; }
+    if (!exclude_on()) { log_msg("apps monitor: Exclude apps is off, not started"); return; }
     if (worker_start(&g_mon, "monitor_apps", monitor_main) == 0) log_msg("apps monitor running");
 }
