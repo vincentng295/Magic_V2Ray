@@ -44,6 +44,7 @@ Từ phiên bản **v2.0**, các thiết bị chưa root có thể chạy Magic 
 - **Cập nhật 1-Click (Auto-Reload):** Lưu liên kết đăng ký để cập nhật lại toàn bộ server chỉ bằng một thao tác.
 - **Chia sẻ điểm phát sóng không cần root:** Ở chế độ không cần root (Non-Root mode), Shizuku có thể chia sẻ proxy với các thiết bị kết nối qua điểm phát sóng hoặc cáp USB (Android 13 trở lên).
 - **Chia sẻ Hotspot Native:** Chia sẻ kết nối proxy cho máy tính, console hoặc điện thoại khác qua Wi-Fi Hotspot với đầy đủ hỗ trợ IPv4 và IPv6.
+- **Website nhà cung cấp:** Thêm website bán VPN thành một danh mục, mở bằng mini trình duyệt tích hợp, nhấn nút Đồng bộ để nhập node và ghim phím tắt ra màn hình chính. Xem [Deep Link](#deep-link-cho-nhà-cung-cấp).
 
 ---
 
@@ -66,6 +67,67 @@ File APK phát hành của Magic V2Ray vừa là ứng dụng Android độc l�
 2. Cấp quyền Root. Ứng dụng sẽ tự động kiểm tra và cài đặt/cập nhật module daemon tại `/data/adb/modules/magic_v2ray` (cài đặt cá nhân được giữ tại `/data/adb/magic_v2ray`).
 
 *Lưu ý: Nút **Action** của module (Magisk 27+ / KernelSU / APatch) cho phép mở nhanh ứng dụng và tự động cài `app.apk` nếu thiết bị chưa cài đặt.*
+
+---
+
+## Deep Link cho nhà cung cấp
+
+Magic V2Ray đăng ký hai scheme `magicv2ray://` và `v2rayng://`. Các nhà bán VPN có thể đặt link này trên website hoặc trong tin nhắn bot để khách hàng thiết lập chỉ bằng một chạm. Link mở từ bên ngoài app luôn hỏi người dùng xác nhận trước khi thêm; riêng link Đồng bộ bên trong mini trình duyệt của chính nhà cung cấp thì nhập thẳng.
+
+### Tự thêm nhà cung cấp: `magicv2ray://add-provider`
+
+```
+magicv2ray://add-provider?url=<website>&remark=<tên hiển thị>
+```
+
+| Tham số | Bắt buộc | Mô tả |
+|---------|----------|-------|
+| `url` | có | Website nhà cung cấp. Tự thêm `https://` nếu thiếu; chỉ nhận website `https`. |
+| `remark` | không | Tên danh mục (dùng `name` cũng được). Mặc định là hostname của site. Nếu trùng tên, app thêm `(2)`, `(3)`... |
+
+Ví dụ (nhớ mã hóa URL các giá trị):
+
+```
+magicv2ray://add-provider?url=vless4gtiktok.duckdns.org&remark=Free%20Server%20VLESS
+```
+
+Sau khi người dùng xác nhận, app tạo danh mục, tải `<title>` và icon của site rồi mở site trong mini trình duyệt. `add-privider` được chấp nhận như bí danh của `add-provider`.
+
+### Đồng bộ node từ website nhà cung cấp
+
+Trong mini trình duyệt, link sau sẽ nhập subscription vào **danh mục của chính nhà cung cấp đó** (node được thay mới, URL được lưu để Reload / tự cập nhật) rồi quay về app:
+
+```
+v2rayng://install-config?url=<URL subscription đã mã hóa>
+```
+
+`v2rayng://install-sub?...`, `magicv2ray://install-config?...` và `magicv2ray://install-sub?...` hoạt động tương tự. Lưu ý cho người làm website:
+
+- Mã hóa URL subscription bằng `encodeURIComponent` (phải là `http(s)://`). Dấu `&` không mã hóa sẽ làm cụt URL.
+- Đặt link sau một nút hoặc `<a href>` thông thường; gán `location.href = ...` bằng JavaScript cũng được.
+- Link sang tên miền khác (đăng nhập Telegram, trang thanh toán...) và `tg:`, `mailto:`, `tel:` được mở bên ngoài mini trình duyệt. Các scheme khác bị chặn.
+
+### Thêm subscription không qua danh mục nhà cung cấp
+
+Ngoài mini trình duyệt (trình duyệt hay app bất kỳ), cùng các link install trên sẽ thêm một subscription thường sau khi người dùng xác nhận:
+
+```
+v2rayng://install-config?url=https%3A%2F%2Fexample.com%2Fsub%2Ftoken
+magicv2ray://install-sub?url=https%3A%2F%2Fexample.com%2Fsub%2Ftoken
+```
+
+### Đoạn mã mẫu cho website nhà cung cấp
+
+```html
+<a href="magicv2ray://add-provider?url=example.com&remark=My%20VPN">Thêm vào Magic V2Ray</a>
+
+<script>
+  const sub = 'https://example.com/sub/USER_TOKEN';
+  document.getElementById('sync').href =
+    'v2rayng://install-config?url=' + encodeURIComponent(sub);
+</script>
+<a id="sync">Đồng bộ</a>
+```
 
 ---
 

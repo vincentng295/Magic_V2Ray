@@ -44,6 +44,7 @@ Starting with **v2.0**, devices without root access can run Magic V2Ray seamless
 - **One-Click Auto-Reload:** Keep your subscriptions up-to-date with a single tap.
 - **Hotspot Sharing without root:** in Non-Root mode, Shizuku can share the proxy with hotspot / USB clients (Android 13+).
 - **Hotspot Sharing:** Share your proxied connection with laptops, consoles, or other phones via IPv4/IPv6 Wi-Fi Hotspot.
+- **Provider Websites:** Add a VPN seller's website as a category, open it in a built-in mini browser, tap its Sync button to import nodes, and pin a home-screen shortcut to it. See [Deep Links](#deep-links-for-providers).
 
 ---
 
@@ -66,6 +67,67 @@ Magic V2Ray is distributed as a standalone Android application (`.apk`), which a
 2. Grant Root permissions. The app automatically checks and sets up the root daemon engine in `/data/adb/modules/magic_v2ray` (user settings are preserved in `/data/adb/magic_v2ray`).
 
 *Note: The module's **Action** button (Magisk 27+ / KernelSU / APatch) launches the app directly, installing `app.apk` automatically if it is not present.*
+
+---
+
+## Deep Links for Providers
+
+Magic V2Ray registers the schemes `magicv2ray://` and `v2rayng://`. VPN sellers can put these links on their website or in their bot messages so customers can set up with one tap. Links opened from outside the app ask the user to confirm before anything is added; only the Sync link inside a provider's own mini browser imports directly.
+
+### Add the provider itself: `magicv2ray://add-provider`
+
+```
+magicv2ray://add-provider?url=<website>&remark=<display name>
+```
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `url` | yes | The provider website. `https://` is added when missing; only `https` sites are accepted. |
+| `remark` | no | Category name (`name` also works). Defaults to the site's hostname. If the name is taken, `(2)`, `(3)`... is appended. |
+
+Example (URL-encode the values):
+
+```
+magicv2ray://add-provider?url=vless4gtiktok.duckdns.org&remark=Free%20Server%20VLESS
+```
+
+After the user confirms, the app creates a category, fetches the site's `<title>` and icon, and opens the site in the mini browser. `add-privider` is accepted as an alias of `add-provider`.
+
+### Sync nodes from the provider website
+
+Inside the mini browser, a link like the following imports the subscription into **that provider's category** (nodes are replaced, the URL is kept for Reload / auto-update) and returns to the app:
+
+```
+v2rayng://install-config?url=<URL-encoded subscription URL>
+```
+
+`v2rayng://install-sub?...` and `magicv2ray://install-config?...` / `magicv2ray://install-sub?...` work the same. Notes for website authors:
+
+- Encode the subscription URL with `encodeURIComponent` (it must be `http(s)://`). An unencoded `&` cuts the URL.
+- Put the link behind a normal button or `<a href>`; JavaScript `location.href = ...` also works.
+- Links to other domains (Telegram login, payment pages...) and `tg:`, `mailto:`, `tel:` open outside the mini browser. Other schemes are blocked.
+
+### Add a subscription without a provider category
+
+Outside the mini browser (any browser or app), the same install links add a plain subscription after the user confirms:
+
+```
+v2rayng://install-config?url=https%3A%2F%2Fexample.com%2Fsub%2Ftoken
+magicv2ray://install-sub?url=https%3A%2F%2Fexample.com%2Fsub%2Ftoken
+```
+
+### Example snippet for a provider website
+
+```html
+<a href="magicv2ray://add-provider?url=example.com&remark=My%20VPN">Add to Magic V2Ray</a>
+
+<script>
+  const sub = 'https://example.com/sub/USER_TOKEN';
+  document.getElementById('sync').href =
+    'v2rayng://install-config?url=' + encodeURIComponent(sub);
+</script>
+<a id="sync">Sync</a>
+```
 
 ---
 
