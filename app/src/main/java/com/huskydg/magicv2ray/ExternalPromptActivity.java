@@ -111,15 +111,15 @@ public class ExternalPromptActivity extends Activity {
         if (nativeCaller && isLocalTarget(host) && !excludes.contains(caller)) excludes.add(caller);
         if (isLocalTarget(host) && excludes.isEmpty()) warnings.add(getString(R.string.ext_prompt_warn_loop));
 
-        // temporary setting overrides: always shown and always confirmed (a trusted app does not skip this)
+        // temporary setting overrides: listed in the dialog, and confirmed unless the app is one the user always trusts
         final String ovSummary = overridesSummary(req.optJSONObject("overrides"), uri.isEmpty());
-        if (!ovSummary.isEmpty()) warnings.add(getString(R.string.ext_prompt_warn_overrides));
+        if (!ovSummary.isEmpty() && !req.optBoolean("trusted")) warnings.add(getString(R.string.ext_prompt_warn_overrides));
 
         boolean onlyCaller = true;
         for (String p : excludes) if (!p.equals(caller)) onlyCaller = false;
 
         // an app the user always allows connects without a prompt when nothing goes beyond what that app is
-        if (req.optBoolean("trusted") && warnings.isEmpty() && onlyCaller && ovSummary.isEmpty()) {
+        if (req.optBoolean("trusted") && warnings.isEmpty() && onlyCaller) {
             approve(false);
             return;
         }

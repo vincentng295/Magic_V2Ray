@@ -27,7 +27,7 @@
 // A connect is ALWAYS confirmed, showing who asked and the server (the full uri is under "Details", open by default
 // when anything is unusual), except for an app the user chose to "always trust" (only offered for explicit intents from
 // verified native apps, never for links or browsers), and even then a plaintext VLESS / Trojan node, or an exclusion that
-// is not the caller itself, is confirmed. A request with setting overrides is confirmed every time, trusted app or not.
+// is not the caller itself, is confirmed. A request with setting overrides is confirmed too, unless the app is trusted.
 
 const EXT_SELF_PKG = 'com.huskydg.magicv2ray';
 const EXT_SESSION_EXCLUDE_NAME = 'excludelist.session.txt';
@@ -352,10 +352,11 @@ async function _extHandleConnect(req) {
     if (hasUri && isPlainVlessUri(rawUri)) warnings.push(t('warn_plain_vless', { name }));
     if (hasUri && isPlainTrojanUri(rawUri)) warnings.push(t('warn_plain_trojan', { name }));
     if (node && _extIsLocalTarget(node.address) && !excludes.length) warnings.push(t('ext_warn_loop'));
-    if (_extOvSections(ov).length) warnings.push(t('ext_warn_overrides', { sections: _extOvSections(ov).join(', ') }));
+    // A trusted app (its own explicit intent, verified) may send overrides without being asked again.
+    if (_extOvSections(ov).length && req.trusted !== true) warnings.push(t('ext_warn_overrides', { sections: _extOvSections(ov).join(', ') }));
 
     // No prompt when the native dialog already asked, or for an app the user trusts, when nothing in the request
-    // goes beyond what that app is (setting overrides always go beyond that).
+    // goes beyond what that app is (setting overrides do not count when the app is trusted).
     const auto = silent || (req.trusted === true && !warnings.length && excludes.every(p => p === req.caller));
     let trust = false;
     if (!auto) {

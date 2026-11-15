@@ -173,7 +173,8 @@ final class ExternalSession {
             boolean browser = caller != null && isBrowser(c, caller);
             // Trust is only offered for calls that app code made on purpose (an explicit action):
             // a link can come from anywhere (a chat message, a web page), whichever app opened it.
-            // Overrides are never trusted silently: hosts / routes / DNS can redirect or expose the user's traffic.
+            // An app the user chose to "always trust" (explicit intent from a verified native app, tied to its signing
+            // certificate) is not asked again when it also sends overrides. Links and browsers are never trustable.
             boolean trustable = !"deeplink".equals(source) && caller != null && !browser;
             o.put("action", "connect")
                     .put("uri", uri)
@@ -185,7 +186,7 @@ final class ExternalSession {
                     .put("callerLabel", caller == null ? "" : labelOf(c, caller))
                     .put("browser", browser)
                     .put("trustable", trustable)
-                    .put("trusted", trustable && ov.length() == 0 && isTrusted(c, caller))
+                    .put("trusted", trustable && isTrusted(c, caller))
                     .put("ts", System.currentTimeMillis());
             return o;
         } catch (JSONException e) {
