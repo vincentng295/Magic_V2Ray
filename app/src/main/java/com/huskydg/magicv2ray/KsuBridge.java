@@ -197,6 +197,13 @@ final class KsuBridge {
         activity.runOnUiThread(() -> ProviderBrowserActivity.start(activity, url, category, nodesJson));
     }
 
+    /** Asks the launcher to pin a home-screen shortcut that opens the provider mini browser. */
+    @JavascriptInterface
+    public boolean pinProviderShortcut(final String url, final String category) {
+        if (url == null || category == null || !url.matches("(?i)^https://\\S+$")) return false;
+        return ProviderBrowserActivity.pinShortcut(activity, url, category);
+    }
+
     /** The sync request left by the provider mini browser ("" if none); returns it once. */
     @JavascriptInterface
     public String takeProviderSync() {

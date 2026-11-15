@@ -7,6 +7,10 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.ShortcutInfo;
+import android.content.pm.ShortcutManager;
+import android.graphics.drawable.Icon;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
@@ -47,6 +51,7 @@ public class ProviderBrowserActivity extends Activity {
 
     /** Nodes already imported into the category, shown by the three-dot menu. Set by {@link #start}. */
     private static volatile String nodesJson = "[]";
+    private static volatile String nodesCategory;
 
     private WebView web;
     private ProgressBar bar;
@@ -58,10 +63,36 @@ public class ProviderBrowserActivity extends Activity {
 
     static void start(Activity from, String url, String category, String nodes) {
         nodesJson = nodes == null ? "[]" : nodes;
+        nodesCategory = category;
+        // Kept on disk too, so a home-screen shortcut (no WebUI around) can still show the list.
+        from.getSharedPreferences("provider_nodes", MODE_PRIVATE).edit().putString(category, nodesJson).apply();
         Intent i = new Intent(from, ProviderBrowserActivity.class)
                 .putExtra(EXTRA_URL, url)
                 .putExtra(EXTRA_CATEGORY, category);
         from.startActivity(i);
+    }
+
+    /** Pins a launcher shortcut that opens this category's website directly. */
+    static boolean pinShortcut(Activity a, String url, String category) {
+        ShortcutManager sm = a.getSystemService(ShortcutManager.class);
+        if (sm == null || !sm.isRequestPinShortcutSupported()) return false;
+        Intent i = new Intent(a, ProviderBrowserActivity.class)
+                .setAction(Intent.ACTION_VIEW)
+                .putExtra(EXTRA_URL, url)
+                .putExtra(EXTRA_CATEGORY, category);
+        ShortcutInfo info = new ShortcutInfo.Builder(a, "provider:" + category)
+                .setShortLabel(category.length() > 12 ? category.substring(0, 12) : category)
+                .setLongLabel(category)
+                .setIcon(Icon.createWithResource(a, R.mipmap.ic_launcher))
+                .setIntent(i)
+                .build();
+        return sm.requestPinShortcut(info, null);
+    }
+
+    private String currentNodes() {
+        if (category.equals(nodesCategory)) return nodesJson;
+        SharedPreferences sp = getSharedPreferences("provider_nodes", MODE_PRIVATE);
+        return sp.getString(category, "[]");
     }
 
     @Override
@@ -210,7 +241,10 @@ public class ProviderBrowserActivity extends Activity {
             } catch (JSONException e) {
                 return true;
             }
-            finish();                                          // MainActivity.onResume picks the job up
+            // Bring the app forward (also when this page came from a home-screen shortcut and the app is
+            // not running); its WebUI picks the job up in onResume / at start.
+            startActivity(new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            finish();
             return true;
         }
         return true;   // plain http, tel:, other apps' schemes ...: never leave the sandboxed page
@@ -238,7 +272,7 @@ public class ProviderBrowserActivity extends Activity {
 
     private int nodeCount() {
         try {
-            return new JSONArray(nodesJson).length();
+            return new JSONArray(currentNodes()).length();
         } catch (JSONException e) {
             return 0;
         }
@@ -247,7 +281,7 @@ public class ProviderBrowserActivity extends Activity {
     private void showNodes() {
         JSONArray arr;
         try {
-            arr = new JSONArray(nodesJson);
+            arr = new JSONArray(currentNodes());
         } catch (JSONException e) {
             arr = new JSONArray();
         }

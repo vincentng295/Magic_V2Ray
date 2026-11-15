@@ -1758,6 +1758,10 @@ function renderProfiles() {
         if (catData.website) {
             dropdown.appendChild(_mkButton(t('menu_open_provider'), '',
                 () => { openProviderSite(category); closeAllMenus(); }));
+        if (catData.website) {
+            dropdown.appendChild(_mkButton(t('menu_pin_provider'), '',
+                () => { pinProviderShortcut(category); closeAllMenus(); }));
+        }
         }
         if (hasUrl) {
             dropdown.appendChild(_mkButton(t('menu_reload'), '',
@@ -6477,6 +6481,13 @@ function openProviderSite(category) {
         a: n.address ? (n.address + (n.port ? ':' + n.port : '')) : ''
     }));
     k.openProvider(cat.website, category, JSON.stringify(nodes));
+}
+
+function pinProviderShortcut(category) {
+    const cat = profiles[category];
+    const k = window.ksu;
+    if (!cat || !cat.website || !k || typeof k.pinProviderShortcut !== 'function') return;
+    if (!k.pinProviderShortcut(cat.website, category)) showToast(t('toast_provider_pin_unsupported'), 'error');
 }
 
 // The mini browser caught a v2rayng:// link: it closed itself and left {category, url} behind.
