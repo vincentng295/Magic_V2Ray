@@ -1,12 +1,8 @@
-# Magic V2Ray v2.5 Release Notes
+# Magic V2Ray v2.6 Release Notes
 
-Magic V2Ray introduces major user interface enhancements, starting with a dedicated proxy connection information page that lets you view your exit IP, location details, network operator, and response times directly by tapping the status badge.
+Magic V2Ray introduces provider website categories, allowing you to add VPN seller websites directly into the app with built-in mini browser support, automatic favicon and title extraction, and home-screen shortcut pinning.
 
-Subscription management has also been streamlined with inline loading indicators that display fetch progress neatly beneath each node category without disrupting your workflow or covering the screen.
-
-For performance testing and diagnostics, this release brings native TCPing probes, an upgraded real-delay check powered by Xray's ObservatoryService, and non-blocking background tests that keep your results visible while re-rendering lists.
-
-Finally, version 2.5 adds scoped settings backup and restore functionality supporting selective JSON exports and clipboard imports, along with enhanced local address discovery to ensure non-root and hotspot setups work seamlessly.
+This version enables seamless subscription syncing through deep links like `magicv2ray://add-provider` and `v2rayng://install-config`, making it easy to import and manage nodes directly from provider pages while keeping external links safely sandboxed.
 
 ---
 
