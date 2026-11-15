@@ -76,6 +76,8 @@ const GATEWAY_LOCAL_HOST = "gateway.local";
 // Host name injected into dns.hosts (see injectLocalDnsHost() in main.js) pointing at the DNS
 // servers of the device's own network: "localdns": [ ...local DNS servers... ].
 const LOCAL_DNS_HOST = "localdns";
+// Same list under a name with a dot, for clients that reject single-label host names.
+const LOCAL_DNS_HOST_DOTTED = "dns-gateway.local";
 const EXPOSE_SOCKS_PORT_MIN = 1024;
 const EXPOSE_SOCKS_PORT_MAX = 65535;
 const STUB_DIR = MV_NONROOT ? ksu.stubdir() : "/dev/sysctl_stubs";

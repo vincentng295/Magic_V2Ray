@@ -3929,7 +3929,7 @@ async function injectGatewayLocalHosts(configStr) {
     }
 }
 
-// Adds `localdns` -> the DNS servers of the device's current network (the same list the
+// Adds `localdns` and `dns-gateway.local` -> the DNS servers of the device's current network (the same list the
 // system-resolver feature uses) to dns.hosts of a generated config. A user / built-in entry with
 // the same name wins; nothing is added when the device reports no usable server.
 async function injectLocalDnsHost(configStr) {
@@ -3939,8 +3939,13 @@ async function injectLocalDnsHost(configStr) {
         const cfg = JSON.parse(configStr);
         if (!cfg.dns || typeof cfg.dns !== 'object') return configStr;
         const hosts = (cfg.dns.hosts && typeof cfg.dns.hosts === 'object') ? cfg.dns.hosts : {};
-        if (Object.prototype.hasOwnProperty.call(hosts, LOCAL_DNS_HOST)) return configStr;
-        hosts[LOCAL_DNS_HOST] = servers;
+        let added = 0;
+        [LOCAL_DNS_HOST, LOCAL_DNS_HOST_DOTTED].forEach(name => {
+            if (Object.prototype.hasOwnProperty.call(hosts, name)) return;   // user entry wins
+            hosts[name] = servers;
+            added++;
+        });
+        if (!added) return configStr;
         cfg.dns.hosts = hosts;
         return JSON.stringify(cfg);
     } catch (e) {
