@@ -783,6 +783,7 @@ document.addEventListener('DOMContentLoaded', () => {
         checkDeepLink();
         checkProviderSync();
         checkProviderAdd();
+        checkProviderInfo();
     });
 });
  
@@ -6569,6 +6570,21 @@ async function refreshProviderInfo(category) {
         _providerInfoBusy.delete(category);
     }
 }
+
+// Fallback icon: the favicon the mini browser's WebView got from the real page.
+function checkProviderInfo() {
+    const k = window.ksu;
+    if (!k || typeof k.takeProviderInfo !== 'function') return;
+    let job;
+    try { job = JSON.parse(String(k.takeProviderInfo() || '')); } catch (e) { return; }
+    const cat = job && profiles[job.category];
+    if (!cat || !cat.website || cat.icon) return;
+    if (!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(job.icon || '') || job.icon.length > 200000) return;
+    cat.icon = job.icon;
+    saveProfiles();
+    renderProfiles();
+}
+window.checkProviderInfo = checkProviderInfo;
 
 // magicv2ray://add-provider?url=<site>&remark=<name> (typo "add-privider" is accepted too).
 async function checkProviderAdd() {

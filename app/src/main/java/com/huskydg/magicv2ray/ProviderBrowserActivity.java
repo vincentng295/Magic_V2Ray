@@ -236,6 +236,24 @@ public class ProviderBrowserActivity extends Activity {
             }
 
             @Override
+            public void onReceivedIcon(WebView v, Bitmap icon) {
+                // The favicon the real page ended up with (covers SPAs, SVG icons, sites that block curl).
+                if (icon == null || !sameSite(Uri.parse(String.valueOf(v.getUrl())).getHost())) return;
+                try {
+                    int max = 128;
+                    float sc = Math.min(1f, (float) max / Math.max(icon.getWidth(), icon.getHeight()));
+                    Bitmap sm = sc < 1f ? Bitmap.createScaledBitmap(icon,
+                            Math.max(1, Math.round(icon.getWidth() * sc)), Math.max(1, Math.round(icon.getHeight() * sc)), true) : icon;
+                    java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+                    sm.compress(Bitmap.CompressFormat.PNG, 100, bo);
+                    MainActivity.pendingProviderInfo = new JSONObject().put("category", category)
+                            .put("icon", "data:image/png;base64," + android.util.Base64.encodeToString(bo.toByteArray(), android.util.Base64.NO_WRAP))
+                            .toString();
+                } catch (JSONException | RuntimeException ignored) {
+                }
+            }
+
+            @Override
             public void onReceivedTitle(WebView v, String t) {
                 if (t != null && !t.isEmpty()) titleView.setText(t);
             }

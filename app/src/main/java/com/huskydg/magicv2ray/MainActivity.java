@@ -95,6 +95,9 @@ public class MainActivity extends Activity {
     /** {"url":..,"remark":..} from magicv2ray://add-provider?url=..&remark=.. waiting for the WebUI. */
     static volatile String pendingProviderAdd;
 
+    /** {"category":..,"icon":"data:image/png;base64,.."} the mini browser saw on the real page. */
+    static volatile String pendingProviderInfo;
+
     /** add-provider (and its common misspelling add-privider): the site is not fetched, the WebUI asks first. */
     private static String providerAdd(Intent i) {
         Uri u = i == null ? null : i.getData();
@@ -631,6 +634,9 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         // Back from the provider mini browser with a sync request: let the WebUI import it.
+        if (pendingProviderInfo != null && web != null) {
+            web.post(() -> web.evaluateJavascript("window.checkProviderInfo&&window.checkProviderInfo()", null));
+        }
         if (pendingProviderSync != null && web != null) {
             web.post(() -> web.evaluateJavascript("window.checkProviderSync&&window.checkProviderSync()", null));
         }

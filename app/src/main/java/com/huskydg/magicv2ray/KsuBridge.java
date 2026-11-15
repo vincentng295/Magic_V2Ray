@@ -204,6 +204,14 @@ final class KsuBridge {
         return ProviderBrowserActivity.pinShortcut(activity, url, category, iconDataUri);
     }
 
+    /** Favicon the mini browser saw ("" if none); returns it once. */
+    @JavascriptInterface
+    public String takeProviderInfo() {
+        String j = MainActivity.pendingProviderInfo;
+        MainActivity.pendingProviderInfo = null;
+        return j == null ? "" : j;
+    }
+
     /** A pending magicv2ray://add-provider request as JSON ("" if none); returns it once. */
     @JavascriptInterface
     public String takeProviderAdd() {
