@@ -784,6 +784,7 @@ document.addEventListener('DOMContentLoaded', () => {
         checkProviderSync();
         checkProviderAdd();
         checkProviderInfo();
+        checkProviderConnect();
     });
 });
  
@@ -1588,7 +1589,7 @@ function _resolveXrayConfig(rawUri) {
 
 async function selectNode(category, id) {
     const node = profiles[category]?.nodes?.find(n => n.id === id);
-    if (!node) return;
+    if (!node) return false;
  
     // Reject a node whose config cannot be generated *before* making it
     // active — otherwise the next start writes an unusable config.json,
@@ -1596,7 +1597,7 @@ async function selectNode(category, id) {
     const res = resolveXrayConfigChecked(node.rawUri);
     if (!res.ok) {
         showToast(t('toast_config_invalid', { reason: res.error }), 'error');
-        return;
+        return false;
     }
 
     // Plaintext VLESS (no TLS/REALITY, no VLESS Encryption) or plaintext Trojan
@@ -1609,7 +1610,7 @@ async function selectNode(category, id) {
     const confirmed = plainWarnings.length
         ? await showConfirm(plainWarnings.join('\n\n'), { okText: t('warn_plain_vless_ok') })
         : await showConfirm(t('confirm_connect_node', { name: nodeName }));
-    if (!confirmed) return;
+    if (!confirmed) return false;
 
     activeConfig = `${category}:${id}`;
     saveActiveConfig();
@@ -1617,6 +1618,7 @@ async function selectNode(category, id) {
 
     // Write the config and restart only if the engine is already running.
     applyActiveConfig();
+    return true;
 }
  
 // Selecting the built-in node simply clears the node pointer: activeConfig
@@ -6549,7 +6551,7 @@ async function refreshProviderInfo(category) {
             links.forEach(l => {
                 const h = l.getAttribute('href').trim();
                 if (/^data:image\/(png|jpeg|gif|webp|x-icon|vnd\.microsoft\.icon);base64,/i.test(h)) {
-                    if (h.length < 150000) cands.push(h);
+                    if (h.length < 420000) cands.push(h);
                     return;
                 }
                 try {
@@ -6563,8 +6565,8 @@ async function refreshProviderInfo(category) {
         let icon = '';
         for (const c of cands.slice(0, 4)) {
             if (c.startsWith('data:')) { icon = c; break; }
-            const b64 = ((await execShellAsync(`${curl} --max-filesize 150000 ${shQuote(c)} | base64 | tr -d '\\n'`)) || '').trim();
-            const mime = /^[A-Za-z0-9+/=]+$/.test(b64) && b64.length < 200000 ? _iconMime(b64) : null;
+            const b64 = ((await execShellAsync(`${curl} --max-filesize 300000 ${shQuote(c)} | base64 | tr -d '\\n'`)) || '').trim();
+            const mime = /^[A-Za-z0-9+/=]+$/.test(b64) && b64.length < 420000 ? _iconMime(b64) : null;
             if (mime) { icon = `data:${mime};base64,${b64}`; break; }
         }
 
@@ -6576,6 +6578,20 @@ async function refreshProviderInfo(category) {
         _providerInfoBusy.delete(category);
     }
 }
+
+// A node was tapped in the mini browser's "imported nodes" list: select it (same confirmation and
+// plain-protocol warnings as tapping it here) and start the engine if it is not running.
+async function checkProviderConnect() {
+    const k = window.ksu;
+    if (!k || typeof k.takeProviderConnect !== 'function') return;
+    let job;
+    try { job = JSON.parse(String(k.takeProviderConnect() || '')); } catch (e) { return; }
+    if (!job || !profiles[job.category]) return;
+    if (!await selectNode(job.category, job.id)) return;
+    const status = await execShellAsync(`sh ${MODDIR}/proxy_control.sh status`);
+    if (status !== 'running') toggleService('start');
+}
+window.checkProviderConnect = checkProviderConnect;
 
 // Fallback icon: the favicon the mini browser's WebView got from the real page.
 function checkProviderInfo() {
@@ -6615,6 +6631,7 @@ function openProviderSite(category) {
     if (!cat || !cat.website || !k || typeof k.openProvider !== 'function') return;
     const nodes = (cat.nodes || []).filter(n => !_isGroupNode(n)).map(n => ({
         n: _nodeRemark(n),
+        i: n.id,
         p: n.protocol || '',
         a: n.address ? (n.address + (n.port ? ':' + n.port : '')) : ''
     }));

@@ -354,7 +354,21 @@ public class ProviderBrowserActivity extends Activity {
                 String info = proto.isEmpty() ? addr : (addr.isEmpty() ? proto : proto + " · " + addr);
                 rows[i] = o.optString("n", "") + (info.isEmpty() ? "" : "\n" + info);
             }
-            d.setItems(rows, null);
+            final JSONArray nodes = arr;
+            d.setItems(rows, (dlg, which) -> {
+                JSONObject o = nodes.optJSONObject(which);
+                String id = o == null ? "" : o.optString("i", "");
+                if (id.isEmpty()) return;
+                try {
+                    MainActivity.pendingProviderConnect = new JSONObject()
+                            .put("category", category).put("id", id).toString();
+                } catch (JSONException e) {
+                    return;
+                }
+                // Back to the app, which asks to confirm and connects.
+                startActivity(new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                finish();
+            });
         }
         d.show();
     }

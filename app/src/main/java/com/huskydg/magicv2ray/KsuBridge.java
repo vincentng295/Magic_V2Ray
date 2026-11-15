@@ -204,6 +204,14 @@ final class KsuBridge {
         return ProviderBrowserActivity.pinShortcut(activity, url, category, iconDataUri);
     }
 
+    /** A node picked in the mini browser ("" if none); returns it once. */
+    @JavascriptInterface
+    public String takeProviderConnect() {
+        String j = MainActivity.pendingProviderConnect;
+        MainActivity.pendingProviderConnect = null;
+        return j == null ? "" : j;
+    }
+
     /** Favicon the mini browser saw ("" if none); returns it once. */
     @JavascriptInterface
     public String takeProviderInfo() {

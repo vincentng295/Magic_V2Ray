@@ -98,6 +98,9 @@ public class MainActivity extends Activity {
     /** {"category":..,"icon":"data:image/png;base64,.."} the mini browser saw on the real page. */
     static volatile String pendingProviderInfo;
 
+    /** {"category":..,"id":..}: a node tapped in the mini browser's node list. */
+    static volatile String pendingProviderConnect;
+
     /** add-provider (and its common misspelling add-privider): the site is not fetched, the WebUI asks first. */
     private static String providerAdd(Intent i) {
         Uri u = i == null ? null : i.getData();
@@ -634,6 +637,9 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         // Back from the provider mini browser with a sync request: let the WebUI import it.
+        if (pendingProviderConnect != null && web != null) {
+            web.post(() -> web.evaluateJavascript("window.checkProviderConnect&&window.checkProviderConnect()", null));
+        }
         if (pendingProviderInfo != null && web != null) {
             web.post(() -> web.evaluateJavascript("window.checkProviderInfo&&window.checkProviderInfo()", null));
         }
