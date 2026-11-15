@@ -73,6 +73,9 @@ const SOCKS_TEST_PORT = 808 + (MV_NONROOT ? NONROOT_PORT_OFFSET : 0);
 // every local address of this device (e.g. 192.168.43.1 on a hotspot). Shown under
 // "Expose SOCKS5 port to LAN" next to the raw addresses.
 const GATEWAY_LOCAL_HOST = "gateway.local";
+// Host name injected into dns.hosts (see injectLocalDnsHost() in main.js) pointing at the DNS
+// servers of the device's own network: "localdns": [ ...local DNS servers... ].
+const LOCAL_DNS_HOST = "localdns";
 const EXPOSE_SOCKS_PORT_MIN = 1024;
 const EXPOSE_SOCKS_PORT_MAX = 65535;
 const STUB_DIR = MV_NONROOT ? ksu.stubdir() : "/dev/sysctl_stubs";

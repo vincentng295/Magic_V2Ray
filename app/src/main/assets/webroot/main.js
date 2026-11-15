@@ -472,7 +472,7 @@ function applyActiveConfig(options = {}) {
     }
     showLoading(t("toast_reload_xray"));
 
-    resolveOutboundViaSystemDns(res.config).then(injectGatewayLocalHosts).then(finalConfig => writeFileB64(CONFIG_JSON, finalConfig, () => {
+    resolveOutboundViaSystemDns(res.config).then(injectGatewayLocalHosts).then(injectLocalDnsHost).then(finalConfig => writeFileB64(CONFIG_JSON, finalConfig, () => {
         if (force) {
             _forceRestart(options, onDone);
             return;
@@ -3925,6 +3925,26 @@ async function injectGatewayLocalHosts(configStr) {
         return JSON.stringify(cfg);
     } catch (e) {
         console.warn('[gateway.local] inject failed, config left unchanged', e);
+        return configStr;
+    }
+}
+
+// Adds `localdns` -> the DNS servers of the device's current network (the same list the
+// system-resolver feature uses) to dns.hosts of a generated config. A user / built-in entry with
+// the same name wins; nothing is added when the device reports no usable server.
+async function injectLocalDnsHost(configStr) {
+    try {
+        const servers = _getSystemDnsServers();
+        if (!servers.length) return configStr;
+        const cfg = JSON.parse(configStr);
+        if (!cfg.dns || typeof cfg.dns !== 'object') return configStr;
+        const hosts = (cfg.dns.hosts && typeof cfg.dns.hosts === 'object') ? cfg.dns.hosts : {};
+        if (Object.prototype.hasOwnProperty.call(hosts, LOCAL_DNS_HOST)) return configStr;
+        hosts[LOCAL_DNS_HOST] = servers;
+        cfg.dns.hosts = hosts;
+        return JSON.stringify(cfg);
+    } catch (e) {
+        console.warn('[localdns] inject failed, config left unchanged', e);
         return configStr;
     }
 }
