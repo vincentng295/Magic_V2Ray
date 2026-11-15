@@ -203,11 +203,47 @@ registerReceiver(new BroadcastReceiver() {
 }, new IntentFilter("com.huskydg.magicv2ray.event.STATE_CHANGED"), Context.RECEIVER_EXPORTED);
 ```
 
-- Receivers registered at run time get it as a normal broadcast. The app that owns the external session also gets it **explicitly**, so a receiver declared in its manifest works (Android 14+ for broadcast-started sessions only when the caller is known, otherwise use a run-time receiver or the observer below).
+- Receivers registered at run time get it as a normal broadcast. The app that owns the session also gets an explicit copy, so a run-time receiver may see the same event twice: drop duplicates by `seq` + `time`. The app that owns the external session also gets it **explicitly**, so a receiver declared in its manifest works (Android 14+ for broadcast-started sessions only when the caller is known, otherwise use a run-time receiver or the observer below).
 - Observer instead of a receiver: `registerContentObserver(Uri.parse("content://com.huskydg.magicv2ray.api/state"), false, observer)`, then read `getState`.
 - A disconnect is announced after 2 s if the engine is still down, so a restart or reload does not look like a disconnect. Ending a session is announced at once.
 - Root mode: the service tells the app through `am broadcast ... ENGINE_CHANGED`, which makes it re-read the real status. The same broadcast from anyone else can do no more than that.
 - If the Magic V2Ray process is killed in non-root mode the VPN dies with it and nothing can be sent: poll `getState` when it matters.
+
+### Using it from Termux (or any shell)
+
+A shell cannot register a receiver or use the provider without root, so it uses `am`. These commands follow from how the API works; the info and poll commands depend on Termux's `am` printing the broadcast result like the system `am`.
+
+```sh
+# Info: `am broadcast` is an ordered broadcast and prints the reply as data="<json>"
+am broadcast -a com.huskydg.magicv2ray.action.GET_INFO -p com.huskydg.magicv2ray
+# With root, the provider can be called directly:
+su -c 'content call --uri content://com.huskydg.magicv2ray.api --method getInfo'
+
+# Connect / disconnect (the user still confirms a connect)
+am start -a com.huskydg.magicv2ray.action.CONNECT -p com.huskydg.magicv2ray \
+  --es uri 'socks://127.0.0.1:5353' --es name 'Termux' --es exclude com.termux
+am start -a com.huskydg.magicv2ray.action.DISCONNECT -p com.huskydg.magicv2ray
+```
+
+A shell cannot receive `STATE_CHANGED`, so poll the info instead. This script checks the API level, then reports every change until Magic V2Ray disconnects:
+
+```sh
+#!/data/data/com.termux/files/usr/bin/sh
+info() { am broadcast -a com.huskydg.magicv2ray.action.GET_INFO -p com.huskydg.magicv2ray 2>/dev/null \
+         | sed -n 's/.*data="\(.*\)".*/\1/p'; }
+J=$(info)
+[ -n "$J" ] || { echo "Magic V2Ray is not installed or too old (no API level 1)"; exit 1; }
+echo "$J" | jq -r '"Magic V2Ray \(.versionName), API \(.api.level), \(.mode)"'
+last=
+while sleep 2; do
+  c=$(info | jq -r '.state.connected')
+  [ "$c" = "$last" ] || { echo "connected=$c"; last=$c; }
+  [ "$c" = "false" ] && break
+done
+echo "Magic V2Ray disconnected"
+```
+
+Notes: `am start` from the background needs the "Display over other apps" permission for Termux on Android 10+. Whether Magic V2Ray can identify Termux as the caller (and so offer "Always trust") depends on what Android reports for `am`; an unknown caller is always confirmed. Install `jq` with `pkg install jq`.
 
 ### Temporary settings (`overrides`)
 

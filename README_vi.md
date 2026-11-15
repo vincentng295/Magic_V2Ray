@@ -218,12 +218,48 @@ registerReceiver(new BroadcastReceiver() {
 }, new IntentFilter("com.huskydg.magicv2ray.event.STATE_CHANGED"), Context.RECEIVER_EXPORTED);
 ```
 
-- **Ai nhận được**: receiver đăng ký lúc chạy (`registerReceiver`) của mọi app nhận như broadcast thường. App đã bắt đầu phiên ngoài còn được gửi **trực tiếp** nên khai báo receiver trong manifest cũng nhận được. Với phiên bắt đầu bằng `sendBroadcast` trên Android dưới 14, Magic V2Ray không biết app nào gọi, hãy dùng receiver đăng ký lúc chạy hoặc observer bên dưới.
+- **Ai nhận được**: receiver đăng ký lúc chạy (`registerReceiver`) của mọi app nhận như broadcast thường; app sở hữu phiên có thể nhận cùng một sự kiện hai lần, hãy loại trùng theo `seq` + `time`. App đã bắt đầu phiên ngoài còn được gửi **trực tiếp** nên khai báo receiver trong manifest cũng nhận được. Với phiên bắt đầu bằng `sendBroadcast` trên Android dưới 14, Magic V2Ray không biết app nào gọi, hãy dùng receiver đăng ký lúc chạy hoặc observer bên dưới.
 - **Dùng observer thay cho receiver**: `registerContentObserver(Uri.parse("content://com.huskydg.magicv2ray.api/state"), false, observer)`, khi được gọi thì đọc `getState`.
 - **Thời điểm báo**: ngắt chỉ được báo nếu sau 2 giây engine vẫn tắt, nên restart hoặc reload (đổi node, đổi cài đặt) không bị tính là ngắt. Kết thúc phiên ngoài (`session_ended`) được báo ngay. Khởi động thất bại khi trước đó chưa chạy thì không có sự kiện.
 - **Root mode**: root service gọi `am broadcast ... ENGINE_CHANGED` tới app, app đọc lại trạng thái thật rồi mới phát sự kiện. Nội dung broadcast đó không được tin, nên app khác gửi giả cũng chỉ khiến app kiểm tra lại trạng thái. Cách này cũng bắt được crash và lệnh dừng từ shell.
 - **Giới hạn**: ở non-root, nếu tiến trình Magic V2Ray bị hệ thống kill thì VPN chết theo và không gửi được sự kiện nào. Khi việc này quan trọng, hãy gọi `getState` định kỳ.
 - **Riêng tư**: sự kiện và info chỉ có trạng thái, không có địa chỉ server, uri node hay cài đặt.
+
+### Dùng từ Termux (hoặc shell bất kỳ)
+
+Shell không đăng ký receiver được và không gọi provider được nếu không có root, nên dùng `am`. Các lệnh dưới đây suy ra từ cách API hoạt động; riêng lệnh info và vòng poll phụ thuộc việc `am` của Termux in kết quả broadcast giống `am` của hệ thống.
+
+```sh
+# Info: `am broadcast` là ordered broadcast và in câu trả lời dạng data="<json>"
+am broadcast -a com.huskydg.magicv2ray.action.GET_INFO -p com.huskydg.magicv2ray
+# Có root thì gọi thẳng provider:
+su -c 'content call --uri content://com.huskydg.magicv2ray.api --method getInfo'
+
+# Connect / disconnect (connect vẫn cần người dùng xác nhận)
+am start -a com.huskydg.magicv2ray.action.CONNECT -p com.huskydg.magicv2ray \
+  --es uri 'socks://127.0.0.1:5353' --es name 'Termux' --es exclude com.termux
+am start -a com.huskydg.magicv2ray.action.DISCONNECT -p com.huskydg.magicv2ray
+```
+
+Shell không nhận được `STATE_CHANGED`, nên hãy poll info. Script dưới đây kiểm tra API level, rồi báo mỗi lần trạng thái đổi cho tới khi Magic V2Ray ngắt:
+
+```sh
+#!/data/data/com.termux/files/usr/bin/sh
+info() { am broadcast -a com.huskydg.magicv2ray.action.GET_INFO -p com.huskydg.magicv2ray 2>/dev/null \
+         | sed -n 's/.*data="\(.*\)".*/\1/p'; }
+J=$(info)
+[ -n "$J" ] || { echo "Magic V2Ray chưa cài hoặc quá cũ (không có API level 1)"; exit 1; }
+echo "$J" | jq -r '"Magic V2Ray \(.versionName), API \(.api.level), \(.mode)"'
+last=
+while sleep 2; do
+  c=$(info | jq -r '.state.connected')
+  [ "$c" = "$last" ] || { echo "connected=$c"; last=$c; }
+  [ "$c" = "false" ] && break
+done
+echo "Magic V2Ray đã ngắt"
+```
+
+Lưu ý: từ Android 10, `am start` chạy nền cần cấp cho Termux quyền "Hiển thị trên các ứng dụng khác". Magic V2Ray có nhận ra Termux là app gọi (để hiện "Luôn tin cậy") hay không tùy thứ Android báo cho `am`; app gọi không xác định thì luôn phải xác nhận. Cài `jq` bằng `pkg install jq`.
 
 ### Thiết lập tạm (`overrides`)
 
