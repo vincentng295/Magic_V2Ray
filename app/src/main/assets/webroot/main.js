@@ -1633,7 +1633,9 @@ async function selectDirectNode() {
     applyActiveConfig();
 }
 
-function removeCategory(category) {
+async function removeCategory(category) {
+    const count = (profiles[category]?.nodes || []).length;
+    if (!await showConfirm(t('confirm_delete_category', { name: category, count }))) return;
     delete profiles[category];
     _refreshIfPolicyGroupsUsed();
     if (activeConfig && activeConfig.startsWith(category + ':')) {
@@ -1948,9 +1950,13 @@ function toggleNodeMenu(event, button) {
     }
 }
 
-function deleteNode(event, category, id) {
+async function deleteNode(event, category, id) {
     event.stopPropagation();
     closeAllMenus();
+    if (!profiles[category]) return;
+    const node = profiles[category].nodes.find(n => n.id === id);
+    if (!node) return;
+    if (!await showConfirm(t('confirm_delete_node', { name: _nodeRemark(node) }))) return;
     if (!profiles[category]) return;
     profiles[category].nodes = profiles[category].nodes.filter(n => n.id !== id);
     _refreshIfPolicyGroupsUsed();
