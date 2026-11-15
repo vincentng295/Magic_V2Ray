@@ -199,9 +199,17 @@ final class KsuBridge {
 
     /** Asks the launcher to pin a home-screen shortcut that opens the provider mini browser. */
     @JavascriptInterface
-    public boolean pinProviderShortcut(final String url, final String category) {
+    public boolean pinProviderShortcut(final String url, final String category, final String iconDataUri) {
         if (url == null || category == null || !url.matches("(?i)^https://\\S+$")) return false;
-        return ProviderBrowserActivity.pinShortcut(activity, url, category);
+        return ProviderBrowserActivity.pinShortcut(activity, url, category, iconDataUri);
+    }
+
+    /** A pending magicv2ray://add-provider request as JSON ("" if none); returns it once. */
+    @JavascriptInterface
+    public String takeProviderAdd() {
+        String j = MainActivity.pendingProviderAdd;
+        MainActivity.pendingProviderAdd = null;
+        return j == null ? "" : j;
     }
 
     /** The sync request left by the provider mini browser ("" if none); returns it once. */

@@ -92,6 +92,27 @@ public class MainActivity extends Activity {
     /** {"category":..,"url":..} left by {@link ProviderBrowserActivity} when its Sync link was tapped. */
     static volatile String pendingProviderSync;
 
+    /** {"url":..,"remark":..} from magicv2ray://add-provider?url=..&remark=.. waiting for the WebUI. */
+    static volatile String pendingProviderAdd;
+
+    /** add-provider (and its common misspelling add-privider): the site is not fetched, the WebUI asks first. */
+    private static String providerAdd(Intent i) {
+        Uri u = i == null ? null : i.getData();
+        if (u == null || !Intent.ACTION_VIEW.equals(i.getAction())) return null;
+        String host = u.getHost();
+        if (!"magicv2ray".equals(u.getScheme())
+                || !("add-provider".equals(host) || "add-privider".equals(host))) return null;
+        String url = u.getQueryParameter("url");
+        if (url == null || url.trim().isEmpty() || url.length() > 2048) return null;
+        String remark = u.getQueryParameter("remark");
+        if (remark == null) remark = u.getQueryParameter("name");
+        try {
+            return new org.json.JSONObject().put("url", url.trim()).put("remark", remark == null ? "" : remark.trim()).toString();
+        } catch (org.json.JSONException e) {
+            return null;
+        }
+    }
+
     /** Only http(s) subscription URLs get through; the WebUI still asks the user before adding. */
     private static String linkUrl(Intent i) {
         Uri u = i == null ? null : i.getData();
@@ -108,6 +129,12 @@ public class MainActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        String add = providerAdd(intent);
+        if (add != null) {
+            pendingProviderAdd = add;
+            if (web != null) web.post(() -> web.evaluateJavascript("window.checkProviderAdd&&window.checkProviderAdd()", null));
+            return;
+        }
         String url = linkUrl(intent);
         if (url == null) return;
         pendingLink = url;
@@ -118,6 +145,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         pendingLink = linkUrl(getIntent());
+        pendingProviderAdd = providerAdd(getIntent());
         // Until the WebUI reports its real surface colour, use the cached one (or the resource default).
         boolean light = !AppPrefs.isNight(this);
         bg = AppPrefs.hasChrome(this) ? AppPrefs.chromeBg(this, getColor(R.color.mv_bg)) : getColor(R.color.mv_bg);

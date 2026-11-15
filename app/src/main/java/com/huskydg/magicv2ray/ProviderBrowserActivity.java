@@ -73,7 +73,7 @@ public class ProviderBrowserActivity extends Activity {
     }
 
     /** Pins a launcher shortcut that opens this category's website directly. */
-    static boolean pinShortcut(Activity a, String url, String category) {
+    static boolean pinShortcut(Activity a, String url, String category, String iconDataUri) {
         ShortcutManager sm = a.getSystemService(ShortcutManager.class);
         if (sm == null || !sm.isRequestPinShortcutSupported()) return false;
         Intent i = new Intent(a, ProviderBrowserActivity.class)
@@ -83,10 +83,36 @@ public class ProviderBrowserActivity extends Activity {
         ShortcutInfo info = new ShortcutInfo.Builder(a, "provider:" + category)
                 .setShortLabel(category.length() > 12 ? category.substring(0, 12) : category)
                 .setLongLabel(category)
-                .setIcon(Icon.createWithResource(a, R.mipmap.ic_launcher))
+                .setIcon(siteIcon(a, iconDataUri))
                 .setIntent(i)
                 .build();
         return sm.requestPinShortcut(info, null);
+    }
+
+    /** The site's favicon (a stored data: URI) as the shortcut icon; the app icon if there is none. */
+    private static Icon siteIcon(Activity a, String dataUri) {
+        try {
+            int c = dataUri == null ? -1 : dataUri.indexOf(";base64,");
+            if (c > 0) {
+                byte[] raw = android.util.Base64.decode(dataUri.substring(c + 8), android.util.Base64.DEFAULT);
+                android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeByteArray(raw, 0, raw.length);
+                if (bmp != null) {
+                    // Centre the favicon on a white tile so small icons do not look cropped or blurry.
+                    int size = 192;
+                    android.graphics.Bitmap out = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888);
+                    android.graphics.Canvas cv = new android.graphics.Canvas(out);
+                    cv.drawColor(0xFFFFFFFF);
+                    int box = 144;
+                    float sc = Math.min((float) box / bmp.getWidth(), (float) box / bmp.getHeight());
+                    int w = Math.round(bmp.getWidth() * sc), h = Math.round(bmp.getHeight() * sc);
+                    android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG);
+                    cv.drawBitmap(bmp, null, new android.graphics.Rect((size - w) / 2, (size - h) / 2, (size + w) / 2, (size + h) / 2), paint);
+                    return Icon.createWithAdaptiveBitmap(out);
+                }
+            }
+        } catch (RuntimeException ignored) {
+        }
+        return Icon.createWithResource(a, R.mipmap.ic_launcher);
     }
 
     private String currentNodes() {

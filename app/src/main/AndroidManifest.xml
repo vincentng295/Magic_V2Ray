@@ -42,6 +42,14 @@
                 <data android:scheme="magicv2ray" android:host="install-config" />
                 <data android:scheme="magicv2ray" android:host="install-sub" />
             </intent-filter>
+            <!-- magicv2ray://add-provider?url=<site>&remark=<name> (add-privider: common misspelling) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="magicv2ray" android:host="add-provider" />
+                <data android:scheme="magicv2ray" android:host="add-privider" />
+            </intent-filter>
             <!-- Long-press on the Quick Settings tile opens the app. -->
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />

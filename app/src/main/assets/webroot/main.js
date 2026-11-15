@@ -782,6 +782,7 @@ document.addEventListener('DOMContentLoaded', () => {
         importPendingSublist();
         checkDeepLink();
         checkProviderSync();
+        checkProviderAdd();
     });
 });
  
@@ -1732,7 +1733,31 @@ function renderProfiles() {
 
         const title = document.createElement('strong');
         title.textContent = `${category} (${catData.nodes.length})`;
-        header.appendChild(title);
+        if (catData.website) {
+            // Provider category: site icon + name, with the site's <title> underneath.
+            const left = document.createElement('div');
+            left.style.cssText = 'display:flex; align-items:center; gap:10px; min-width:0;';
+            if (catData.icon && /^data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+$/i.test(catData.icon)) {
+                const img = document.createElement('img');
+                img.src = catData.icon;
+                img.alt = '';
+                img.style.cssText = 'width:28px; height:28px; border-radius:6px; object-fit:contain; flex:none;';
+                left.appendChild(img);
+            }
+            const col = document.createElement('div');
+            col.style.cssText = 'display:flex; flex-direction:column; min-width:0;';
+            col.appendChild(title);
+            if (catData.siteTitle) {
+                const sub = document.createElement('small');
+                sub.textContent = catData.siteTitle;
+                sub.style.cssText = 'color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;';
+                col.appendChild(sub);
+            }
+            left.appendChild(col);
+            header.appendChild(left);
+        } else {
+            header.appendChild(title);
+        }
 
         if (fetching && !profiles[category]) {
             group.appendChild(header);
@@ -6454,8 +6479,16 @@ function closeAddProviderModal() {
 function saveNewProvider() {
     const url = _normalizeProviderUrl(document.getElementById('add-provider-url').value);
     if (!url) return showToast(t('toast_provider_bad_url'), 'error');
-    let name = document.getElementById('add-provider-name').value.trim() || new URL(url).hostname;
-    if (!_validCategoryName(name)) return showToast(t('toast_category_bad_name'), 'error');
+    const name = _createProvider(url, document.getElementById('add-provider-name').value);
+    if (!name) return;
+    closeAddProviderModal();
+    openProviderSite(name);
+}
+
+// Creates the category (unique name) and starts fetching the site's <title> and icon. Returns the name.
+function _createProvider(url, wantedName) {
+    let name = String(wantedName || '').trim() || new URL(url).hostname;
+    if (!_validCategoryName(name)) { showToast(t('toast_category_bad_name'), 'error'); return null; }
     if (profiles[name]) {
         const base = name;
         let i = 2;
@@ -6465,11 +6498,94 @@ function saveNewProvider() {
     profiles[name] = { url: null, nodes: [], custom: true, website: url };
     categoryExpandedState[name] = true;
     saveProfiles();
-    closeAddProviderModal();
     renderProfiles();
     showToast(t('toast_provider_created', { name }), 'success');
-    openProviderSite(name);
+    refreshProviderInfo(name);
+    return name;
 }
+
+// Fetches the site's <title> and favicon (through the shell, like subscriptions: the WebUI itself
+// has no network) and stores them on the category: siteTitle + icon (a data: URI).
+const _PROVIDER_UA = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36';
+const _providerInfoBusy = new Set();
+
+function _iconMime(b64) {
+    if (b64.startsWith('iVBORw0KGgo')) return 'image/png';
+    if (b64.startsWith('/9j/')) return 'image/jpeg';
+    if (b64.startsWith('R0lGOD')) return 'image/gif';
+    if (b64.startsWith('UklGR')) return 'image/webp';
+    if (b64.startsWith('AAABAA')) return 'image/x-icon';
+    return null;
+}
+
+async function refreshProviderInfo(category) {
+    const cat = profiles[category];
+    if (!cat || !cat.website || _providerInfoBusy.has(category)) return;
+    _providerInfoBusy.add(category);
+    try {
+        const site = cat.website;
+        const status = await execShellAsync(`sh ${MODDIR}/proxy_control.sh status`);
+        const viaProxy = (status === 'running') ? `--socks5-hostname ${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT}` : '';
+        const curl = `${MODDIR}/bin/curl ${viaProxy} -sSL -f --max-redirs 3 --proto '=https' ` +
+                     `--proto-redir '=https' --max-time 15 -A ${shQuote(_PROVIDER_UA)}`;
+        const html = await execShellAsync(`${curl} --max-filesize 3000000 ${shQuote(site)} | head -c 400000`);
+
+        let title = '';
+        const cands = [];
+        if (html && html.trim()) {
+            const doc = new DOMParser().parseFromString(html, 'text/html');   // inert: loads nothing
+            title = (doc.title || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+            const links = [...doc.querySelectorAll('link[rel]')].filter(l =>
+                /(^|\s)(icon|apple-touch-icon(-precomposed)?)(\s|$)/i.test(l.getAttribute('rel')) && l.getAttribute('href'));
+            const rank = l => /apple-touch-icon/i.test(l.getAttribute('rel')) ? 0 : (/\.svg(\?|$)/i.test(l.getAttribute('href')) ? 9 : 1);
+            links.sort((a, b) => rank(a) - rank(b));
+            links.forEach(l => {
+                const h = l.getAttribute('href').trim();
+                if (/^data:image\/(png|jpeg|gif|webp|x-icon|vnd\.microsoft\.icon);base64,/i.test(h)) {
+                    if (h.length < 150000) cands.push(h);
+                    return;
+                }
+                try {
+                    const u = new URL(h, site);
+                    if (u.protocol === 'https:' && !/\.svg(\?|$)/i.test(u.pathname)) cands.push(u.toString());
+                } catch (e) { /* ignore */ }
+            });
+        }
+        try { cands.push(new URL('/favicon.ico', site).toString()); } catch (e) { /* ignore */ }
+
+        let icon = '';
+        for (const c of cands.slice(0, 4)) {
+            if (c.startsWith('data:')) { icon = c; break; }
+            const b64 = ((await execShellAsync(`${curl} --max-filesize 150000 ${shQuote(c)} | base64 | tr -d '\\n'`)) || '').trim();
+            const mime = /^[A-Za-z0-9+/=]+$/.test(b64) && b64.length < 200000 ? _iconMime(b64) : null;
+            if (mime) { icon = `data:${mime};base64,${b64}`; break; }
+        }
+
+        if (!profiles[category]) return;           // deleted meanwhile
+        if (title) profiles[category].siteTitle = title;
+        if (icon) profiles[category].icon = icon;
+        if (title || icon) { saveProfiles(); renderProfiles(); }
+    } finally {
+        _providerInfoBusy.delete(category);
+    }
+}
+
+// magicv2ray://add-provider?url=<site>&remark=<name> (typo "add-privider" is accepted too).
+async function checkProviderAdd() {
+    const k = window.ksu;
+    if (!k || typeof k.takeProviderAdd !== 'function') return;
+    let job;
+    try { job = JSON.parse(String(k.takeProviderAdd() || '')); } catch (e) { return; }
+    if (!job || !job.url) return;
+    const url = _normalizeProviderUrl(job.url);
+    if (!url) return showToast(t('toast_provider_bad_url'), 'error');
+    const name = String(job.remark || '').trim().slice(0, 60);
+    // Any page or app can fire this link, so the user always confirms.
+    if (!await showConfirm(t('confirm_add_provider', { name: name || new URL(url).hostname, url }))) return;
+    const created = _createProvider(url, name);
+    if (created) openProviderSite(created);
+}
+window.checkProviderAdd = checkProviderAdd;
 
 function openProviderSite(category) {
     const cat = profiles[category];
@@ -6480,6 +6596,7 @@ function openProviderSite(category) {
         p: n.protocol || '',
         a: n.address ? (n.address + (n.port ? ':' + n.port : '')) : ''
     }));
+    if (!cat.icon || !cat.siteTitle) refreshProviderInfo(category);
     k.openProvider(cat.website, category, JSON.stringify(nodes));
 }
 
@@ -6487,7 +6604,7 @@ function pinProviderShortcut(category) {
     const cat = profiles[category];
     const k = window.ksu;
     if (!cat || !cat.website || !k || typeof k.pinProviderShortcut !== 'function') return;
-    if (!k.pinProviderShortcut(cat.website, category)) showToast(t('toast_provider_pin_unsupported'), 'error');
+    if (!k.pinProviderShortcut(cat.website, category, cat.icon || '')) showToast(t('toast_provider_pin_unsupported'), 'error');
 }
 
 // The mini browser caught a v2rayng:// link: it closed itself and left {category, url} behind.
