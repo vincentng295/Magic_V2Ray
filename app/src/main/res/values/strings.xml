@@ -74,6 +74,7 @@
     <string name="ext_prompt_warn_loop">⚠ This server is on this device. The app that serves it must be kept out of the VPN, otherwise its own traffic loops back into it.</string>
     <string name="ext_prompt_lbl_overrides">Temporary settings (never saved)</string>
     <string name="ext_prompt_warn_overrides">This app also wants to change settings while it is connected. They apply temporarily, are never saved, and your own settings come back when it disconnects.</string>
+    <string name="ext_prompt_warn_overrides_changed">This app is asking to apply NEW settings while it is connected, different from the ones you allowed before. They apply temporarily, are never saved, and your own settings come back when it disconnects.</string>
     <string name="ext_ov_traffic">Traffic settings</string>
     <string name="ext_ov_network">Network settings</string>
     <string name="ext_ov_exclude">Excluded apps</string>

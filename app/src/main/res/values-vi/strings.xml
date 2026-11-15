@@ -74,6 +74,7 @@
     <string name="ext_prompt_warn_loop">⚠ Máy chủ này nằm trên chính thiết bị. Ứng dụng đang chạy nó phải được loại khỏi VPN, nếu không lưu lượng của chính nó sẽ bị bắt lại.</string>
     <string name="ext_prompt_lbl_overrides">Thiết lập tạm (không bao giờ được lưu)</string>
     <string name="ext_prompt_warn_overrides">Ứng dụng này cũng muốn đổi một số thiết lập khi đang kết nối. Chúng chỉ áp dụng tạm thời, không bao giờ được lưu và thiết lập của bạn sẽ được khôi phục khi ngắt kết nối.</string>
+    <string name="ext_prompt_warn_overrides_changed">Ứng dụng này đang muốn áp dụng thiết lập MỚI khi đang kết nối, khác với thiết lập bạn đã cho phép trước đó. Chúng chỉ áp dụng tạm thời, không bao giờ được lưu, và thiết lập của bạn được khôi phục khi ngắt kết nối.</string>
     <string name="ext_ov_traffic">Thiết lập lưu lượng</string>
     <string name="ext_ov_network">Thiết lập mạng</string>
     <string name="ext_ov_exclude">Ứng dụng loại trừ</string>

@@ -79,6 +79,8 @@ final class ExternalSession {
     private static final Object LOCK = new Object();
     /** Caller of the request the WebUI took last, if that caller may be trusted ("always trust this app"). */
     private static volatile String lastTakenTrustable;
+    /** Fingerprint of the overrides of that same request ("" when it had none). */
+    private static volatile String lastTakenOvHash = "";
 
     private ExternalSession() {
     }
@@ -174,8 +176,12 @@ final class ExternalSession {
             // Trust is only offered for calls that app code made on purpose (an explicit action):
             // a link can come from anywhere (a chat message, a web page), whichever app opened it.
             // An app the user chose to "always trust" (explicit intent from a verified native app, tied to its signing
-            // certificate) is not asked again when it also sends overrides. Links and browsers are never trustable.
+            // certificate) is not asked again while it sends the SAME overrides it was last allowed with. New or changed
+            // overrides are asked again ("ovChanged"). Links and browsers are never trustable.
             boolean trustable = !"deeplink".equals(source) && caller != null && !browser;
+            String ovHash = overridesHash(ov);
+            boolean callerTrusted = trustable && isTrusted(c, caller);
+            boolean ovSame = ov.length() == 0 || ovHash.equals(trustedOverridesHash(c, caller));
             o.put("action", "connect")
                     .put("uri", uri)
                     .put("name", clean(name, MAX_NAME))
@@ -186,7 +192,9 @@ final class ExternalSession {
                     .put("callerLabel", caller == null ? "" : labelOf(c, caller))
                     .put("browser", browser)
                     .put("trustable", trustable)
-                    .put("trusted", trustable && isTrusted(c, caller))
+                    .put("trusted", callerTrusted && ovSame)
+                    .put("ovChanged", callerTrusted && !ovSame)
+                    .put("ovHash", ovHash)
                     .put("ts", System.currentTimeMillis());
             return o;
         } catch (JSONException e) {
@@ -251,6 +259,54 @@ final class ExternalSession {
     private static final int MAX_RULES = 500;
     private static final int MAX_HOSTS = 2000;
     private static final int MAX_EXCLUDE_OVERRIDE = 500;
+
+    /** Key-sorted, whitespace-free text of a JSON value: the same overrides always give the same text. */
+    private static void canon(Object v, StringBuilder sb) throws JSONException {
+        if (v instanceof JSONObject) {
+            JSONObject o = (JSONObject) v;
+            java.util.List<String> keys = new java.util.ArrayList<>();
+            java.util.Iterator<String> it = o.keys();
+            while (it.hasNext()) keys.add(it.next());
+            java.util.Collections.sort(keys);
+            sb.append('{');
+            for (int i = 0; i < keys.size(); i++) {
+                if (i > 0) sb.append(',');
+                sb.append(JSONObject.quote(keys.get(i))).append(':');
+                canon(o.get(keys.get(i)), sb);
+            }
+            sb.append('}');
+        } else if (v instanceof JSONArray) {
+            JSONArray a = (JSONArray) v;
+            sb.append('[');
+            for (int i = 0; i < a.length(); i++) {
+                if (i > 0) sb.append(',');
+                canon(a.get(i), sb);
+            }
+            sb.append(']');
+        } else if (v instanceof String) {
+            sb.append(JSONObject.quote((String) v));
+        } else {
+            sb.append(String.valueOf(v));
+        }
+    }
+
+    /**
+     * SHA-256 of the sanitized overrides, "" when there are none. A trusted app is only let through silently with the
+     * overrides it was last allowed with; this fingerprint is what is compared (the overrides themselves are not stored).
+     */
+    static String overridesHash(JSONObject ov) {
+        if (ov == null || ov.length() == 0) return "";
+        try {
+            StringBuilder sb = new StringBuilder();
+            canon(ov, sb);
+            byte[] h = MessageDigest.getInstance("SHA-256").digest(sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder();
+            for (byte b : h) hex.append(String.format("%02x", b));
+            return hex.toString();
+        } catch (JSONException | java.security.NoSuchAlgorithmException e) {
+            return "";
+        }
+    }
 
     private static Object typed(String spec, Object v) {
         try {
@@ -422,11 +478,15 @@ final class ExternalSession {
             String s = pendingJson;
             pendingJson = "";
             lastTakenTrustable = null;
+            lastTakenOvHash = "";
             if (s == null || s.isEmpty()) return "";
             try {
                 JSONObject o = new JSONObject(s);
                 if (System.currentTimeMillis() - o.optLong("ts") > PENDING_TTL_MS) return "";
-                if (o.optBoolean("trustable")) lastTakenTrustable = o.optString("caller");
+                if (o.optBoolean("trustable")) {
+                    lastTakenTrustable = o.optString("caller");
+                    lastTakenOvHash = o.optString("ovHash", "");
+                }
             } catch (JSONException e) {
                 return "";
             }
@@ -514,14 +574,33 @@ final class ExternalSession {
         }
     }
 
-    /** Only the caller of the request the WebUI took last may be added, and only when it was trustable. */
+    /** Fingerprint of the overrides this trusted app was last allowed with, "" if none. */
+    static String trustedOverridesHash(Context c, String pkg) {
+        String v = trustSp(c).getString(pkg, null);
+        if (v == null) return "";
+        try {
+            return new JSONObject(v).optString("ov", "");
+        } catch (JSONException e) {
+            return "";
+        }
+    }
+
+    /**
+     * Only the caller of the request the WebUI took last may be added, and only when it was trustable.
+     * "Always allow" also remembers that request's overrides: the app is let through silently with exactly those.
+     * A request without overrides leaves the remembered ones alone.
+     */
     static boolean trust(Context c, String pkg) {
         if (pkg == null || !pkg.equals(lastTakenTrustable)) return false;
         String sig = signature(c, pkg);
         if (sig.isEmpty()) return false;
         try {
+            String ov = lastTakenOvHash.isEmpty() ? trustedOverridesHash(c, pkg) : lastTakenOvHash;
+            long since = System.currentTimeMillis();
+            String old = trustSp(c).getString(pkg, null);
+            if (old != null) since = new JSONObject(old).optLong("since", since);     // re-allowing keeps the original date
             trustSp(c).edit().putString(pkg, new JSONObject().put("sig", sig)
-                    .put("since", System.currentTimeMillis()).toString()).apply();
+                    .put("since", since).put("ov", ov).toString()).apply();
             return true;
         } catch (JSONException e) {
             return false;
@@ -534,6 +613,7 @@ final class ExternalSession {
         String pkg = req.optString("caller", "");
         if (pkg.isEmpty()) return false;
         lastTakenTrustable = pkg;
+        lastTakenOvHash = req.optString("ovHash", "");
         return trust(c, pkg);
     }
 
