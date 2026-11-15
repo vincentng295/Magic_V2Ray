@@ -1,6 +1,6 @@
 # Magic V2Ray
 
-[View English version](./README.md)
+[English](./README.md) | [Tiếng Việt](./README_vi.md) | [Русский](./README_ru.md) | [简体中文](./README_zh-CN.md) | [繁體中文（台灣）](./README_zh-TW.md) | [繁體中文（香港）](./README_zh-HK.md)
 
 ![screenshot_1](images/screenshot_1.jpg)
 
