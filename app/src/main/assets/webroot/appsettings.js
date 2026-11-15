@@ -36,7 +36,7 @@
 
     // ---- main controls
     function syncColorRow() {
-        var p = T.get(), custom = p.color === 'custom' && T.colorSupported();
+        var p = T.get(), custom = p.color === 'custom';
         $('app-color-current').hidden = !custom;
         $('app-color-dot').style.background = p.seed;
         $('app-color-hex').textContent = p.seed;
@@ -44,8 +44,10 @@
     function syncControls() {
         var p = T.get();
         themeSel.value = p.theme;
-        colorSel.value = p.color;
-        colorSel.disabled = !T.colorSupported();
+        // Only "Follow system" needs Android 13+: it is greyed out (and a saved "system" shows as Default) below that.
+        var sysOk = T.systemColorSupported();
+        colorSel.querySelector('option[value="system"]').disabled = !sysOk;
+        colorSel.value = p.color === 'system' && !sysOk ? 'default' : p.color;
         syncColorRow();
     }
     themeSel.addEventListener('change', function () { T.set({ theme: themeSel.value }); });

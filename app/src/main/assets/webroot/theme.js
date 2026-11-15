@@ -10,7 +10,7 @@
     var DEFAULT_SEED = '#006E1C';                 // Material baseline green
     var DEFAULTS = { theme: 'system', color: 'default', seed: DEFAULT_SEED, bg: false, bgTheme: false, bgSeed: '', bgDim: 35 };
     var BG_KEY = 'mv_bg_image';                   // wallpaper data URL (downscaled JPEG), per-device
-    var MIN_SDK_COLOR = 33;                       // "Primary color" needs Android 13+
+    var MIN_SDK_SYSTEM_COLOR = 33;                // only "Follow system" (dynamic colour) needs Android 13+; Default and a custom colour work everywhere
 
     // ---------------------------------------------------------------- colour math (CIELAB)
     var WP = [0.95047, 1, 1.08883];
@@ -137,7 +137,7 @@
     var host = global.ksu;
     function hostHas(fn) { return host && typeof host[fn] === 'function'; }
     function sdk() { return hostHas('sdk') ? Number(host.sdk()) || 0 : 0; }
-    function colorSupported() { return !hostHas('sdk') || sdk() >= MIN_SDK_COLOR; }   // plain browser: allow (preview)
+    function systemColorSupported() { return !hostHas('sdk') || sdk() >= MIN_SDK_SYSTEM_COLOR; }   // plain browser: allow (preview)
 
     function sanitize(o) {
         o = o || {};
@@ -190,7 +190,8 @@
 
     function resolve(p) {
         var dark = p.theme === 'dark' || (p.theme === 'system' && systemIsDark());
-        var mode = colorSupported() ? p.color : 'default';
+        // "Follow system" without dynamic colours falls back to the default palette; a custom colour always applies.
+        var mode = p.color === 'system' && !systemColorSupported() ? 'default' : p.color;
         var pal = mode === 'system' ? systemPalette() : null;
         var bgOn = p.bg && !!img;
         if (bgOn && p.bgTheme && p.bgSeed) pal = paletteFromSeed(p.bgSeed);       // theme colour from wallpaper
@@ -239,7 +240,7 @@
             return true;
         },
         clearImage: function () { putImage(''); img = ''; update({ bg: false, bgTheme: false, bgSeed: '' }); },
-        colorSupported: colorSupported,
+        systemColorSupported: systemColorSupported,
         defaultSeed: DEFAULT_SEED,
         // exposed for the picker + tests
         hexToRgb: hexToRgb, rgbToHex: rgbToHex, hexToLch: hexToLch, lch: lch,
