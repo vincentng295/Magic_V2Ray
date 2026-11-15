@@ -48,6 +48,13 @@
             </intent-filter>
         </activity>
 
+        <!-- Mini browser for provider-website categories (sandboxed: no root bridge). -->
+        <activity
+            android:name=".ProviderBrowserActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode|density|locale|layoutDirection"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
         <!-- Non-root engine: a VpnService that hands its tun fd to xray. -->
         <service
             android:name=".MagicVpnService"

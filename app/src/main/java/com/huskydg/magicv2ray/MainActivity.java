@@ -89,6 +89,9 @@ public class MainActivity extends Activity {
     /** Subscription URL from a v2rayng:// / magicv2ray:// link, waiting for the WebUI to take it. */
     static volatile String pendingLink;
 
+    /** {"category":..,"url":..} left by {@link ProviderBrowserActivity} when its Sync link was tapped. */
+    static volatile String pendingProviderSync;
+
     /** Only http(s) subscription URLs get through; the WebUI still asks the user before adding. */
     private static String linkUrl(Intent i) {
         Uri u = i == null ? null : i.getData();
@@ -595,6 +598,15 @@ public class MainActivity extends Activity {
     }
 
     // --------------------------------------------------------------- lifecycle
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Back from the provider mini browser with a sync request: let the WebUI import it.
+        if (pendingProviderSync != null && web != null) {
+            web.post(() -> web.evaluateJavascript("window.checkProviderSync&&window.checkProviderSync()", null));
+        }
+    }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {

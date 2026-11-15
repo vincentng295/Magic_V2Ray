@@ -781,6 +781,7 @@ document.addEventListener('DOMContentLoaded', () => {
         syncAutocheckList();
         importPendingSublist();
         checkDeepLink();
+        checkProviderSync();
     });
 });
  
@@ -1754,6 +1755,10 @@ function renderProfiles() {
 
         const dropdown = document.createElement('div');
         dropdown.className = 'category-dropdown-menu';
+        if (catData.website) {
+            dropdown.appendChild(_mkButton(t('menu_open_provider'), '',
+                () => { openProviderSite(category); closeAllMenus(); }));
+        }
         if (hasUrl) {
             dropdown.appendChild(_mkButton(t('menu_reload'), '',
                 () => { reloadCategory(category); closeAllMenus(); }));
@@ -6413,6 +6418,80 @@ function saveNewCategory() {
     renderProfiles();
     showToast(t('toast_category_created', { name }), 'success');
 }
+
+// ===== Provider websites =====
+// A "provider" category is a normal category that also remembers the seller's website
+// (profiles[cat].website). The site opens in a mini browser (ProviderBrowserActivity) that has
+// no access to the root bridge; its Sync button (v2rayng://install-config?url=...) is caught by
+// the app, which comes back here and imports the subscription into this category.
+function _normalizeProviderUrl(raw) {
+    let v = String(raw || '').trim();
+    if (!v) return null;
+    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(v)) v = 'https://' + v;
+    try {
+        const u = new URL(v);
+        if (u.protocol !== 'https:' || !u.hostname || !u.hostname.includes('.')) return null;
+        u.username = ''; u.password = '';
+        return u.toString();
+    } catch (e) { return null; }
+}
+
+function openAddProviderModal() {
+    document.getElementById('add-provider-url').value = '';
+    document.getElementById('add-provider-name').value = '';
+    document.getElementById('add-provider-modal').style.display = 'block';
+    setTimeout(() => document.getElementById('add-provider-url').focus(), 50);
+}
+
+function closeAddProviderModal() {
+    document.getElementById('add-provider-modal').style.display = 'none';
+}
+
+function saveNewProvider() {
+    const url = _normalizeProviderUrl(document.getElementById('add-provider-url').value);
+    if (!url) return showToast(t('toast_provider_bad_url'), 'error');
+    let name = document.getElementById('add-provider-name').value.trim() || new URL(url).hostname;
+    if (!_validCategoryName(name)) return showToast(t('toast_category_bad_name'), 'error');
+    if (profiles[name]) {
+        const base = name;
+        let i = 2;
+        while (profiles[`${base} (${i})`]) i++;
+        name = `${base} (${i})`;
+    }
+    profiles[name] = { url: null, nodes: [], custom: true, website: url };
+    categoryExpandedState[name] = true;
+    saveProfiles();
+    closeAddProviderModal();
+    renderProfiles();
+    showToast(t('toast_provider_created', { name }), 'success');
+    openProviderSite(name);
+}
+
+function openProviderSite(category) {
+    const cat = profiles[category];
+    const k = window.ksu;
+    if (!cat || !cat.website || !k || typeof k.openProvider !== 'function') return;
+    const nodes = (cat.nodes || []).filter(n => !_isGroupNode(n)).map(n => ({
+        n: _nodeRemark(n),
+        p: n.protocol || '',
+        a: n.address ? (n.address + (n.port ? ':' + n.port : '')) : ''
+    }));
+    k.openProvider(cat.website, category, JSON.stringify(nodes));
+}
+
+// The mini browser caught a v2rayng:// link: it closed itself and left {category, url} behind.
+async function checkProviderSync() {
+    const k = window.ksu;
+    if (!k || typeof k.takeProviderSync !== 'function') return;
+    let job;
+    try { job = JSON.parse(String(k.takeProviderSync() || '')); } catch (e) { return; }
+    if (!job || !job.url || !profiles[job.category]) return;
+    if (!/^https?:\/\/\S+$/i.test(job.url)) return;
+    showToast(t('toast_provider_sync', { name: job.category }), 'info');
+    categoryExpandedState[job.category] = true;
+    fetchSubscription(job.category, job.url, true);
+}
+window.checkProviderSync = checkProviderSync;
 
 let _movingNode = null; // { category, id }
 

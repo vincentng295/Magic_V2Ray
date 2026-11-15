@@ -37,4 +37,13 @@
     <string name="notif_stop">關閉代理</string>
     <string name="vpn_notif_text">Xray 正在執行（VpnService）</string>
     <string name="vpn_notif_paused">VPN 已連線，代理在此網路上已暫停</string>
+    <string name="provider_menu">選單</string>
+    <string name="provider_nodes">已匯入的節點（%d）</string>
+    <string name="provider_reload">重新載入頁面</string>
+    <string name="provider_copy_link">複製連結</string>
+    <string name="provider_open_external">在瀏覽器中開啟</string>
+    <string name="provider_no_nodes">尚未匯入節點。請點選網站上的同步按鈕。</string>
+    <string name="provider_close">關閉</string>
+    <string name="provider_link_copied">連結已複製</string>
+    <string name="provider_bad_sync">此同步連結沒有有效的 URL</string>
 </resources>

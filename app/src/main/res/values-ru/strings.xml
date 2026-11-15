@@ -37,4 +37,13 @@
     <string name="notif_stop">Отключить прокси</string>
     <string name="vpn_notif_text">Xray работает (VpnService)</string>
     <string name="vpn_notif_paused">VPN подключён, прокси приостановлен в этой сети</string>
+    <string name="provider_menu">Меню</string>
+    <string name="provider_nodes">Импортированные узлы (%d)</string>
+    <string name="provider_reload">Обновить страницу</string>
+    <string name="provider_copy_link">Копировать ссылку</string>
+    <string name="provider_open_external">Открыть в браузере</string>
+    <string name="provider_no_nodes">Узлов пока нет. Нажмите кнопку синхронизации на сайте.</string>
+    <string name="provider_close">Закрыть</string>
+    <string name="provider_link_copied">Ссылка скопирована</string>
+    <string name="provider_bad_sync">В ссылке синхронизации нет корректного URL</string>
 </resources>

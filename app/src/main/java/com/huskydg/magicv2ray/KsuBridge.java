@@ -190,6 +190,21 @@ final class KsuBridge {
         return u == null ? "" : u;
     }
 
+    /** Opens a provider website in the sandboxed mini browser (https only; the page gets no bridge). */
+    @JavascriptInterface
+    public void openProvider(final String url, final String category, final String nodesJson) {
+        if (url == null || category == null || !url.matches("(?i)^https://\\S+$")) return;
+        activity.runOnUiThread(() -> ProviderBrowserActivity.start(activity, url, category, nodesJson));
+    }
+
+    /** The sync request left by the provider mini browser ("" if none); returns it once. */
+    @JavascriptInterface
+    public String takeProviderSync() {
+        String j = MainActivity.pendingProviderSync;
+        MainActivity.pendingProviderSync = null;
+        return j == null ? "" : j;
+    }
+
     /** "root" or "nonroot": decides which base paths and engine the WebUI uses. */
     @JavascriptInterface
     public String mode() {

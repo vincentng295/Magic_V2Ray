@@ -37,4 +37,13 @@
     <string name="notif_stop">Turn off proxy</string>
     <string name="vpn_notif_text">Xray is running (VpnService)</string>
     <string name="vpn_notif_paused">VPN connected, proxy paused on this network</string>
+    <string name="provider_menu">Menu</string>
+    <string name="provider_nodes">Imported nodes (%d)</string>
+    <string name="provider_reload">Reload page</string>
+    <string name="provider_copy_link">Copy link</string>
+    <string name="provider_open_external">Open in browser</string>
+    <string name="provider_no_nodes">No nodes imported yet. Tap the site\'s Sync button to import them.</string>
+    <string name="provider_close">Close</string>
+    <string name="provider_link_copied">Link copied</string>
+    <string name="provider_bad_sync">This sync link has no valid URL</string>
 </resources>
