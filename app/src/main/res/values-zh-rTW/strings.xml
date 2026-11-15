@@ -58,4 +58,18 @@
     <string name="ext_unnamed">未命名的連線</string>
     <string name="ext_ended">已中斷外部連線</string>
     <string name="ext_no_session">沒有正在執行的外部連線</string>
+    <string name="ext_prompt_question">允許 %1$s 透過 Magic V2Ray 連線？</string>
+    <string name="ext_prompt_always">永遠允許</string>
+    <string name="ext_prompt_once">僅允許一次</string>
+    <string name="ext_prompt_deny">拒絕</string>
+    <string name="ext_prompt_details">詳細資料</string>
+    <string name="ext_prompt_who_unknown">未驗證的來源</string>
+    <string name="ext_prompt_who_web">此網站</string>
+    <string name="ext_prompt_lbl_caller">請求者</string>
+    <string name="ext_prompt_lbl_uri">位址 (URI)</string>
+    <string name="ext_prompt_lbl_exclude">排除在 VPN 之外</string>
+    <string name="ext_prompt_none">無</string>
+    <string name="ext_prompt_warn_vless">⚠ 此節點使用未啟用 TLS 或加密的 VLESS：流量以明文傳輸。</string>
+    <string name="ext_prompt_warn_trojan">⚠ 此節點使用未啟用 TLS 的 Trojan：流量以明文傳輸。</string>
+    <string name="ext_prompt_warn_loop">⚠ 此伺服器位於本裝置上。提供它的應用程式必須排除在 VPN 之外，否則它自己的流量會繞回自己。</string>
 </resources>

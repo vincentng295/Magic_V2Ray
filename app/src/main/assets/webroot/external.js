@@ -63,6 +63,13 @@ function _extWrite(path, content) {
     return new Promise(resolve => writeFileB64(path, content, (out, err, errno) => resolve(!errno)));
 }
 
+// A request approved in the native dialog (ExternalPromptActivity) runs silently in the background: the user is
+// in the app that asked, so the result is a system toast, not a WebUI toast / loading overlay.
+function _extMsg(req, text, type) {
+    if (req && req.approved === true && window.ksu && typeof window.ksu.toast === 'function') window.ksu.toast(text);
+    else showToast(text, type);
+}
+
 function _extSleep(ms) {
     return new Promise(r => setTimeout(r, ms));
 }
@@ -246,13 +253,14 @@ async function checkExternalRequest() {
 window.checkExternalRequest = checkExternalRequest;
 
 async function _extHandleConnect(req) {
+    const silent = req.approved === true;     // already confirmed in the native dialog over the calling app
     // Professional mode owns config.json: a session would overwrite the hand-written config.
-    if (advSettings.proMode) { showToast(t('ext_err_promode'), 'error'); return; }
+    if (advSettings.proMode) { _extMsg(req, t('ext_err_promode'), 'error'); return; }
     const node = parseProxyUri(String(req.uri || ''));
-    if (!node) { showToast(t('ext_err_bad_uri'), 'error'); return; }
+    if (!node) { _extMsg(req, t('ext_err_bad_uri'), 'error'); return; }
     const rawUri = node.rawUri;
     const built = await _extBuildConfig(rawUri);
-    if (!built.ok) { showToast(t('toast_config_invalid', { reason: built.error }), 'error'); return; }
+    if (!built.ok) { _extMsg(req, t('toast_config_invalid', { reason: built.error }), 'error'); return; }
 
     const name = _extDisplayName(req, node);
     const excludes = _extExcludes(req, node);
@@ -261,8 +269,9 @@ async function _extHandleConnect(req) {
     if (isPlainTrojanUri(rawUri)) warnings.push(t('warn_plain_trojan', { name }));
     if (_extIsLocalTarget(node.address) && !excludes.length) warnings.push(t('ext_warn_loop'));
 
-    // No prompt only for an app the user trusts, when nothing in the request goes beyond what that app is.
-    const auto = req.trusted === true && !warnings.length && excludes.every(p => p === req.caller);
+    // No prompt when the native dialog already asked, or for an app the user trusts, when nothing in the request
+    // goes beyond what that app is.
+    const auto = silent || (req.trusted === true && !warnings.length && excludes.every(p => p === req.caller));
     let trust = false;
     if (!auto) {
         const r = await _extConfirm({ req, node, name, excludes, warnings });
@@ -274,9 +283,12 @@ async function _extHandleConnect(req) {
     if (trust && req.trustable && req.caller) window.ksu.trustAdd(req.caller);
     _markStatusPending();
     renderExtBanner();
-    showToast(t('ext_connected', { name }), 'success');
-    // came from a native app: go back to it
-    if (req.caller && !req.browser && typeof window.ksu.moveToBack === 'function') window.ksu.moveToBack();
+    _extMsg(req, t('ext_connected', { name }), 'success');
+    // The user stays where they are: a silent request never brings Magic V2Ray forward. Only when the app had to be
+    // started for it (cold start) does it step back again, to the app that asked.
+    if (silent ? req.cold === true : (req.caller && !req.browser)) {
+        if (typeof window.ksu.moveToBack === 'function') window.ksu.moveToBack();
+    }
 }
 
 async function _extCleanFiles() {
@@ -286,7 +298,8 @@ async function _extCleanFiles() {
 async function _extStart(req, rawUri, name, excludes, configText) {
     const k = window.ksu;
     const prev = extState();
-    showLoading(t('toast_reload_xray'));
+    const silent = req.approved === true;
+    if (!silent) showLoading(t('toast_reload_xray'));
     try {
         let wasRunning;
         if (prev.active) {
@@ -294,8 +307,8 @@ async function _extStart(req, rawUri, name, excludes, configText) {
         } else {
             wasRunning = (await _extExec(`sh ${MODDIR}/proxy_control.sh status`)).out === 'running';
             const base = await _extBuildConfig(_extBaseRawUri());
-            if (!base.ok) { showToast(t('toast_config_invalid', { reason: base.error }), 'error'); return false; }
-            if (!await _extWrite(CONFIG_BASE_FILE, base.text)) { showToast(t('ext_err_write'), 'error'); return false; }
+            if (!base.ok) { _extMsg(req, t('toast_config_invalid', { reason: base.error }), 'error'); return false; }
+            if (!await _extWrite(CONFIG_BASE_FILE, base.text)) { _extMsg(req, t('ext_err_write'), 'error'); return false; }
         }
 
         const wrote = excludes.length
@@ -304,7 +317,7 @@ async function _extStart(req, rawUri, name, excludes, configText) {
         if (!wrote || !await _extWrite(CONFIG_JSON, configText)) {
             if (!prev.active) await _extCleanFiles();
             else await _extCall('extEnd');
-            showToast(t('ext_err_write'), 'error');
+            _extMsg(req, t('ext_err_write'), 'error');
             return false;
         }
 
@@ -313,7 +326,7 @@ async function _extStart(req, rawUri, name, excludes, configText) {
         }));
         if (!begun) {
             if (!prev.active) await _extCleanFiles();
-            showToast(t('ext_err_write'), 'error');
+            _extMsg(req, t('ext_err_write'), 'error');
             return false;
         }
 
@@ -326,14 +339,14 @@ async function _extStart(req, rawUri, name, excludes, configText) {
         }
         if (!up) {
             await _extCall('extEnd');            // back to the selected node (and its running / stopped state)
-            showToast(t('ext_err_start', { reason: r.err || r.out || '' }), 'error');
+            _extMsg(req, t('ext_err_start', { reason: r.err || r.out || '' }), 'error');
             _markStatusPending();
             renderExtBanner();
             return false;
         }
         return true;
     } finally {
-        hideLoading();
+        if (!silent) hideLoading();
     }
 }
 

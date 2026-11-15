@@ -237,7 +237,7 @@ final class ExternalSession {
             String name = req.optString("name", "");
             if (name.isEmpty()) name = c.getString(R.string.ext_unnamed);
             PendingIntent open = PendingIntent.getActivity(c, 2,
-                    new Intent(c, MainActivity.class).setAction(ACTION_REVIEW)
+                    new Intent(c, ExternalPromptActivity.class).setAction(ACTION_REVIEW)
                             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP),
                     PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
             Notification.Builder nb = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(c, REVIEW_CHANNEL)
@@ -315,6 +315,15 @@ final class ExternalSession {
         } catch (JSONException e) {
             return false;
         }
+    }
+
+    /** "Always allow" chosen in {@link ExternalPromptActivity}: only for a trustable request (explicit intent, verified native caller). */
+    static boolean trustApproved(Context c, JSONObject req) {
+        if (req == null || !req.optBoolean("trustable")) return false;
+        String pkg = req.optString("caller", "");
+        if (pkg.isEmpty()) return false;
+        lastTakenTrustable = pkg;
+        return trust(c, pkg);
     }
 
     static void untrust(Context c, String pkg) {

@@ -58,4 +58,18 @@
     <string name="ext_unnamed">một kết nối chưa đặt tên</string>
     <string name="ext_ended">Đã ngắt kết nối ngoài</string>
     <string name="ext_no_session">Không có kết nối ngoài nào đang chạy</string>
+    <string name="ext_prompt_question">Cho phép %1$s kết nối qua Magic V2Ray?</string>
+    <string name="ext_prompt_always">Cho phép mọi lúc</string>
+    <string name="ext_prompt_once">Cho phép một lần</string>
+    <string name="ext_prompt_deny">Từ chối</string>
+    <string name="ext_prompt_details">Chi tiết</string>
+    <string name="ext_prompt_who_unknown">một nguồn chưa xác minh</string>
+    <string name="ext_prompt_who_web">trang web này</string>
+    <string name="ext_prompt_lbl_caller">Yêu cầu bởi</string>
+    <string name="ext_prompt_lbl_uri">Địa chỉ (URI)</string>
+    <string name="ext_prompt_lbl_exclude">Loại khỏi VPN</string>
+    <string name="ext_prompt_none">Không có</string>
+    <string name="ext_prompt_warn_vless">⚠ Node này dùng VLESS không có TLS hay mã hóa: lưu lượng được gửi dạng plaintext.</string>
+    <string name="ext_prompt_warn_trojan">⚠ Node này dùng Trojan không có TLS: lưu lượng được gửi dạng plaintext.</string>
+    <string name="ext_prompt_warn_loop">⚠ Máy chủ này nằm trên chính thiết bị. Ứng dụng đang chạy nó phải được loại khỏi VPN, nếu không lưu lượng của chính nó sẽ bị bắt lại.</string>
 </resources>

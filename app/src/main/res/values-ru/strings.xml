@@ -58,4 +58,18 @@
     <string name="ext_unnamed">безымянное подключение</string>
     <string name="ext_ended">Внешнее подключение завершено</string>
     <string name="ext_no_session">Внешних подключений нет</string>
+    <string name="ext_prompt_question">Разрешить %1$s подключаться через Magic V2Ray?</string>
+    <string name="ext_prompt_always">Всегда разрешать</string>
+    <string name="ext_prompt_once">Разрешить один раз</string>
+    <string name="ext_prompt_deny">Запретить</string>
+    <string name="ext_prompt_details">Подробности</string>
+    <string name="ext_prompt_who_unknown">непроверенный источник</string>
+    <string name="ext_prompt_who_web">этот сайт</string>
+    <string name="ext_prompt_lbl_caller">Запрос от</string>
+    <string name="ext_prompt_lbl_uri">Адрес (URI)</string>
+    <string name="ext_prompt_lbl_exclude">Исключено из VPN</string>
+    <string name="ext_prompt_none">Нет</string>
+    <string name="ext_prompt_warn_vless">⚠ Этот узел использует VLESS без TLS и шифрования: трафик передаётся открытым текстом.</string>
+    <string name="ext_prompt_warn_trojan">⚠ Этот узел использует Trojan без TLS: трафик передаётся открытым текстом.</string>
+    <string name="ext_prompt_warn_loop">⚠ Этот сервер находится на этом устройстве. Приложение, которое его обслуживает, нужно исключить из VPN, иначе его собственный трафик зациклится.</string>
 </resources>

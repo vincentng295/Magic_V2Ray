@@ -58,4 +58,18 @@
     <string name="ext_unnamed">an unnamed connection</string>
     <string name="ext_ended">External connection ended</string>
     <string name="ext_no_session">No external connection is running</string>
+    <string name="ext_prompt_question">Allow %1$s to connect through Magic V2Ray?</string>
+    <string name="ext_prompt_always">Always allow</string>
+    <string name="ext_prompt_once">Allow once</string>
+    <string name="ext_prompt_deny">Deny</string>
+    <string name="ext_prompt_details">Details</string>
+    <string name="ext_prompt_who_unknown">an unverified source</string>
+    <string name="ext_prompt_who_web">this website</string>
+    <string name="ext_prompt_lbl_caller">Requested by</string>
+    <string name="ext_prompt_lbl_uri">Address (URI)</string>
+    <string name="ext_prompt_lbl_exclude">Kept out of the VPN</string>
+    <string name="ext_prompt_none">None</string>
+    <string name="ext_prompt_warn_vless">⚠ This node uses VLESS without TLS or encryption: its traffic is sent in plaintext.</string>
+    <string name="ext_prompt_warn_trojan">⚠ This node uses Trojan without TLS: its traffic is sent in plaintext.</string>
+    <string name="ext_prompt_warn_loop">⚠ This server is on this device. The app that serves it must be kept out of the VPN, otherwise its own traffic loops back into it.</string>
 </resources>
