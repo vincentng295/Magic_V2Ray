@@ -110,8 +110,17 @@
             <intent-filter>
                 <action android:name="com.huskydg.magicv2ray.action.CONNECT" />
                 <action android:name="com.huskydg.magicv2ray.action.DISCONNECT" />
+                <action android:name="com.huskydg.magicv2ray.action.GET_INFO" />
+                <!-- from the root service (am broadcast): only makes the app re-read the engine status -->
+                <action android:name="com.huskydg.magicv2ray.action.ENGINE_CHANGED" />
             </intent-filter>
         </receiver>
+
+        <!-- Read-only info / state of the external API (see ExternalApiProvider). No permission: it holds no secrets. -->
+        <provider
+            android:name=".ExternalApiProvider"
+            android:authorities="com.huskydg.magicv2ray.api"
+            android:exported="true" />
 
         <!-- "Turn off proxy" button of the status notification. -->
         <receiver

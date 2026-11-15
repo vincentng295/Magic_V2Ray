@@ -40,15 +40,19 @@ final class VpnController {
 
     static void setRunning() {
         state = RUNNING;
+        ExternalApi.engine(MagicVpnService.appContext, true, ExternalApi.REASON_STARTED);
     }
 
     static void setStopped() {
         state = STOPPED;
+        // after setFailed() this is already announced (reason "error"), the second call changes nothing
+        ExternalApi.engine(MagicVpnService.appContext, false, ExternalApi.REASON_STOPPED);
     }
 
     static void setFailed(String why) {
         lastError = why == null ? "" : why;
         state = FAILED;
+        ExternalApi.engine(MagicVpnService.appContext, false, ExternalApi.REASON_ERROR);
     }
 
     static boolean isRunning() {
@@ -111,6 +115,7 @@ final class VpnController {
         MagicVpnService s = svc;
         if (s == null) {
             state = STOPPED;
+            ExternalApi.engine(MagicVpnService.appContext, false, ExternalApi.REASON_STOPPED);
             return;
         }
         s.shutdown();

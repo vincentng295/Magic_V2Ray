@@ -54,6 +54,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class MagicVpnService extends VpnService {
 
+    /** For the state hooks in {@link VpnController}, which run when the service object may already be gone. */
+    static volatile android.content.Context appContext;
+
     static final String ACTION_START = "com.huskydg.magicv2ray.VPN_START";
 
     private final Object lock = new Object();
@@ -87,6 +90,7 @@ public class MagicVpnService extends VpnService {
     @Override
     public void onCreate() {
         super.onCreate();
+        appContext = getApplicationContext();
         VpnController.svc = this;
     }
 

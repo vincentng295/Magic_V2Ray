@@ -29,12 +29,45 @@ void xray_helper_logservice(const char *verb, const char *flag, const char *val)
     u_run(argv);
 }
 
+/* Tell the app that xray started / stopped, so it can announce it to other apps (README "State events").
+ * Fire and forget on a helper thread: `am` takes a second to start and must never hold up the control loop.
+ * Bursts (hard_restart = stop + reaper + start) are merged. The app does not trust anything in this broadcast,
+ * it only re-reads the real status. */
+static volatile int g_notify_busy, g_notify_again;
+
+static void *notify_thread(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        g_notify_again = 0;
+        char *argv[] = { "/system/bin/am", "broadcast", "--user", "0",
+                         "-a", "com.huskydg.magicv2ray.action.ENGINE_CHANGED",
+                         "-p", "com.huskydg.magicv2ray", NULL };
+        u_run(argv);
+        if (!g_notify_again) {
+            g_notify_busy = 0;
+            __sync_synchronize();
+            if (!g_notify_again || __sync_lock_test_and_set(&g_notify_busy, 1)) break;
+        }
+    }
+    return NULL;
+}
+
+void notify_app_state(void)
+{
+    if (__sync_lock_test_and_set(&g_notify_busy, 1)) { g_notify_again = 1; return; }
+    pthread_t th;
+    if (pthread_create(&th, NULL, notify_thread, NULL) == 0) pthread_detach(th);
+    else g_notify_busy = 0;
+}
+
 static void *reaper(void *arg)
 {
     pid_t pid = (pid_t)(intptr_t)arg; int st;
     while (waitpid(pid, &st, 0) < 0 && errno == EINTR) {}
     log_msg("xray pid %d exited (%s %d)", (int)pid, WIFSIGNALED(st) ? "signal" : "status",
             WIFSIGNALED(st) ? WTERMSIG(st) : WEXITSTATUS(st));
+    notify_app_state();                            /* covers a crash; our own kills are merged / ignored by the app */
     return NULL;
 }
 
@@ -150,6 +183,7 @@ int start_xray(void)
     refresh_mark_rule();
     apps_monitor_start();
     enabled_set(true);
+    notify_app_state();
     return 0;
 }
 
@@ -164,6 +198,7 @@ int stop_xray(void)
     proc_untrack("xray");
     enabled_set(false);
     log_msg("xray stopped");
+    notify_app_state();
     xray_helper_logservice("read", "-o", XRAY_LOG_FILE);   /* keep last run's output for the UI */
     xray_helper_logservice("flush", NULL, NULL);
     return 0;

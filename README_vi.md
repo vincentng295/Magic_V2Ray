@@ -148,6 +148,83 @@ Bất kỳ ứng dụng hoặc website nào cũng có thể yêu cầu Magic V2R
 - **Ngắt**: `magicv2ray://disconnect`, nút trong thông báo, tile Cài đặt nhanh, nút Dừng / Ngắt kết nối trong app. Khởi động lại máy cũng kết thúc phiên.
 - **Bảo mật**: website nào cũng có thể bắn link `connect`, nên mọi kết nối đều phải xác nhận, hiện đủ uri, người gọi và app bị loại. Người gọi chỉ "đã xác minh" khi Android cung cấp (không bao giờ dùng `EXTRA_REFERRER` có thể giả mạo) và không phải trình duyệt. Node VLESS / Trojan không mã hóa vẫn giữ cảnh báo cũ. Tab **Cấp quyền truy cập** liệt kê các app "luôn tin"; tùy chọn này chỉ có với intent tường minh từ app native đã xác minh (không áp dụng cho link hay trình duyệt) và gắn với chứng chỉ ký của app. App đã tin vẫn bị hỏi với node không mã hóa và với mục loại trừ khác chính nó.
 
+### Thông tin và sự kiện trạng thái (API level 1)
+
+Ứng dụng khác có thể hỏi Magic V2Ray đang chạy phiên bản nào, hỗ trợ API gì, và được **báo khi proxy ngắt** (hoặc kết nối), bất kể ngắt bằng cách nào: app yêu cầu, Quick Settings tile, nút trên thông báo, crash, hoặc dừng từ root service.
+
+**1. Info** (version, API hỗ trợ, trạng thái hiện tại)
+
+```java
+// A) ContentProvider: đồng bộ, không cần giao diện, gọi được từ mọi thread
+Bundle b = getContentResolver().call(Uri.parse("content://com.huskydg.magicv2ray.api"), "getInfo", null, null);
+String json = b.getString("json");        // JSON đầy đủ, xem bên dưới
+int apiLevel = b.getInt("apiLevel");      // ngoài ra có: versionName, versionCode, mode, connected, known
+// "getState" chỉ trả trạng thái. query(content://com.huskydg.magicv2ray.api/info hoặc /state) trả một dòng.
+
+// B) Ordered broadcast: câu trả lời là JSON (result data) + extras json / versionName / apiLevel
+Intent i = new Intent("com.huskydg.magicv2ray.action.GET_INFO").setPackage("com.huskydg.magicv2ray");
+sendOrderedBroadcast(i, null, new BroadcastReceiver() {
+    @Override public void onReceive(Context c, Intent r) { String json = getResultData(); }   // null = chưa cài Magic V2Ray
+}, null, Activity.RESULT_CANCELED, null, null);
+```
+
+Android 11+: thêm `<queries><package android:name="com.huskydg.magicv2ray"/></queries>` vào manifest của app gọi.
+
+```json
+{ "app": "Magic V2Ray", "package": "com.huskydg.magicv2ray", "versionName": "v2.5-alpha", "versionCode": 192, "mode": "root",
+  "api": { "level": 1,
+           "actions": ["com.huskydg.magicv2ray.action.CONNECT", "...DISCONNECT", "...GET_INFO"],
+           "schemes": ["magicv2ray://connect", "magicv2ray://disconnect"],
+           "events": ["com.huskydg.magicv2ray.event.STATE_CHANGED"],
+           "extras": ["uri", "name", "exclude", "overrides"],
+           "overrides": ["traffic", "network", "exclude", "routing", "hosts"],
+           "provider": { "authority": "com.huskydg.magicv2ray.api", "methods": ["getInfo", "getState"], "uris": ["..."] },
+           "features": ["connect", "disconnect", "overrides", "exclude", "info", "state_events", "state_provider"] },
+  "state": { "connected": true, "known": true, "mode": "root",
+             "session": { "active": true, "name": "My server", "caller": "com.example.app", "startedAt": 1731670000000 } } }
+```
+
+| Trường | Ý nghĩa |
+|---|---|
+| `versionName`, `versionCode` | Phiên bản Magic V2Ray đang cài |
+| `mode` | `root` hoặc `nonroot` |
+| `api.level` | Tăng lên mỗi khi API có thêm thứ app khác cần kiểm tra |
+| `api.actions`, `schemes`, `extras`, `overrides` | Các action, deep link, extras và nhóm `overrides` được hỗ trợ |
+| `api.events`, `api.provider` | Sự kiện được phát và cách truy cập provider |
+| `api.features` | Danh sách tính năng, dùng để kiểm tra từng tính năng |
+| `state.connected` | Proxy đang chạy hay không |
+| `state.known` | `false` khi root mode chưa đọc được trạng thái (chưa cấp root, service chưa chạy); khi đó `connected` chỉ là `false` mặc định |
+| `state.session` | Phiên kết nối ngoài đang có (tên, app gọi, thời điểm bắt đầu); không có địa chỉ server hay cài đặt |
+
+Nên kiểm tra `api.level` hoặc một tên trong `features` thay vì so sánh version của app. Dữ liệu trả về không bao giờ chứa địa chỉ server hay cài đặt.
+
+**2. Sự kiện trạng thái**: broadcast `com.huskydg.magicv2ray.event.STATE_CHANGED`
+
+| Extra | Giá trị |
+|---|---|
+| `state` / `connected` | `"connected"` / `"disconnected"` và `true` / `false` |
+| `reason` | `started`, `session_started`, `session_ended` (phiên ngoài đã kết thúc), `stopped` (dừng bình thường), `error` (engine lỗi, mất quyền VPN), `crashed` |
+| `session`, `sessionName`, `caller` | Có phiên ngoài liên quan hay không / tên phiên / package của app đã bắt đầu phiên |
+| `mode` | `root` hoặc `nonroot` |
+| `time`, `seq` | Thời điểm (epoch ms) và số thứ tự, tăng dần theo mỗi tiến trình Magic V2Ray |
+
+```java
+registerReceiver(new BroadcastReceiver() {
+    @Override public void onReceive(Context c, Intent i) {
+        if (!i.getBooleanExtra("connected", false)) {
+            onMagicV2RayDisconnected(i.getStringExtra("reason"));
+        }
+    }
+}, new IntentFilter("com.huskydg.magicv2ray.event.STATE_CHANGED"), Context.RECEIVER_EXPORTED);
+```
+
+- **Ai nhận được**: receiver đăng ký lúc chạy (`registerReceiver`) của mọi app nhận như broadcast thường. App đã bắt đầu phiên ngoài còn được gửi **trực tiếp** nên khai báo receiver trong manifest cũng nhận được. Với phiên bắt đầu bằng `sendBroadcast` trên Android dưới 14, Magic V2Ray không biết app nào gọi, hãy dùng receiver đăng ký lúc chạy hoặc observer bên dưới.
+- **Dùng observer thay cho receiver**: `registerContentObserver(Uri.parse("content://com.huskydg.magicv2ray.api/state"), false, observer)`, khi được gọi thì đọc `getState`.
+- **Thời điểm báo**: ngắt chỉ được báo nếu sau 2 giây engine vẫn tắt, nên restart hoặc reload (đổi node, đổi cài đặt) không bị tính là ngắt. Kết thúc phiên ngoài (`session_ended`) được báo ngay. Khởi động thất bại khi trước đó chưa chạy thì không có sự kiện.
+- **Root mode**: root service gọi `am broadcast ... ENGINE_CHANGED` tới app, app đọc lại trạng thái thật rồi mới phát sự kiện. Nội dung broadcast đó không được tin, nên app khác gửi giả cũng chỉ khiến app kiểm tra lại trạng thái. Cách này cũng bắt được crash và lệnh dừng từ shell.
+- **Giới hạn**: ở non-root, nếu tiến trình Magic V2Ray bị hệ thống kill thì VPN chết theo và không gửi được sự kiện nào. Khi việc này quan trọng, hãy gọi `getState` định kỳ.
+- **Riêng tư**: sự kiện và info chỉ có trạng thái, không có địa chỉ server, uri node hay cài đặt.
+
 ### Thiết lập tạm (`overrides`)
 
 Ngoài node, `connect` có thể kèm tham số `overrides` để **đổi tạm** Thiết lập lưu lượng, Thiết lập mạng, Loại trừ ứng dụng, Định tuyến và Hosts tùy chỉnh trong lúc kết nối. `uri` là tùy chọn khi có `overrides` (khi đó dùng node bạn đang chọn).

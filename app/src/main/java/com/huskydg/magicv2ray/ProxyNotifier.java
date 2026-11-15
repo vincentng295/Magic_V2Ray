@@ -105,6 +105,7 @@ final class ProxyNotifier {
         NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm == null) return;
         OomGuard.start(c);          // root mode: keep this process (and its notification) alive
+        ExternalApi.observe(c, running, running ? null : ExternalApi.REASON_STOPPED);
         try {
             if (running) {
                 ensureChannel(c);

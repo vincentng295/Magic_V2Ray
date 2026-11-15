@@ -780,6 +780,10 @@ final class ExternalSession {
             if (s == null) return;
             sp(app).edit().remove(K_SESSION).apply();
         }
+        try {
+            ExternalApi.sessionEnded(app, new JSONObject(s.toString()).put("active", true));
+        } catch (JSONException ignored) {
+        }
         purgeFiles(app);
         restoreLegacy(app);
         if (s.optBoolean("wasRunning")) {

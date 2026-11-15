@@ -1,9 +1,11 @@
 package com.huskydg.magicv2ray;
 
+import android.app.Activity;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
+import android.os.Bundle;
 
 import org.json.JSONObject;
 
@@ -12,6 +14,8 @@ import org.json.JSONObject;
  *
  * <ul>
  *   <li>DISCONNECT ends a running external session; needs no UI.</li>
+ *   <li>GET_INFO (ordered broadcast) replies with the info JSON, see {@link ExternalApi}.</li>
+ *   <li>ENGINE_CHANGED comes from the root service and only triggers a status check.</li>
  *   <li>CONNECT only parks the request: a broadcast cannot open the confirmation from the background
  *       (Android 10+), so a notification asks the user to review it. Android 14+ only tells us who
  *       sent a broadcast when the sender opts in; without that the caller is "unknown" and is
@@ -25,6 +29,30 @@ public class ExternalControlReceiver extends BroadcastReceiver {
         if (intent == null) return;
         final Context app = context.getApplicationContext();
         String action = intent.getAction();
+        if (ExternalApi.ACTION_GET_INFO.equals(action)) {
+            // Only answers an ordered broadcast (sendOrderedBroadcast with a result receiver); the reply is the info JSON.
+            if (!isOrderedBroadcast()) return;
+            final PendingResult pr = goAsync();     // root mode may have to look at the service first
+            new Thread(() -> {
+                try {
+                    final String json = ExternalApi.info(app).toString();
+                    Bundle b = new Bundle();
+                    b.putString("json", json);
+                    b.putString("versionName", ExternalApi.versionName(app));
+                    b.putInt("apiLevel", ExternalApi.API_LEVEL);
+                    pr.setResultCode(Activity.RESULT_OK);
+                    pr.setResultData(json);
+                    pr.setResultExtras(b);
+                } finally {
+                    pr.finish();
+                }
+            }, "mv-ext-info").start();
+            return;
+        }
+        if (ExternalApi.ACTION_ENGINE_CHANGED.equals(action)) {
+            ExternalApi.refreshRoot(app);       // the payload is not trusted, the real status is read again
+            return;
+        }
         if (ExternalSession.ACTION_DISCONNECT.equals(action)) {
             final PendingResult pr = goAsync();
             new Thread(() -> {

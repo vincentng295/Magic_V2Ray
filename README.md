@@ -148,6 +148,67 @@ Any app or website can ask Magic V2Ray to route traffic through a server for a w
 - **Ending it**: `magicv2ray://disconnect`, the notification button, the Quick Settings tile, the Stop / Disconnect buttons in the app. A reboot also ends it.
 - **Security**: any website can fire a `connect` link, so every connect is confirmed, showing the full uri, the caller and the excluded apps. The caller is only "verified" when Android supplies it (never the spoofable `EXTRA_REFERRER`) and it is not a browser. A plaintext VLESS / Trojan node keeps its existing warning. The **Access permissions** tab lists the apps set to "always trust"; that option is only offered for explicit intents from verified native apps (never links or browsers) and is tied to the app's signing certificate. Even a trusted app is confirmed for plaintext nodes and for exclusions other than itself.
 
+### Info and state events (API level 1)
+
+Apps can ask what is running and be told when the proxy **disconnects** (or connects), however it happened: the app that asked, the tile, the notification button, a crash, the root service.
+
+**1. Info** (version, supported API, current state)
+
+```java
+// A) ContentProvider: synchronous, no UI, works from any thread
+Bundle b = getContentResolver().call(Uri.parse("content://com.huskydg.magicv2ray.api"), "getInfo", null, null);
+String json = b.getString("json");        // full JSON below
+int apiLevel = b.getInt("apiLevel");      // also: versionName, versionCode, mode, connected, known
+// "getState" returns only the state. query(content://com.huskydg.magicv2ray.api/info | /state) gives one row.
+
+// B) Ordered broadcast: the reply is the JSON (result data) + extras json / versionName / apiLevel
+Intent i = new Intent("com.huskydg.magicv2ray.action.GET_INFO").setPackage("com.huskydg.magicv2ray");
+sendOrderedBroadcast(i, null, new BroadcastReceiver() {
+    @Override public void onReceive(Context c, Intent r) { String json = getResultData(); }   // null = not installed
+}, null, Activity.RESULT_CANCELED, null, null);
+```
+
+Android 11+: add `<queries><package android:name="com.huskydg.magicv2ray"/></queries>` to your manifest.
+
+```json
+{ "app": "Magic V2Ray", "package": "com.huskydg.magicv2ray", "versionName": "v2.5-alpha", "versionCode": 192, "mode": "root",
+  "api": { "level": 1,
+           "actions": ["com.huskydg.magicv2ray.action.CONNECT", "...DISCONNECT", "...GET_INFO"],
+           "schemes": ["magicv2ray://connect", "magicv2ray://disconnect"],
+           "events": ["com.huskydg.magicv2ray.event.STATE_CHANGED"],
+           "extras": ["uri", "name", "exclude", "overrides"],
+           "overrides": ["traffic", "network", "exclude", "routing", "hosts"],
+           "provider": { "authority": "com.huskydg.magicv2ray.api", "methods": ["getInfo", "getState"], "uris": ["..."] },
+           "features": ["connect", "disconnect", "overrides", "exclude", "info", "state_events", "state_provider"] },
+  "state": { "connected": true, "known": true, "mode": "root",
+             "session": { "active": true, "name": "My server", "caller": "com.example.app", "startedAt": 1731670000000 } } }
+```
+
+`api.level` grows when something is added: test for it (or for a name in `features`) instead of the app version. No server address and no settings are ever included.
+
+**2. State events**: broadcast `com.huskydg.magicv2ray.event.STATE_CHANGED`
+
+| Extra | Value |
+|---|---|
+| `state` / `connected` | `"connected"` / `"disconnected"` and `true` / `false` |
+| `reason` | `started`, `session_started`, `session_ended` (the external session ended), `stopped`, `error`, `crashed` |
+| `session`, `sessionName`, `caller` | an external session is involved / its name / the package that started it |
+| `mode`, `time`, `seq` | `root` / `nonroot`, epoch ms, counter (per process of Magic V2Ray) |
+
+```java
+registerReceiver(new BroadcastReceiver() {
+    @Override public void onReceive(Context c, Intent i) {
+        if (!i.getBooleanExtra("connected", false)) onMagicV2RayDisconnected(i.getStringExtra("reason"));
+    }
+}, new IntentFilter("com.huskydg.magicv2ray.event.STATE_CHANGED"), Context.RECEIVER_EXPORTED);
+```
+
+- Receivers registered at run time get it as a normal broadcast. The app that owns the external session also gets it **explicitly**, so a receiver declared in its manifest works (Android 14+ for broadcast-started sessions only when the caller is known, otherwise use a run-time receiver or the observer below).
+- Observer instead of a receiver: `registerContentObserver(Uri.parse("content://com.huskydg.magicv2ray.api/state"), false, observer)`, then read `getState`.
+- A disconnect is announced after 2 s if the engine is still down, so a restart or reload does not look like a disconnect. Ending a session is announced at once.
+- Root mode: the service tells the app through `am broadcast ... ENGINE_CHANGED`, which makes it re-read the real status. The same broadcast from anyone else can do no more than that.
+- If the Magic V2Ray process is killed in non-root mode the VPN dies with it and nothing can be sent: poll `getState` when it matters.
+
 ### Temporary settings (`overrides`)
 
 Besides a node, `connect` can carry an `overrides` parameter that **temporarily changes** Traffic settings, Network settings, Excluded apps, Routing and Custom hosts while connected. `uri` is optional when `overrides` is present (the node you selected is then used).

@@ -54,6 +54,7 @@ void latency_monitor_stop(void);
 /* xray.c */
 int  start_xray(void);
 int  stop_xray(void);
+void notify_app_state(void);                /* "xray started / stopped": wakes the app, see xray.c */
 int  restart_xray(void);
 void xray_helper_logservice(const char *verb, const char *extra_flag, const char *extra_val);
 
