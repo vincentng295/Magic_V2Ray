@@ -368,7 +368,7 @@ async function _extHandleConnect(req) {
         if (!r.ok) return;
         trust = r.trust;
     }
-    if (!await _extStart(req, ov, name, excludes, built.text)) return;
+    if (!await _extStart(req, ov, name, excludes, built.text, { rawUri, nodeFromApp: hasUri })) return;
 
     if (trust && req.trustable && req.caller) window.ksu.trustAdd(req.caller);
     _markStatusPending();
@@ -417,7 +417,7 @@ async function _extExcludeListContent(ov) {
     return apps.length ? apps.join('\n') + '\n' : '';
 }
 
-async function _extStart(req, ov, name, excludes, configText) {
+async function _extStart(req, ov, name, excludes, configText, nodeInfo) {
     const k = window.ksu;
     const prev = extState();
     const silent = req.approved === true;
@@ -438,6 +438,13 @@ async function _extStart(req, ov, name, excludes, configText) {
         let ok = prep.errno === 0;
         ok = ok && await _extWrite(`${OVERRIDE_DIR}/config.v2.json`, configText);
         ok = ok && await _extWrite(`${OVERRIDE_DIR}/settings.base64`, utoa(JSON.stringify(merged)));
+        // Who asked and for which node: read back by "Export app logs" so the export describes the session, not the user's own
+        // node / settings. Same tmpfs / cache dir as config.v2.json (which already holds the node), gone when the session ends.
+        ok = ok && await _extWrite(`${OVERRIDE_DIR}/session.json`, JSON.stringify({
+            rawUri: (nodeInfo && nodeInfo.rawUri) || '', nodeFromApp: !!(nodeInfo && nodeInfo.nodeFromApp),
+            name, caller: req.caller || '', callerLabel: req.callerLabel || '', source: req.source || '',
+            sections, overrides: ov, exclude: excludes
+        }));
         if (ok && excludes.length) ok = await _extWrite(`${OVERRIDE_DIR}/${EXT_SESSION_EXCLUDE_NAME}`, excludes.join('\n') + '\n');
         if (ok && exList !== null) ok = await _extWrite(`${OVERRIDE_DIR}/excludelist.txt`, exList);
         if (ok && bypass !== null) ok = await _extWrite(`${OVERRIDE_DIR}/bypassIface.txt`, bypass);

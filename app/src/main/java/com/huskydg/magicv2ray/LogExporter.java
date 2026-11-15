@@ -116,7 +116,13 @@ final class LogExporter {
         } else {
             entries.put("hotspot.log", tailFile(stubdir + "/logs/hotspot.log"));
         }
-        entries.put("config.json", configJson(datadir + "/config.v2.json"));
+        // While another app's session runs, the engine uses the session's own config (override dir), not the user's.
+        final boolean session = ExternalSession.isActive(c);
+        final String cfgDir = session ? ExternalSession.overrideDir(c) : datadir;
+        if (session) {
+            entries.putIfAbsent("session.txt", sessionInfo(c, cfgDir));
+        }
+        entries.put("config.json", configJson(cfgDir + "/config.v2.json"));
         entries.put("network.txt", networkInfo(nonRoot, datadir, stubdir));
 
         // 3. zip it
@@ -277,6 +283,22 @@ final class LogExporter {
                 if (!(v instanceof String)) maskJson(v);
             }
         }
+    }
+
+    /** Which app started the running session; the node / settings themselves are in config.json / settings.txt. */
+    private static String sessionInfo(Context c, String dir) {
+        JSONObject st = ExternalSession.state(c);
+        StringBuilder sb = new StringBuilder();
+        sb.append("Magic V2Ray - external session (config.json is the session's config, not the user's own)\n");
+        line(sb, "App", st.optString("callerLabel", "(unknown)") + " [" + st.optString("caller", "") + "]");
+        line(sb, "Session name", st.optString("name", ""));
+        line(sb, "Sections overridden", String.valueOf(st.optJSONArray("sections")));
+        line(sb, "Excluded apps", String.valueOf(st.optJSONArray("exclude")));
+        line(sb, "Engine ran before", String.valueOf(st.optBoolean("wasRunning")));
+        line(sb, "Started at", new SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US)
+                .format(new Date(st.optLong("startedAt"))));
+        sb.append("\nSession files:\n").append(sh("ls -la " + RootShell.sq(dir) + " 2>&1", 10_000));
+        return sb.toString();
     }
 
     private static String deviceInfo(Context c, boolean nonRoot, String datadir, String moddir) {

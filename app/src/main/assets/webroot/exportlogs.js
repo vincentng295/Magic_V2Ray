@@ -135,6 +135,56 @@
             }));
     }
 
+    // ------------------------------------------------------------ external session
+
+    // The running external session (another app drove the connection), or null. Its node, settings and
+    // exclude list live in OVERRIDE_DIR, so that is what the export has to describe, not the user's own.
+    function loadSession(cb) {
+        var st = (typeof extState === 'function') ? extState() : { active: false };
+        if (!st || !st.active) { cb(null); return; }
+        var dir = shQuote(OVERRIDE_DIR);
+        execShell('cat ' + dir + '/session.json 2>/dev/null', function (metaRaw) {
+            execShell('cat ' + dir + '/settings.base64 2>/dev/null', function (setRaw) {
+                execShell('cat ' + dir + '/excludelist.txt 2>/dev/null; echo "@@SEP@@"; cat ' + dir + '/' + EXT_SESSION_EXCLUDE_NAME + ' 2>/dev/null', function (exRaw) {
+                    var meta = {}, merged = null;
+                    try { meta = JSON.parse(metaRaw || '{}') || {}; } catch (e) { /* older session: no session.json */ }
+                    try { merged = JSON.parse(decodeBase64(String(setRaw || '').trim())); } catch (e) { /* settings unreadable */ }
+                    var parts = String(exRaw || '').split('@@SEP@@');
+                    var pk = function (t) {
+                        return String(t || '').split(/\r?\n/).map(function (l) { return l.replace(/#.*/, '').trim(); })
+                            .filter(function (l) { return /^[A-Za-z0-9_.]+$/.test(l); });
+                    };
+                    cb({ state: st, meta: meta, settings: merged, overrideExclude: pk(parts[0]), sessionExclude: pk(parts[1]) });
+                });
+            });
+        });
+    }
+
+    function sessionDiff(user, eff) {
+        var out = [];
+        if (!eff) return out;
+        Object.keys(eff).forEach(function (k) {
+            if (k === 'customHosts') return;
+            var a = JSON.stringify(user[k]), b = JSON.stringify(eff[k]);
+            if (a !== b) out.push('    ' + k + ': ' + (b || 'undefined').slice(0, 300) + '   (user: ' + (a || 'undefined').slice(0, 300) + ')');
+        });
+        return out;
+    }
+
+    function buildSessionText(sess) {
+        var L = [], m = sess.meta || {}, st = sess.state || {};
+        L.push('== External session (another app is driving the connection) ==');
+        L.push('  Requested by: ' + (m.callerLabel || st.callerLabel || '(unknown / not verified)') +
+               (m.caller || st.caller ? ' [' + (m.caller || st.caller) + ']' : ''));
+        if (m.source) L.push('  Request source: ' + m.source);
+        L.push('  Session name: ' + (m.name || st.name || '(none)'));
+        L.push('  Node: ' + (m.nodeFromApp ? 'sent by the app' : "the user's selected node (the app only overrode settings)"));
+        L.push('  Overridden sections: ' + (((m.sections || st.sections) || []).join(', ') || '(none)'));
+        L.push('  Started: ' + (st.startedAt ? new Date(st.startedAt).toString() : '(unknown)'));
+        L.push('  Engine was running before the session: ' + onOff(st.wasRunning));
+        return L;
+    }
+
     // ------------------------------------------------------------ settings.txt
 
     function onOff(v) { return v ? 'ON' : 'OFF'; }
@@ -153,10 +203,12 @@
         return { cats: cats, nodes: nodes, by: by };
     }
 
-    function buildSettingsText(engineStatus, excludeList) {
+    function buildSettingsText(engineStatus, excludeList, sess) {
         var L = [];
         var nonRoot = typeof MV_NONROOT !== 'undefined' && MV_NONROOT;
-        var a = (typeof advSettings === 'object' && advSettings) || {};
+        var userA = (typeof advSettings === 'object' && advSettings) || {};
+        // While an app's session runs, the settings in effect are the session's merged copy.
+        var a = (sess && sess.settings) || userA;
         var theme = (window.MVTheme && MVTheme.get && MVTheme.get()) || {};
         var verEl = $('about-version');
 
@@ -164,6 +216,15 @@
         L.push('Generated: ' + new Date().toString());
         L.push('Labels are in English; values are what the UI shows now (unsaved edits included).');
         L.push('');
+        if (sess) {
+            L = L.concat(buildSessionText(sess));
+            L.push('  NOTE: the settings below are the ones in effect for the app\'s session. Values the app changed are listed here');
+            L.push('  with the user\'s own value in brackets; the form-based Traffic / Network listings show the user\'s own saved values.');
+            var diff = sessionDiff(userA, sess.settings);
+            L.push('  Settings changed by the app (' + diff.length + '):');
+            diff.forEach(function (d) { L.push(d); });
+            L.push('');
+        }
         L.push('== App ==');
         L.push('  Root mode: ' + (nonRoot ? 'NO - Non-root (Android VpnService)' : 'YES - Root (iptables / policy routing)'));
         L.push('  Engine status: ' + (engineStatus || '(unknown)'));
@@ -177,11 +238,11 @@
                (pc.nodes ? ' (' + Object.keys(pc.by).map(function (k) { return k + ' x' + pc.by[k]; }).join(', ') + ')' : ''));
 
         L.push('');
-        L.push('== Traffic settings ==');
+        L.push('== Traffic settings ==' + (sess ? ' (user\'s own saved values - see "External session" above for what the app changed)' : ''));
         L = L.concat(describeTab('tab-settings'));
 
         L.push('');
-        L.push('== Network settings ==');
+        L.push('== Network settings ==' + (sess ? ' (user\'s own saved values)' : ''));
         L = L.concat(describeTab('tab-network'));
         L.push('');
         L.push('[Bypass LAN]');
@@ -191,6 +252,11 @@
         L.push('');
         L.push('== Exclude apps ==');
         L.push('  Enable: ' + onOff(a.excludeApps));
+        if (sess) {
+            var eff = sess.overrideExclude.length || (sess.meta.sections || []).indexOf('exclude') >= 0 ? sess.overrideExclude : excludeList;
+            excludeList = eff.concat(sess.sessionExclude.filter(function (p) { return eff.indexOf(p) < 0; }));
+            L.push('  (effective list for the session: app override + packages the app asked to exclude)');
+        }
         L.push('  Apply changes automatically: ' + onOff(a.excludeAutoApply));
         L.push('  Excluded packages (' + excludeList.length + '):');
         excludeList.forEach(function (p) { L.push('    ' + p); });
@@ -228,7 +294,7 @@
 
     // ------------------------------------------------------------ config.txt
 
-    function buildConfigText() {
+    function buildConfigText(sess) {
         var L = [];
         L.push('Magic V2Ray - active config');
         L.push('UUIDs, passwords and keys are replaced with ' + MASK + '.');
@@ -252,6 +318,13 @@
                 }
             }
         } catch (e) { L.push('(could not read the active node: ' + e + ')'); }
+        if (sess) {
+            var sm = sess.meta || {};
+            uris = sm.rawUri ? [sm.rawUri] : uris;
+            title = 'Active node (external session' + (sm.callerLabel ? ' from ' + sm.callerLabel : '') + '): ' +
+                    (sm.name || sess.state.name || '(unnamed)') +
+                    (sm.nodeFromApp ? '' : '  [the user\'s own node, only settings were overridden]');
+        }
         if (!title) title = 'Active node: (none - built-in direct node, or nothing selected)';
         L.push(title);
         L.push('');
@@ -291,9 +364,11 @@
             execShell('cat ' + shQuote(EXCLUDE_LIST_FILE) + ' 2>/dev/null', function (raw) {
                 excludeList = String(raw || '').split(/\r?\n/).map(function (l) { return l.replace(/#.*/, '').trim(); })
                     .filter(function (l) { return /^[A-Za-z0-9_.]+$/.test(l); });
+              loadSession(function (sess) {
                 var files;
                 try {
-                    files = { 'settings.txt': buildSettingsText(engineStatus, excludeList), 'config.txt': buildConfigText() };
+                    files = { 'settings.txt': buildSettingsText(engineStatus, excludeList, sess), 'config.txt': buildConfigText(sess) };
+                    if (sess) files['session.txt'] = buildSessionText(sess).join('\n') + '\n';
                 } catch (e) {
                     done();
                     showToast(t('toast_export_logs_fail', { reason: String(e && e.message || e) }), 'error');
@@ -314,6 +389,7 @@
                     done();
                     showToast(t('toast_export_logs_fail', { reason: String(e && e.message || e) }), 'error');
                 }
+              });
             });
         });
     }
