@@ -213,7 +213,7 @@ public class ProviderBrowserActivity extends Activity {
         w.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
-                return handleUrl(r.getUrl());
+                return handleUrl(r.getUrl(), r.hasGesture());
             }
 
             @Override
@@ -243,13 +243,21 @@ public class ProviderBrowserActivity extends Activity {
     }
 
     /** @return true when the navigation was consumed (never loaded in the page). */
-    private boolean handleUrl(Uri u) {
+    private boolean handleUrl(Uri u, boolean gesture) {
         String sch = u.getScheme() == null ? "" : u.getScheme().toLowerCase();
-        if ("https".equals(sch)) return false;
+        if ("https".equals(sch)) {
+            if (sameSite(u.getHost())) return false;
+            openExternal(u);      // Telegram login, payment pages, social links ...: leave the mini browser
+            return true;
+        }
+        if (gesture && ("tg".equals(sch) || "mailto".equals(sch) || "tel".equals(sch))) {
+            openExternal(u);
+            return true;
+        }
         if ("intent".equals(sch)) {                         // some sites wrap the deep link in an intent:// URL
             try {
                 Intent in = Intent.parseUri(u.toString(), Intent.URI_INTENT_SCHEME);
-                if (in.getData() != null) return handleUrl(in.getData());
+                if (in.getData() != null) return handleUrl(in.getData(), gesture);
             } catch (java.net.URISyntaxException ignored) {
             }
             return true;
@@ -339,6 +347,26 @@ public class ProviderBrowserActivity extends Activity {
         if (cm != null) {
             cm.setPrimaryClip(ClipData.newPlainText("url", url));
             Toast.makeText(this, R.string.provider_link_copied, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** The site the user added, with or without "www." and including its subdomains. */
+    private boolean sameSite(String host) {
+        if (host == null) return false;
+        String h0 = bare(Uri.parse(startUrl).getHost());
+        String h = bare(host);
+        return h.equals(h0) || h.endsWith("." + h0);
+    }
+
+    private static String bare(String h) {
+        h = h == null ? "" : h.toLowerCase(java.util.Locale.ROOT);
+        return h.startsWith("www.") ? h.substring(4) : h;
+    }
+
+    private void openExternal(Uri u) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, u).addCategory(Intent.CATEGORY_BROWSABLE));
+        } catch (ActivityNotFoundException ignored) {
         }
     }
 
