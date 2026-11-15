@@ -1,27 +1,36 @@
 // ===== External control: magicv2ray://connect, intents, trusted apps ("Access permissions" tab) =====
 //
-// Another app or a web page asks Magic V2Ray to use a node for a while:
+// Another app or a web page asks Magic V2Ray to use a node, and/or other settings, for a while:
 //
 //   magicv2ray://connect?uri=<urlencoded node uri>&name=<display name>&exclude=<package,package>
+//                       &overrides=<base64url JSON>
 //   magicv2ray://disconnect
 //   startActivity / sendBroadcast with the action com.huskydg.magicv2ray.action.CONNECT | DISCONNECT
-//     and the extras uri, name, exclude                        (see ExternalSession.java)
+//     and the extras uri, name, exclude, overrides              (see ExternalSession.java)
 //
-// The native side only parks the request; this file asks the user and does the work. The node of such an
-// "external session" is temporary: profiles and the selected node are never touched. The engine just runs
-// another config.v2.json, and the config of the selected node waits in CONFIG_BASE_FILE, which is what
-// ExternalSession.end() (notification button, tile, the disconnect link, the button here) puts back.
+// `uri` is optional when `overrides` is given: the node the user selected keeps being used.
+//
+// overrides = { traffic: {...}, network: {...}, exclude: {...}, routing: {...}, hosts: {...} }, see
+// ExternalSession.sanitizeOverrides for the exact (whitelisted) keys. They are applied to a COPY of the user's settings.
+//
+// NOTHING OF A SESSION IS EVER SAVED. The native side only parks the request; this file asks the user and does the work.
+// The merged settings, the generated config, the exclude list, the bypass interfaces are written ONLY to OVERRIDE_DIR
+// (root: tmpfs under /dev, gone at reboot; non-root: the cache dir) and the engine reads them instead of the user's files
+// while the session runs. The user's files in DATADIR are never written, so ending the session (notification button, tile,
+// the disconnect link, the button here) just deletes OVERRIDE_DIR and restarts the engine on the user's own setup, from the
+// native side, without the WebUI. A session never resumes after a reboot: the app that wants it has to ask again.
 //
 //   uri=socks://127.0.0.1:4311   needs nothing special: SOCKS nodes are already supported. The app that serves
 //                                that port is kept out of the VPN (exclude=<package>, or the caller itself when
 //                                it is a verified native app), otherwise its own traffic would loop back into it.
 //
 // A connect is ALWAYS confirmed, showing who asked and the server (the full uri is under "Details", open by default
-// when anything is unusual), except for an app the user chose to
-// "always trust" (only offered for explicit intents from verified native apps, never for links or browsers),
-// and even then a plaintext VLESS / Trojan node, or an exclusion that is not the caller itself, is confirmed.
+// when anything is unusual), except for an app the user chose to "always trust" (only offered for explicit intents from
+// verified native apps, never for links or browsers), and even then a plaintext VLESS / Trojan node, or an exclusion that
+// is not the caller itself, is confirmed. A request with setting overrides is confirmed every time, trusted app or not.
 
 const EXT_SELF_PKG = 'com.huskydg.magicv2ray';
+const EXT_SESSION_EXCLUDE_NAME = 'excludelist.session.txt';
 const EXT_NAME_MAX = 60;
 const EXT_GENERIC_REMARKS = ['SOCKS', 'HTTP Proxy', 'Unnamed Node', 'Hysteria2', 'MASQUE'];
 
@@ -96,12 +105,9 @@ function _extBaseRawUri() {
     return DIRECT_NODE_URI;
 }
 
-// Settings or the selection changed during a session: keep the saved copy of the selected node's config current.
-async function extRefreshBase() {
-    if (!extState().active) return;
-    const b = await _extBuildConfig(_extBaseRawUri());
-    if (b.ok && extState().active) await _extWrite(CONFIG_BASE_FILE, b.text);
-}
+// Settings or the selection changed during a session: nothing to do. The user's own files are untouched and are what
+// comes back when the session ends (applyActiveConfig() still refreshes them, without restarting the engine).
+function extRefreshBase() { /* intentionally empty */ }
 
 // ---------------------------------------------------------------------------
 // request -> name, exclusions, warnings
@@ -117,6 +123,7 @@ function _extRemark(node) {
 // Name shown in the status bar, notification and tile: the `name` parameter, then the calling app,
 // then the remark of the uri, finally the host. It is for display only and proves nothing about the caller.
 function _extDisplayName(req, node) {
+    node = node || {};
     const given = String(req.name || '').replace(/\s+/g, ' ').trim();
     const raw = given || req.callerLabel || _extRemark(node) || node.address || t('ext_unnamed');
     return String(raw).slice(0, EXT_NAME_MAX);
@@ -138,7 +145,7 @@ function _extIsLocalTarget(address) {
 function _extExcludes(req, node) {
     const set = new Set(Array.isArray(req.exclude) ? req.exclude : []);
     // verified native caller that serves the local SOCKS5: exclude it by itself
-    if (req.caller && !req.browser && _extIsLocalTarget(node.address)) set.add(req.caller);
+    if (node && req.caller && !req.browser && _extIsLocalTarget(node.address)) set.add(req.caller);
     set.delete(EXT_SELF_PKG);                 // the app itself is never inside its own VPN
     return Array.from(set);
 }
@@ -178,7 +185,7 @@ function _extConfirm(info) {
         else caller = t('ext_caller_unknown');
         set('ext-caller', caller);
         set('ext-name', name);
-        set('ext-uri', req.uri);
+        set('ext-uri', req.uri || '');
 
         // the question, with the app name in bold: "Allow <b>app</b> to connect through Magic V2Ray?"
         const who = native ? (req.callerLabel || req.caller)
@@ -192,7 +199,7 @@ function _extConfirm(info) {
         });
         set('ext-caller-pkg', native ? req.caller : '');
         $('ext-caller-pkg').style.display = native ? '' : 'none';
-        set('ext-node', `${node.protocol} · ${node.address}:${node.port}`);
+        set('ext-node', node ? `${node.protocol} · ${node.address}:${node.port}` : '');
 
         // icon of a verified native app; anything else gets the generic one
         const icon = $('ext-icon'), fallback = $('ext-icon-fallback');
@@ -252,25 +259,103 @@ async function checkExternalRequest() {
 }
 window.checkExternalRequest = checkExternalRequest;
 
+// ---------------------------------------------------------------------------
+// temporary overrides: a merged COPY of the user's settings, never persisted
+// ---------------------------------------------------------------------------
+
+// Files whose write would make an override permanent. While an overlay is applied (advSettings / hostsFileText hold the
+// merged copy) any write to them is dropped, so a save triggered by the UI in that window cannot persist session values.
+let _extOverlayDepth = 0;
+const _extGuardedWrite = writeFileB64;
+writeFileB64 = function (path, content, callback) {
+    if (_extOverlayDepth > 0 && [SETTINGS_FILE, HOSTS_FILE, EXCLUDE_LIST_FILE, BYPASS_IFACE_FILE, CONFIG_JSON].includes(path)) {
+        if (callback) callback('', '', 0);
+        return;
+    }
+    return _extGuardedWrite(path, content, callback);
+};
+
+function _extOvSections(ov) {
+    return ['traffic', 'network', 'exclude', 'routing', 'hosts'].filter(k => ov && ov[k]);
+}
+
+// The user's settings with the overrides applied, as a new object. advSettings itself is not changed.
+function _extMergeSettings(ov) {
+    const m = JSON.parse(JSON.stringify(advSettings));
+    if (ov.traffic) Object.assign(m, ov.traffic);
+    if (ov.network) {
+        const { bypassIfaces, ...rest } = ov.network;
+        Object.assign(m, rest);
+    }
+    if (ov.exclude) m.excludeApps = ov.exclude.enabled !== false;
+    if (ov.routing) {
+        if (ov.routing.domainStrategy) m.domainStrategy = ov.routing.domainStrategy;
+        if (Array.isArray(ov.routing.rules)) {
+            m.routingRules = ov.routing.mode === 'prepend' ? ov.routing.rules.concat(m.routingRules || []) : ov.routing.rules;
+        }
+    }
+    return m;
+}
+
+// Text of the hosts file the engine config is generated from. -> string, or null when hosts are not overridden.
+function _extMergeHostsText(ov) {
+    if (!ov.hosts || !ov.hosts.entries) return null;
+    const entries = Object.entries(ov.hosts.entries).map(([domain, ips]) => ({ domain, ips: Array.isArray(ips) ? ips : [ips] }));
+    if (ov.hosts.mode !== 'merge') return serializeHostsFile(entries);
+    const lines = [];
+    entries.forEach(e => e.ips.forEach(ip => lines.push(`${ip}\t${e.domain}`)));
+    const base = hostsFileText || serializeHostsFile([]);
+    return base.replace(/\n*$/, '\n') + lines.join('\n') + (lines.length ? '\n' : '');
+}
+
+// Runs `fn` with advSettings / hostsFileText swapped for the merged copy, and puts the user's own back afterwards, whatever
+// happens. `fn` may await: persisting is blocked for that whole window (see _extGuardedWrite).
+async function _extWithOverlay(ov, fn) {
+    if (!_extOvSections(ov).length) return fn(advSettings);
+    const savedSettings = advSettings, savedHosts = hostsFileText;
+    const merged = _extMergeSettings(ov);
+    const hosts = _extMergeHostsText(ov);
+    _extOverlayDepth++;
+    try {
+        advSettings = merged;
+        if (hosts !== null) hostsFileText = hosts;
+        return await fn(merged);
+    } finally {
+        advSettings = savedSettings;
+        hostsFileText = savedHosts;
+        _extOverlayDepth--;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// connect
+// ---------------------------------------------------------------------------
+
 async function _extHandleConnect(req) {
     const silent = req.approved === true;     // already confirmed in the native dialog over the calling app
     // Professional mode owns config.json: a session would overwrite the hand-written config.
     if (advSettings.proMode) { _extMsg(req, t('ext_err_promode'), 'error'); return; }
-    const node = parseProxyUri(String(req.uri || ''));
-    if (!node) { _extMsg(req, t('ext_err_bad_uri'), 'error'); return; }
-    const rawUri = node.rawUri;
-    const built = await _extBuildConfig(rawUri);
+    const ov = req.overrides && typeof req.overrides === 'object' ? req.overrides : {};
+    const hasUri = !!String(req.uri || '').trim();
+    // No uri: only settings are overridden and the node the user selected keeps being used.
+    const node = hasUri ? parseProxyUri(String(req.uri)) : null;
+    if (hasUri && !node) { _extMsg(req, t('ext_err_bad_uri'), 'error'); return; }
+    const rawUri = hasUri ? node.rawUri : _extBaseRawUri();
+
+    // Built with the overrides applied, so a config that cannot be generated is refused before anything changes.
+    const built = await _extWithOverlay(ov, () => _extBuildConfig(rawUri));
     if (!built.ok) { _extMsg(req, t('toast_config_invalid', { reason: built.error }), 'error'); return; }
 
     const name = _extDisplayName(req, node);
     const excludes = _extExcludes(req, node);
     const warnings = [];
-    if (isPlainVlessUri(rawUri)) warnings.push(t('warn_plain_vless', { name }));
-    if (isPlainTrojanUri(rawUri)) warnings.push(t('warn_plain_trojan', { name }));
-    if (_extIsLocalTarget(node.address) && !excludes.length) warnings.push(t('ext_warn_loop'));
+    if (hasUri && isPlainVlessUri(rawUri)) warnings.push(t('warn_plain_vless', { name }));
+    if (hasUri && isPlainTrojanUri(rawUri)) warnings.push(t('warn_plain_trojan', { name }));
+    if (node && _extIsLocalTarget(node.address) && !excludes.length) warnings.push(t('ext_warn_loop'));
+    if (_extOvSections(ov).length) warnings.push(t('ext_warn_overrides', { sections: _extOvSections(ov).join(', ') }));
 
     // No prompt when the native dialog already asked, or for an app the user trusts, when nothing in the request
-    // goes beyond what that app is.
+    // goes beyond what that app is (setting overrides always go beyond that).
     const auto = silent || (req.trusted === true && !warnings.length && excludes.every(p => p === req.caller));
     let trust = false;
     if (!auto) {
@@ -278,7 +363,7 @@ async function _extHandleConnect(req) {
         if (!r.ok) return;
         trust = r.trust;
     }
-    if (!await _extStart(req, rawUri, name, excludes, built.text)) return;
+    if (!await _extStart(req, ov, name, excludes, built.text)) return;
 
     if (trust && req.trustable && req.caller) window.ksu.trustAdd(req.caller);
     _markStatusPending();
@@ -291,46 +376,83 @@ async function _extHandleConnect(req) {
     }
 }
 
+// Session files gone: the engine falls back to the user's own files, which were never touched.
 async function _extCleanFiles() {
-    await _extExec(`rm -f ${shQuote(CONFIG_BASE_FILE)} ${shQuote(EXCLUDE_SESSION_FILE)}`);
+    await _extExec(`rm -rf ${shQuote(OVERRIDE_DIR)}`);
 }
 
-async function _extStart(req, rawUri, name, excludes, configText) {
+// The effective Bypass-interface file content of a session, or null when the session does not touch it.
+// "-" = no bypass interface (an empty file would mean "default list" to the engine).
+async function _extBypassContent(ov) {
+    const n = ov.network;
+    if (!n || (n.bypassIfaces === undefined && n.bypassVpnService === undefined)) return null;
+    let list;
+    if (n.bypassIfaces !== undefined) {
+        list = n.bypassIfaces.slice();
+    } else {
+        const cur = await _extExec(`if [ -f ${shQuote(BYPASS_IFACE_FILE)} ]; then cat ${shQuote(BYPASS_IFACE_FILE)}; fi`);
+        list = sanitizeBypassIfaceList(cur.out).split(',').filter(x => x && x !== VPN_IFACE_PATTERN);
+    }
+    const vpn = n.bypassVpnService !== undefined ? n.bypassVpnService : advSettings.bypassVpnService;
+    list = list.filter(x => x !== VPN_IFACE_PATTERN);
+    if (vpn) list.push(VPN_IFACE_PATTERN);
+    return list.length ? list.join(',') : '-';
+}
+
+// Effective exclude list of a session, or null when it does not override the list.
+async function _extExcludeListContent(ov) {
+    const e = ov.exclude;
+    if (!e) return null;
+    let apps = Array.isArray(e.apps) ? e.apps.slice() : [];
+    if (e.mode === 'add') {
+        const cur = await _extExec(`cat ${shQuote(EXCLUDE_LIST_FILE)} 2>/dev/null`);
+        const have = String(cur.out || '').split('\n').map(x => x.trim()).filter(Boolean);
+        apps = have.concat(apps.filter(a => !have.includes(a)));
+    }
+    return apps.length ? apps.join('\n') + '\n' : '';
+}
+
+async function _extStart(req, ov, name, excludes, configText) {
     const k = window.ksu;
     const prev = extState();
     const silent = req.approved === true;
     if (!silent) showLoading(t('toast_reload_xray'));
+    const sections = _extOvSections(ov);
     try {
-        let wasRunning;
-        if (prev.active) {
-            wasRunning = prev.wasRunning;        // a session is already on: the saved base config is still the right one
-        } else {
-            wasRunning = (await _extExec(`sh ${MODDIR}/proxy_control.sh status`)).out === 'running';
-            const base = await _extBuildConfig(_extBaseRawUri());
-            if (!base.ok) { _extMsg(req, t('toast_config_invalid', { reason: base.error }), 'error'); return false; }
-            if (!await _extWrite(CONFIG_BASE_FILE, base.text)) { _extMsg(req, t('ext_err_write'), 'error'); return false; }
-        }
+        const wasRunning = prev.active
+            ? prev.wasRunning       // a session is already on: what it remembered is still the user's own state
+            : (await _extExec(`sh ${MODDIR}/proxy_control.sh status`)).out === 'running';
 
-        const wrote = excludes.length
-            ? await _extWrite(EXCLUDE_SESSION_FILE, excludes.join('\n') + '\n')
-            : (await _extExec(`rm -f ${shQuote(EXCLUDE_SESSION_FILE)}`)).errno === 0;
-        if (!wrote || !await _extWrite(CONFIG_JSON, configText)) {
-            if (!prev.active) await _extCleanFiles();
-            else await _extCall('extEnd');
+        // Everything below is computed first, then written to OVERRIDE_DIR only.
+        const merged = await _extWithOverlay(ov, async s => JSON.parse(JSON.stringify(s)));
+        const bypass = await _extBypassContent(ov);
+        const exList = await _extExcludeListContent(ov);
+
+        const dir = shQuote(OVERRIDE_DIR);
+        const prep = await _extExec(`umask 077; rm -rf ${dir}; mkdir -p ${dir} && chmod 700 ${dir}`);
+        let ok = prep.errno === 0;
+        ok = ok && await _extWrite(`${OVERRIDE_DIR}/config.v2.json`, configText);
+        ok = ok && await _extWrite(`${OVERRIDE_DIR}/settings.base64`, utoa(JSON.stringify(merged)));
+        if (ok && excludes.length) ok = await _extWrite(`${OVERRIDE_DIR}/${EXT_SESSION_EXCLUDE_NAME}`, excludes.join('\n') + '\n');
+        if (ok && exList !== null) ok = await _extWrite(`${OVERRIDE_DIR}/excludelist.txt`, exList);
+        if (ok && bypass !== null) ok = await _extWrite(`${OVERRIDE_DIR}/bypassIface.txt`, bypass);
+        if (!ok) {
+            await _extCleanFiles();
+            if (prev.active) await _extCall('extEnd');
             _extMsg(req, t('ext_err_write'), 'error');
             return false;
         }
 
         const begun = k.extBegin(JSON.stringify({
-            name, uri: rawUri, caller: req.caller || '', callerLabel: req.callerLabel || '', exclude: excludes, wasRunning
+            name, caller: req.caller || '', callerLabel: req.callerLabel || '', exclude: excludes, sections, wasRunning
         }));
         if (!begun) {
-            if (!prev.active) await _extCleanFiles();
+            await _extCleanFiles();
             _extMsg(req, t('ext_err_write'), 'error');
             return false;
         }
 
-        // A full restart: the exclusion list is read when the VPN / the iptables rules are built.
+        // A full restart: the exclusion list and the network settings are read when the VPN / the iptables rules are built.
         const r = await _extExec(`sh ${MODDIR}/proxy_control.sh restart`);
         let up = false;
         for (let i = 0; i < 4 && !up && r.errno === 0; i++) {
@@ -338,7 +460,7 @@ async function _extStart(req, rawUri, name, excludes, configText) {
             if (!up) await _extSleep(1500);
         }
         if (!up) {
-            await _extCall('extEnd');            // back to the selected node (and its running / stopped state)
+            await _extCall('extEnd');            // back to the user's own setup (and its running / stopped state)
             _extMsg(req, t('ext_err_start', { reason: r.err || r.out || '' }), 'error');
             _markStatusPending();
             renderExtBanner();
@@ -374,7 +496,7 @@ async function extReconcile() {
     _extReconciling = true;
     try {
         const st = (await _extExec(`sh ${MODDIR}/proxy_control.sh status`)).out;
-        const hasBase = (await _extExec(`[ -f ${shQuote(CONFIG_BASE_FILE)} ] && echo y`)).out === 'y';
+        const hasBase = (await _extExec(`[ -s ${shQuote(OVERRIDE_DIR + '/config.v2.json')} ] && echo y`)).out === 'y';
         if (st === 'running' && hasBase) return;
         const r = await _extCall('extAbandon');     // too young a session is left alone (its engine may be starting)
         if (r.code === 0) {

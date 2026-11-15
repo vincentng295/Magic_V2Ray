@@ -33,9 +33,13 @@
 #define BYPASS_IFACE_FILE DATADIR "/bypassIface.txt"
 #define ENABLED_FLAG   DATADIR "/enabled"
 #define EXCLUDE_LIST_FILE DATADIR "/excludelist.txt"
-/* Apps of a running external session (magicv2ray://connect, written by the WebUI): excluded whether or not
- * the Exclude apps switch is on, e.g. the app that serves the SOCKS5 node the engine now dials. */
-#define EXCLUDE_SESSION_FILE DATADIR "/excludelist.session.txt"
+/* Temporary override session (magicv2ray://connect with node / settings overrides). PRIVACY: everything of a
+ * session lives ONLY here, on tmpfs (/dev), so it is gone after a reboot and never touches DATADIR. Files:
+ *   config.v2.json, settings.base64, excludelist.txt, bypassIface.txt  -> replace the user's file of that name
+ *   excludelist.session.txt -> apps excluded whether or not the Exclude apps switch is on (e.g. the app that
+ *                              serves the SOCKS5 node the engine now dials). */
+#define OVERRIDE_DIR   RUN_DIR "/override"
+#define EXCLUDE_SESSION_FILE OVERRIDE_DIR "/excludelist.session.txt"
 #define SETTINGS_FILE  DATADIR "/settings.base64"
 #define SUB_LOOP_PID_FILE DATADIR "/.sub_loop.pid"   /* service.sh subscription updater */
 
@@ -92,6 +96,11 @@ size_t u_b64_decode(const char *in, size_t n, uint8_t *out);
 int  u_run(char *const argv[]);                        /* fork/exec/wait, output to log */
 long u_now_s(void);
 int64_t u_mono_ms(void);
+
+/* Override-aware path: OVERRIDE_DIR/<name> when it exists, else `normal`. Writes the result into buf. */
+const char *u_ov_path(char *buf, size_t cap, const char *name, const char *normal);
+/* True while an override session owns the config (its config.v2.json exists). */
+bool u_ov_active(void);
 
 /* settings.c */
 bool settings_query(const char *key, char *out, size_t cap);

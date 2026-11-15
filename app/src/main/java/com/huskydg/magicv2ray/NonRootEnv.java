@@ -70,8 +70,38 @@ final class NonRootEnv {
         return new File(stubdir(c), "logs/xray.log");
     }
 
+    /**
+     * Temporary override session (magicv2ray://connect with a node and/or setting overrides). PRIVACY: the session
+     * never writes into {@link #datadir}; config, settings, hosts and exclude list live in the cache directory and
+     * the user's own files are only ever read. Deleted when the session ends, and swept on the next app start after
+     * a reboot (see ExternalSession.sweepStale).
+     */
+    static File overrideDir(Context c) {
+        return new File(c.getCacheDir(), "override");
+    }
+
+    /** True while a session owns the engine's config. */
+    static boolean overrideActive(Context c) {
+        File f = new File(overrideDir(c), "config.v2.json");
+        return f.isFile() && f.length() > 0 && ExternalSession.isActive(c);
+    }
+
+    /** File a session replaces with its own copy, or the user's file. */
+    private static File pick(Context c, String name) {
+        if (ExternalSession.isActive(c)) {
+            File o = new File(overrideDir(c), name);
+            if (o.isFile()) return o;
+        }
+        return new File(datadir(c), name);
+    }
+
+    /** Directory for files derived from the running config (config.nonroot.json, config.hotspot.json). */
+    private static File workdir(Context c) {
+        return overrideActive(c) ? overrideDir(c) : datadir(c);
+    }
+
     static File config(Context c) {
-        return new File(datadir(c), "config.v2.json");
+        return pick(c, "config.v2.json");
     }
 
     static boolean configReady(Context c) {
@@ -232,7 +262,7 @@ final class NonRootEnv {
 
     /** settings.base64 = base64(JSON). Missing or unreadable -> empty object (defaults apply). */
     static JSONObject settings(Context c) {
-        File f = new File(datadir(c), "settings.base64");
+        File f = pick(c, "settings.base64");
         try (FileInputStream in = new FileInputStream(f)) {
             ByteArrayOutputStream bo = new ByteArrayOutputStream();
             byte[] b = new byte[8192];
@@ -253,8 +283,8 @@ final class NonRootEnv {
      */
     static List<String> excludedApps(Context c, JSONObject settings) {
         List<String> out = new ArrayList<>();
-        if (settings.optBoolean("excludeApps", false)) readPkgList(new File(datadir(c), "excludelist.txt"), out);
-        readPkgList(new File(datadir(c), ExternalSession.SESSION_EXCLUDE_FILE), out);
+        if (settings.optBoolean("excludeApps", false)) readPkgList(pick(c, "excludelist.txt"), out);
+        if (ExternalSession.isActive(c)) readPkgList(new File(overrideDir(c), ExternalSession.SESSION_EXCLUDE_FILE), out);
         return out;
     }
 
@@ -297,7 +327,9 @@ final class NonRootEnv {
             Object root = new org.json.JSONTokener(bo.toString("UTF-8")).nextValue();
             stripMarks(root);
             if (blockIpv6 && root instanceof JSONObject) dropIpv6((JSONObject) root);
-            File dst = new File(datadir(c), "config.nonroot.json");
+            File dst = new File(workdir(c), "config.nonroot.json");
+            File dstDir = dst.getParentFile();
+            if (dstDir != null && !dstDir.isDirectory()) dstDir.mkdirs();
             try (FileOutputStream out = new FileOutputStream(dst)) {
                 out.write(root.toString().getBytes(StandardCharsets.UTF_8));
             }
@@ -312,7 +344,7 @@ final class NonRootEnv {
     private static final int SOCKS_TEST_PORT = 808 + 50000;       // NONROOT_PORT_OFFSET in helper.js
 
     static File hotspotConfigFile(Context c) {
-        return new File(datadir(c), "config.hotspot.json");
+        return new File(workdir(c), "config.hotspot.json");
     }
 
     static File hotspotLogFile(Context c) {
@@ -334,7 +366,7 @@ final class NonRootEnv {
         String host = SOCKS_TEST_HOST;
         int port = SOCKS_TEST_PORT;
         try {
-            JSONObject main = new JSONObject(readText(new File(datadir(c), "config.nonroot.json")));
+            JSONObject main = new JSONObject(readText(new File(workdir(c), "config.nonroot.json")));
             JSONArray inbounds = main.optJSONArray("inbounds");
             for (int i = 0; inbounds != null && i < inbounds.length(); i++) {
                 JSONObject in = inbounds.optJSONObject(i);

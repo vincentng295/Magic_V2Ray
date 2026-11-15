@@ -111,15 +111,19 @@ public class ExternalPromptActivity extends Activity {
         if (nativeCaller && isLocalTarget(host) && !excludes.contains(caller)) excludes.add(caller);
         if (isLocalTarget(host) && excludes.isEmpty()) warnings.add(getString(R.string.ext_prompt_warn_loop));
 
+        // temporary setting overrides: always shown and always confirmed (a trusted app does not skip this)
+        final String ovSummary = overridesSummary(req.optJSONObject("overrides"), uri.isEmpty());
+        if (!ovSummary.isEmpty()) warnings.add(getString(R.string.ext_prompt_warn_overrides));
+
         boolean onlyCaller = true;
         for (String p : excludes) if (!p.equals(caller)) onlyCaller = false;
 
         // an app the user always allows connects without a prompt when nothing goes beyond what that app is
-        if (req.optBoolean("trusted") && warnings.isEmpty() && onlyCaller) {
+        if (req.optBoolean("trusted") && warnings.isEmpty() && onlyCaller && ovSummary.isEmpty()) {
             approve(false);
             return;
         }
-        buildDialog(nativeCaller, caller, host, uri, excludes, warnings, !warnings.isEmpty() || !onlyCaller);
+        buildDialog(nativeCaller, caller, host, uri, excludes, warnings, !warnings.isEmpty() || !onlyCaller, ovSummary);
     }
 
     // ------------------------------------------------------------------ result
@@ -152,6 +156,27 @@ public class ExternalPromptActivity extends Activity {
     }
 
     // ------------------------------------------------------------------ request helpers
+
+    /** "Traffic settings: 3 / Routing rules: 12 ..." for the overrides of a request, "" when there are none. */
+    private String overridesSummary(JSONObject ov, boolean keepsNode) {
+        if (ov == null || ov.length() == 0) return "";
+        StringBuilder sb = new StringBuilder();
+        String[][] sec = {{"traffic", "ext_ov_traffic"}, {"network", "ext_ov_network"}, {"exclude", "ext_ov_exclude"},
+                {"routing", "ext_ov_routing"}, {"hosts", "ext_ov_hosts"}};
+        for (String[] e : sec) {
+            JSONObject o = ov.optJSONObject(e[0]);
+            if (o == null) continue;
+            int n;
+            if (e[0].equals("exclude")) n = o.optJSONArray("apps") == null ? 0 : o.optJSONArray("apps").length();
+            else if (e[0].equals("routing")) n = o.optJSONArray("rules") == null ? o.length() : o.optJSONArray("rules").length();
+            else if (e[0].equals("hosts")) n = o.optJSONObject("entries") == null ? 0 : o.optJSONObject("entries").length();
+            else n = o.length();
+            if (sb.length() > 0) sb.append('\n');
+            sb.append(getString(R.string.ext_ov_item, getString(getResources().getIdentifier(e[1], "string", getPackageName())), n));
+        }
+        if (keepsNode) sb.append('\n').append(getString(R.string.ext_ov_selected_node));
+        return sb.toString();
+    }
 
     private static boolean isPlain(String uri, String scheme) {
         if (uri == null) return false;
@@ -256,7 +281,7 @@ public class ExternalPromptActivity extends Activity {
     }
 
     private void buildDialog(boolean nativeCaller, String caller, String host, String uri,
-                             java.util.List<String> excludes, java.util.List<String> warnings, boolean openDetails) {
+                             java.util.List<String> excludes, java.util.List<String> warnings, boolean openDetails, String ovSummary) {
         final int onSurface = getColor(R.color.mv_on_surface);
         final int variant = getColor(R.color.mv_on_surface_variant);
         final int primary = getColor(R.color.mv_primary);
@@ -350,6 +375,8 @@ public class ExternalPromptActivity extends Activity {
             ex.append(labelWithPkg(p));
         }
         addFact(details, R.string.ext_prompt_lbl_exclude, excludes.isEmpty() ? getString(R.string.ext_prompt_none) : ex.toString(), false);
+
+        if (!ovSummary.isEmpty()) addFact(details, R.string.ext_prompt_lbl_overrides, ovSummary, false);
 
         final TextView toggle = text("", 14, primary, false);
         toggle.setTypeface(Typeface.DEFAULT_BOLD);

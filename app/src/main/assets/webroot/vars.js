@@ -61,12 +61,11 @@ const BYPASS_IFACE_FILE = `${DATADIR}/bypassIface.txt`;
 // Xray when advSettings.excludeApps is true (enforced by service.sh). The list
 // is kept even while the feature is switched off, so it survives a toggle.
 const EXCLUDE_LIST_FILE = `${DATADIR}/excludelist.txt`;
-// External control (magicv2ray://connect, see external.js). While an external session runs, CONFIG_JSON holds
-// the session's config, CONFIG_BASE_FILE the config of the node the user had selected (put back when the session
-// ends, also by the app's native side without the WebUI), and EXCLUDE_SESSION_FILE the apps the session keeps out
-// of the VPN (read by the engine whatever the Exclude apps switch says).
-const CONFIG_BASE_FILE = `${DATADIR}/config.base.json`;
-const EXCLUDE_SESSION_FILE = `${DATADIR}/excludelist.session.txt`;
+// External control (magicv2ray://connect, see external.js). PRIVACY: a session never writes into DATADIR. Its config,
+// settings, exclude list, bypass interfaces and hosts live in OVERRIDE_DIR (root: tmpfs under /dev, gone at reboot;
+// non-root: the cache dir), which the engine reads INSTEAD of the user's file of the same name while the session runs.
+// The user's own files are only read, so ending the session just deletes OVERRIDE_DIR.
+const OVERRIDE_DIR = MV_NONROOT ? ksu.overrideDir() : "/dev/sysctl_stubs/run/override";
 // Default User-Agent sent when fetching subscription links, so hosts that
 // gate content on the client (e.g. v2rayNG-only subs) still respond.
 // Per-subscription override lives in profiles[category].useragent.

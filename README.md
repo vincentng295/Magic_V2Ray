@@ -148,6 +148,36 @@ Any app or website can ask Magic V2Ray to route traffic through a server for a w
 - **Ending it**: `magicv2ray://disconnect`, the notification button, the Quick Settings tile, the Stop / Disconnect buttons in the app. A reboot also ends it.
 - **Security**: any website can fire a `connect` link, so every connect is confirmed, showing the full uri, the caller and the excluded apps. The caller is only "verified" when Android supplies it (never the spoofable `EXTRA_REFERRER`) and it is not a browser. A plaintext VLESS / Trojan node keeps its existing warning. The **Access permissions** tab lists the apps set to "always trust"; that option is only offered for explicit intents from verified native apps (never links or browsers) and is tied to the app's signing certificate. Even a trusted app is confirmed for plaintext nodes and for exclusions other than itself.
 
+### Temporary settings (`overrides`)
+
+Besides a node, `connect` can carry an `overrides` parameter that **temporarily changes** Traffic settings, Network settings, Excluded apps, Routing and Custom hosts while connected. `uri` is optional when `overrides` is present (the node you selected is then used).
+
+- Link: `magicv2ray://connect?uri=...&overrides=<base64url of the JSON>`; intent / broadcast: the `overrides` extra is a JSON string.
+- Only whitelisted keys of the right type and range are accepted, everything else is dropped (see `ExternalSession.sanitizeOverrides`). Not overridable: `exposeSocks*`, professional mode, language / theme. Routing rules only accept `outboundTag` `proxy`, `direct` or `block`.
+
+```json
+{
+  "traffic": { "mux": true, "mtu": 1400, "directDns": "quic+local://223.5.5.5" },
+  "network": { "networkMode": 1, "allowTether": false, "bypassIfaces": ["tailscale0"], "bypassVpnService": true },
+  "exclude": { "apps": ["com.example.app"], "mode": "add", "enabled": true },
+  "routing": { "domainStrategy": "IPIfNonMatch", "mode": "prepend",
+               "rules": [ { "domain": "geosite:google", "outboundTag": "proxy", "remarks": "temp" } ] },
+  "hosts":   { "mode": "merge", "entries": { "example.com": "1.2.3.4", "b.com": ["::1", "10.0.0.1"] } }
+}
+```
+
+**Privacy: temporary settings are NEVER saved.**
+
+| Mode | Session lives in | Never written to |
+|---|---|---|
+| Root | `/dev/sysctl_stubs/run/override/` (tmpfs, gone at reboot) | `/data/adb/magic_v2ray` |
+| Non-root | `cache/override/` | `files/data/` (not even `config.v2.json`) |
+
+- The engine reads `config.v2.json`, `settings.base64`, `excludelist.txt` and `bypassIface.txt` from the session directory **instead of** your file of the same name; your files are only read, never modified. Disconnecting deletes the session directory and restarts the engine on your own setup.
+- The pending request is kept in memory only; the session stores metadata (name, caller, exclusion list) but neither the server nor any overridden value.
+- A session **never resumes after a reboot** (root: `/dev` is wiped and the service clears the directory at start; non-root: the VpnService is `START_NOT_STICKY` and a stale session is dropped when the app opens). An app that wants it again must send `connect` after each boot. A temporary session also never changes the `enabled` flag that decides what resumes at boot.
+- A request with `overrides` is **always confirmed**, even for an "always trust" app, and the dialog lists what changes.
+
 ## Building from Source
 
 ```sh

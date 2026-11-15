@@ -81,7 +81,7 @@ static pid_t spawn_xray(void)
 {
     char xray[300], cfg[300], envfd[32];
     bin(xray, sizeof xray, "xray");
-    snprintf(cfg, sizeof cfg, DATADIR "/" CONFIG_NAME);
+    u_ov_path(cfg, sizeof cfg, CONFIG_NAME, DATADIR "/" CONFIG_NAME);   /* override session first */
     int tun = open_tun_retry();
     if (tun < 0) return -1;
     snprintf(envfd, sizeof envfd, "XRAY_TUN_FD=%d", tun);
@@ -121,7 +121,17 @@ static void kill_stale_pidfile(void)
 static bool config_ok(void)
 {
     struct stat st;
-    return stat(DATADIR "/" CONFIG_NAME, &st) == 0 && st.st_size > 0;
+    char p[300];
+    u_ov_path(p, sizeof p, CONFIG_NAME, DATADIR "/" CONFIG_NAME);
+    return stat(p, &st) == 0 && st.st_size > 0;
+}
+
+/* The ENABLED_FLAG decides what is resumed at boot. A temporary override session must never change it:
+ * after a reboot the session is gone and only what the user had set up may come back. */
+static void enabled_set(bool on)
+{
+    if (u_ov_active()) return;
+    if (on) u_write(ENABLED_FLAG, ""); else unlink(ENABLED_FLAG);
 }
 
 int start_xray(void)
@@ -139,7 +149,7 @@ int start_xray(void)
      * the monitor only reacts to route events: re-pin the fwmark rule here */
     refresh_mark_rule();
     apps_monitor_start();
-    u_write(ENABLED_FLAG, "");
+    enabled_set(true);
     return 0;
 }
 
@@ -152,7 +162,7 @@ int stop_xray(void)
     unlink(PIDFILE);
     g_xray = 0;
     proc_untrack("xray");
-    unlink(ENABLED_FLAG);
+    enabled_set(false);
     log_msg("xray stopped");
     xray_helper_logservice("read", "-o", XRAY_LOG_FILE);   /* keep last run's output for the UI */
     xray_helper_logservice("flush", NULL, NULL);
@@ -179,6 +189,6 @@ int restart_xray(void)
     int rc = configure_tun_iface();
     root_direct_window(false);                  /* tun is back: uid 0 returns to normal routing */
     if (rc < 0) return -1;
-    u_write(ENABLED_FLAG, "");
+    enabled_set(true);
     return 0;
 }

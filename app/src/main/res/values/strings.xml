@@ -72,4 +72,13 @@
     <string name="ext_prompt_warn_vless">⚠ This node uses VLESS without TLS or encryption: its traffic is sent in plaintext.</string>
     <string name="ext_prompt_warn_trojan">⚠ This node uses Trojan without TLS: its traffic is sent in plaintext.</string>
     <string name="ext_prompt_warn_loop">⚠ This server is on this device. The app that serves it must be kept out of the VPN, otherwise its own traffic loops back into it.</string>
+    <string name="ext_prompt_lbl_overrides">Temporary settings (never saved)</string>
+    <string name="ext_prompt_warn_overrides">This app also wants to change settings while it is connected. They apply temporarily, are never saved, and your own settings come back when it disconnects.</string>
+    <string name="ext_ov_traffic">Traffic settings</string>
+    <string name="ext_ov_network">Network settings</string>
+    <string name="ext_ov_exclude">Excluded apps</string>
+    <string name="ext_ov_routing">Routing rules</string>
+    <string name="ext_ov_hosts">Custom hosts</string>
+    <string name="ext_ov_item">%1$s: %2$d</string>
+    <string name="ext_ov_selected_node">Your selected node is kept</string>
 </resources>

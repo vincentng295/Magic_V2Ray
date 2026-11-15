@@ -474,13 +474,11 @@ function applyActiveConfig(options = {}) {
     // selectable and always valid, so this is a normal path rather than a
     // bail-out.
     let rawUri;
-    const ext = extState();
-    if (ext.active) {
-        // An external session (magicv2ray://connect) is running: the engine keeps using its node. The selected
-        // node's config is only refreshed on the side, for when the session ends.
-        rawUri = ext.uri;
-        extRefreshBase();
-    } else if (!activeConfig) {
+    // An external session (magicv2ray://connect) may be running: the engine reads the session's own files from the
+    // override dir and ignores CONFIG_JSON, so the user's config is still written (it is what comes back when the session
+    // ends) but the engine is left alone.
+    const sessionOn = extState().active;
+    if (!activeConfig) {
         rawUri = DIRECT_NODE_URI;
     } else {
         const [category, id] = activeConfig.split(':');
@@ -501,6 +499,12 @@ function applyActiveConfig(options = {}) {
     showLoading(t("toast_reload_xray"));
 
     resolveOutboundViaSystemDns(res.config).then(injectGatewayLocalHosts).then(injectLocalDnsHost).then(finalConfig => writeFileB64(CONFIG_JSON, finalConfig, () => {
+        if (sessionOn) {
+            hideLoading();
+            showToast(t('ext_select_deferred'), 'info');
+            if (onDone) onDone(true);
+            return;
+        }
         if (force) {
             _forceRestart(options, onDone);
             return;

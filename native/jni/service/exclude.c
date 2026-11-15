@@ -55,7 +55,10 @@ static char **read_list(int *n, bool with_user_list)
 {
     char **v = NULL; *n = 0;
     bool self = false;
-    if (with_user_list) read_file(EXCLUDE_LIST_FILE, &v, n, &self);
+    if (with_user_list) {
+        char path[300];
+        read_file(u_ov_path(path, sizeof path, "excludelist.txt", EXCLUDE_LIST_FILE), &v, n, &self);
+    }
     read_file(EXCLUDE_SESSION_FILE, &v, n, &self);
     if (!self) {
         v = realloc(v, (*n + 1) * sizeof *v);

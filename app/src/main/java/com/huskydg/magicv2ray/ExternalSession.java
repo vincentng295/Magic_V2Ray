@@ -20,6 +20,7 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.File;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -51,14 +52,16 @@ final class ExternalSession {
     static final String EXTRA_URI = "uri";
     static final String EXTRA_NAME = "name";
     static final String EXTRA_EXCLUDE = "exclude";
+    /** Temporary setting overrides: JSON object (extra) or base64url / url-encoded JSON (deep link), see {@link #sanitizeOverrides}. */
+    static final String EXTRA_OVERRIDES = "overrides";
 
     static final String BASE_FILE = "config.base.json";
     static final String SESSION_EXCLUDE_FILE = "excludelist.session.txt";
 
+    private static final int MAX_OVERRIDES = 256 * 1024;
     private static final String PREFS = "ext_session";
     private static final String TRUST_PREFS = "ext_trust";
     private static final String K_SESSION = "session";
-    private static final String K_PENDING = "pending";
     private static final long PENDING_TTL_MS = 10 * 60_000L;
     private static final long MIN_AGE_BEFORE_ABANDON_MS = 15_000L;
     private static final int MAX_URI = 8192;
@@ -68,6 +71,11 @@ final class ExternalSession {
     private static final String REVIEW_CHANNEL = "mv_ext";
     private static final int REVIEW_NOTIF_ID = 2;
 
+    /**
+     * The request waiting for the WebUI. Memory only: it can carry hosts, routes and a server address, which must not be
+     * written to disk. (A process that dies in between simply loses the request, which expires after 10 minutes anyway.)
+     */
+    private static String pendingJson = "";
     private static final Object LOCK = new Object();
     /** Caller of the request the WebUI took last, if that caller may be trusted ("always trust this app"). */
     private static volatile String lastTakenTrustable;
@@ -133,6 +141,7 @@ final class ExternalSession {
         String uri;
         String name;
         String exclude;
+        String overrides;
         boolean connect;
         Uri d = i.getData();
         if (Intent.ACTION_VIEW.equals(action) && d != null && "magicv2ray".equals(d.getScheme())
@@ -142,12 +151,14 @@ final class ExternalSession {
             uri = d.getQueryParameter(EXTRA_URI);
             name = d.getQueryParameter(EXTRA_NAME);
             exclude = d.getQueryParameter(EXTRA_EXCLUDE);
+            overrides = d.getQueryParameter(EXTRA_OVERRIDES);
         } else if (ACTION_CONNECT.equals(action) || ACTION_DISCONNECT.equals(action)) {
             source = broadcast ? "broadcast" : "intent";
             connect = ACTION_CONNECT.equals(action);
             uri = i.getStringExtra(EXTRA_URI);
             name = i.getStringExtra(EXTRA_NAME);
             exclude = excludeExtra(i);
+            overrides = i.getStringExtra(EXTRA_OVERRIDES);
         } else {
             return null;
         }
@@ -155,21 +166,26 @@ final class ExternalSession {
             JSONObject o = new JSONObject();
             if (!connect) return o.put("action", "disconnect").put("source", source);
             uri = uri == null ? "" : uri.trim();
-            if (uri.isEmpty() || uri.length() > MAX_URI || !uri.matches("^[A-Za-z][A-Za-z0-9+.-]*://\\S+$")) return null;
+            JSONObject ov = sanitizeOverrides(overrides);
+            // The node is optional when settings are overridden: the node the user selected keeps being used.
+            if (uri.isEmpty() ? ov.length() == 0
+                    : (uri.length() > MAX_URI || !uri.matches("^[A-Za-z][A-Za-z0-9+.-]*://\\S+$"))) return null;
             boolean browser = caller != null && isBrowser(c, caller);
             // Trust is only offered for calls that app code made on purpose (an explicit action):
             // a link can come from anywhere (a chat message, a web page), whichever app opened it.
+            // Overrides are never trusted silently: hosts / routes / DNS can redirect or expose the user's traffic.
             boolean trustable = !"deeplink".equals(source) && caller != null && !browser;
             o.put("action", "connect")
                     .put("uri", uri)
                     .put("name", clean(name, MAX_NAME))
                     .put("exclude", new JSONArray(parseExclude(exclude)))
+                    .put("overrides", ov)
                     .put("source", source)
                     .put("caller", caller == null ? "" : caller)
                     .put("callerLabel", caller == null ? "" : labelOf(c, caller))
                     .put("browser", browser)
                     .put("trustable", trustable)
-                    .put("trusted", trustable && isTrusted(c, caller))
+                    .put("trusted", trustable && ov.length() == 0 && isTrusted(c, caller))
                     .put("ts", System.currentTimeMillis());
             return o;
         } catch (JSONException e) {
@@ -199,17 +215,211 @@ final class ExternalSession {
         return s.length() > max ? s.substring(0, max) : s;
     }
 
+    // ---- setting overrides
+
+    /** key -> type: b = boolean, i:min:max = integer, s:max = string, e:a|b|c = one of. Only these may be overridden. */
+    private static final java.util.Map<String, String> TRAFFIC_KEYS = new java.util.LinkedHashMap<>();
+    static {
+        String[] t = {
+            "loglevel", "e:debug|info|warning|error|none", "sniffing", "b", "routeOnly", "b",
+            "queryStrategy", "e:UseIP|UseIPv4|UseIPv6|UseSystem", "dnsViaProxy", "b", "hijackDns", "b",
+            "pinnedPeerCertSha256", "s:512", "mux", "b", "mux_connections", "i:1:1024",
+            "fragment", "b", "fragment_packets", "s:32", "fragment_length", "s:32", "fragment_interval", "s:32",
+            "mtu", "i:576:9000", "localDns", "b", "fakeDnsLocal", "b",
+            "foreignDns", "s:4000", "directDns", "s:500", "directDnsDomains", "s:8000",
+            "dnsDisableCache", "b", "dnsServeStale", "b", "dnsServeExpiredTTL", "i:0:86400",
+            "dnsDisableFallback", "b", "dnsDisableFallbackIfMatch", "b", "dnsParallelQuery", "b", "dnsUseSystemHosts", "b"
+        };
+        for (int i = 0; i < t.length; i += 2) TRAFFIC_KEYS.put(t[i], t[i + 1]);
+    }
+    // Deliberately NOT overridable: exposeSocks* (opens a LAN proxy), proMode (hand-written config), shizukuShare*,
+    // language / theme, anything not listed here.
+    private static final java.util.Map<String, String> NETWORK_KEYS = new java.util.LinkedHashMap<>();
+    static {
+        String[] t = {
+            "networkMode", "i:0:2", "allowTether", "b", "enableIPv6", "b", "enableIPv6ULA", "b",
+            "bypassVpnService", "b", "upstreamIface", "s:32", "lanProxyCidrs", "s:2000"
+        };
+        for (int i = 0; i < t.length; i += 2) NETWORK_KEYS.put(t[i], t[i + 1]);
+    }
+    private static final Pattern IFACE_RE = Pattern.compile("^[A-Za-z0-9_.:+-]{1,15}$");
+    private static final Pattern DOMAIN_RE = Pattern.compile("^[A-Za-z0-9*_.-]{1,253}$");
+    private static final Pattern IP_RE = Pattern.compile("^[0-9A-Fa-f:.]{2,45}$");
+    private static final Pattern CIDR_LIST_RE = Pattern.compile("^[0-9A-Fa-f:./\\s]*$");
+    private static final java.util.Set<String> BUILTIN_TAGS = new java.util.HashSet<>(java.util.Arrays.asList("proxy", "direct", "block"));
+    private static final int MAX_RULES = 500;
+    private static final int MAX_HOSTS = 2000;
+    private static final int MAX_EXCLUDE_OVERRIDE = 500;
+
+    private static Object typed(String spec, Object v) {
+        try {
+            if (spec.equals("b")) return v instanceof Boolean ? v : null;
+            if (spec.startsWith("i:")) {
+                String[] p = spec.split(":");
+                if (!(v instanceof Number)) return null;
+                long n = ((Number) v).longValue();
+                return n >= Long.parseLong(p[1]) && n <= Long.parseLong(p[2]) ? (Object) n : null;
+            }
+            if (spec.startsWith("s:")) {
+                return v instanceof String ? clean((String) v, Integer.parseInt(spec.substring(2))) : null;
+            }
+            if (spec.startsWith("e:")) {
+                return v instanceof String && java.util.Arrays.asList(spec.substring(2).split("\\|")).contains(v) ? v : null;
+            }
+        } catch (RuntimeException ignored) {
+        }
+        return null;
+    }
+
+    private static JSONObject pickKeys(JSONObject in, java.util.Map<String, String> allowed) throws JSONException {
+        JSONObject out = new JSONObject();
+        if (in == null) return out;
+        for (java.util.Map.Entry<String, String> e : allowed.entrySet()) {
+            if (!in.has(e.getKey())) continue;
+            Object v = typed(e.getValue(), in.get(e.getKey()));
+            if (v != null) out.put(e.getKey(), v);       // a wrong type or an out-of-range value is dropped, never coerced
+        }
+        return out;
+    }
+
+    private static String ruleStr(JSONObject r, String k, int max) {
+        Object v = r.opt(k);
+        return v instanceof String ? clean((String) v, max) : "";
+    }
+
+    /**
+     * Decodes and normalises the {@code overrides} of a request into what the WebUI may apply: only whitelisted keys of
+     * the right type and range survive, everything else is dropped. Returns an empty object when there is nothing valid.
+     *
+     * <pre>
+     * { "traffic": { "mux": true, "mtu": 1400, "directDns": "...", ... },
+     *   "network": { "networkMode": 1, "allowTether": false, "bypassIfaces": ["tailscale0"], ... },
+     *   "exclude": { "apps": ["pkg", ...], "mode": "replace" | "add", "enabled": true },
+     *   "routing": { "domainStrategy": "IPIfNonMatch", "mode": "replace" | "prepend",
+     *                "rules": [ { "domain": "geosite:google", "ip": "", "port": "", "protocol": "", "network": "",
+     *                             "outboundTag": "proxy" | "direct" | "block", "remarks": "", "enabled": true } ] },
+     *   "hosts":   { "mode": "replace" | "merge", "entries": { "example.com": "1.2.3.4", "b.com": ["::1", "10.0.0.1"] } } }
+     * </pre>
+     */
+    static JSONObject sanitizeOverrides(String raw) {
+        JSONObject out = new JSONObject();
+        if (raw == null) return out;
+        raw = raw.trim();
+        if (raw.isEmpty() || raw.length() > MAX_OVERRIDES * 2) return out;
+        try {
+            String json = raw;
+            if (!raw.startsWith("{")) {      // deep link: base64url
+                byte[] b = android.util.Base64.decode(raw, android.util.Base64.URL_SAFE | android.util.Base64.NO_WRAP | android.util.Base64.NO_PADDING);
+                json = new String(b, java.nio.charset.StandardCharsets.UTF_8);
+            }
+            if (json.length() > MAX_OVERRIDES) return out;
+            JSONObject in = new JSONObject(json);
+
+            JSONObject traffic = pickKeys(in.optJSONObject("traffic"), TRAFFIC_KEYS);
+            if (traffic.length() > 0) out.put("traffic", traffic);
+
+            JSONObject inNet = in.optJSONObject("network");
+            JSONObject net = pickKeys(inNet, NETWORK_KEYS);
+            if (net.has("lanProxyCidrs") && !CIDR_LIST_RE.matcher(net.getString("lanProxyCidrs")).matches()) net.remove("lanProxyCidrs");
+            if (net.has("upstreamIface")) {
+                String u = net.getString("upstreamIface");
+                if (!u.equals("auto") && !IFACE_RE.matcher(u).matches()) net.remove("upstreamIface");
+            }
+            JSONArray bi = inNet == null ? null : inNet.optJSONArray("bypassIfaces");
+            if (bi != null) {
+                JSONArray list = new JSONArray();
+                for (int i = 0; i < bi.length() && list.length() < 8; i++) {
+                    String n = bi.optString(i, "");
+                    if (IFACE_RE.matcher(n).matches()) list.put(n);
+                }
+                net.put("bypassIfaces", list);      // an empty list means "no bypass interface"
+            }
+            if (net.length() > 0) out.put("network", net);
+
+            JSONObject inEx = in.optJSONObject("exclude");
+            if (inEx != null) {
+                JSONObject ex = new JSONObject();
+                JSONArray apps = new JSONArray();
+                JSONArray ia = inEx.optJSONArray("apps");
+                for (int i = 0; ia != null && i < ia.length() && apps.length() < MAX_EXCLUDE_OVERRIDE; i++) {
+                    String p = ia.optString(i, "");
+                    if (PKG_RE.matcher(p).matches() && p.length() <= 200) apps.put(p);
+                }
+                ex.put("apps", apps);
+                ex.put("mode", "add".equals(inEx.optString("mode")) ? "add" : "replace");
+                ex.put("enabled", !inEx.has("enabled") || inEx.optBoolean("enabled", true));
+                out.put("exclude", ex);
+            }
+
+            JSONObject inRt = in.optJSONObject("routing");
+            if (inRt != null) {
+                JSONObject rt = new JSONObject();
+                String ds = inRt.optString("domainStrategy", "");
+                if (ds.equals("AsIs") || ds.equals("IPIfNonMatch") || ds.equals("IPOnDemand")) rt.put("domainStrategy", ds);
+                JSONArray ir = inRt.optJSONArray("rules");
+                if (ir != null) {
+                    JSONArray rules = new JSONArray();
+                    for (int i = 0; i < ir.length() && rules.length() < MAX_RULES; i++) {
+                        JSONObject r = ir.optJSONObject(i);
+                        if (r == null) continue;
+                        String tag = ruleStr(r, "outboundTag", 16);
+                        if (!BUILTIN_TAGS.contains(tag)) continue;   // nodes / policy groups are the user's, not an app's
+                        JSONObject o = new JSONObject();
+                        o.put("remarks", ruleStr(r, "remarks", 80)).put("locked", false)
+                                .put("domain", ruleStr(r, "domain", 4000)).put("ip", ruleStr(r, "ip", 4000))
+                                .put("port", ruleStr(r, "port", 200)).put("protocol", ruleStr(r, "protocol", 100))
+                                .put("network", ruleStr(r, "network", 20)).put("outboundTag", tag)
+                                .put("enabled", !r.has("enabled") || r.optBoolean("enabled", true));
+                        rules.put(o);
+                    }
+                    rt.put("rules", rules);
+                    rt.put("mode", "prepend".equals(inRt.optString("mode")) ? "prepend" : "replace");
+                }
+                if (rt.length() > 0) out.put("routing", rt);
+            }
+
+            JSONObject inHo = in.optJSONObject("hosts");
+            JSONObject he = inHo == null ? null : inHo.optJSONObject("entries");
+            if (he != null) {
+                JSONObject entries = new JSONObject();
+                java.util.Iterator<String> it = he.keys();
+                while (it.hasNext() && entries.length() < MAX_HOSTS) {
+                    String dom = it.next();
+                    if (!DOMAIN_RE.matcher(dom).matches()) continue;
+                    Object v = he.get(dom);
+                    JSONArray ips = new JSONArray();
+                    if (v instanceof String) {
+                        if (IP_RE.matcher((String) v).matches()) ips.put(v);
+                    } else if (v instanceof JSONArray) {
+                        for (int i = 0; i < ((JSONArray) v).length() && ips.length() < 8; i++) {
+                            String ip = ((JSONArray) v).optString(i, "");
+                            if (IP_RE.matcher(ip).matches()) ips.put(ip);
+                        }
+                    }
+                    if (ips.length() > 0) entries.put(dom, ips);
+                }
+                out.put("hosts", new JSONObject().put("entries", entries)
+                        .put("mode", "merge".equals(inHo.optString("mode")) ? "merge" : "replace"));
+            }
+        } catch (JSONException | IllegalArgumentException e) {
+            return new JSONObject();
+        }
+        return out;
+    }
+
     // ---- parking a request until the WebUI takes it
 
     static void queue(Context c, JSONObject req) {
-        sp(c).edit().putString(K_PENDING, req.toString()).apply();
+        synchronized (LOCK) {
+            pendingJson = req.toString();
+        }
     }
 
-    /** The parked request as JSON ("" if none or expired); returns it once. */
+    /** The parked request as JSON (\"\" if none or expired); returns it once. */
     static String take(Context c) {
         synchronized (LOCK) {
-            String s = sp(c).getString(K_PENDING, "");
-            sp(c).edit().remove(K_PENDING).apply();
+            String s = pendingJson;
+            pendingJson = "";
             lastTakenTrustable = null;
             if (s == null || s.isEmpty()) return "";
             try {
@@ -355,11 +565,27 @@ final class ExternalSession {
 
     // =============================================================== the session
 
+    private static int bootCount(Context c) {
+        try {
+            return android.provider.Settings.Global.getInt(c.getContentResolver(), "boot_count", -1);
+        } catch (RuntimeException e) {
+            return -1;
+        }
+    }
+
+    /** The session metadata, or null. A session from before the last reboot is dropped: it never resumes by itself. */
     private static JSONObject read(Context c) {
         String s = sp(c).getString(K_SESSION, "");
         if (s == null || s.isEmpty()) return null;
         try {
-            return new JSONObject(s);
+            JSONObject o = new JSONObject(s);
+            int was = o.optInt("boot", -1), now = bootCount(c);
+            if (was != -1 && now != -1 && was != now) {
+                sp(c).edit().remove(K_SESSION).apply();
+                purgeNonRootDir(c);
+                return null;
+            }
+            return o;
         } catch (JSONException e) {
             return null;
         }
@@ -380,7 +606,7 @@ final class ExternalSession {
         return s == null ? "" : s.optString("callerLabel", "");
     }
 
-    /** {"active":false} or {"active":true,name,uri,caller,callerLabel,exclude,wasRunning,startedAt}. */
+    /** {"active":false} or {"active":true,name,caller,callerLabel,exclude,sections,wasRunning,startedAt}. No server address, no settings. */
     static JSONObject state(Context c) {
         JSONObject s = read(c);
         try {
@@ -390,21 +616,22 @@ final class ExternalSession {
         }
     }
 
-    /** The WebUI has written the external config (and the base copy): remember the session. */
+    /** The WebUI has written the session files into {@link #overrideDir}: remember the session (metadata only). */
     static boolean begin(Context c, String json) {
         try {
             JSONObject in = new JSONObject(json);
             JSONObject prev = read(c);
             JSONObject s = new JSONObject()
                     .put("name", clean(in.optString("name"), MAX_NAME))
-                    .put("uri", in.optString("uri"))
                     .put("caller", in.optString("caller"))
                     .put("callerLabel", clean(in.optString("callerLabel"), MAX_NAME))
                     .put("exclude", in.optJSONArray("exclude") == null ? new JSONArray() : in.getJSONArray("exclude"))
+                    .put("sections", in.optJSONArray("sections") == null ? new JSONArray() : in.getJSONArray("sections"))
                     // a second connect while one is active keeps what the first one remembered
                     .put("wasRunning", prev != null ? prev.optBoolean("wasRunning") : in.optBoolean("wasRunning"))
-                    .put("startedAt", System.currentTimeMillis());
-            if (s.optString("uri").isEmpty()) return false;
+                    .put("startedAt", System.currentTimeMillis())
+                    .put("boot", bootCount(c));
+            // Deliberately not stored: the node uri and every overridden value. They exist only in override/ (RAM or cache).
             sp(c).edit().putString(K_SESSION, s.toString()).apply();
             clearPendingNotification(c);
             return true;
@@ -413,22 +640,55 @@ final class ExternalSession {
         }
     }
 
-    static String dataDir(Context c) {
-        return RunMode.isNonRoot(c) ? NonRootEnv.datadir(c).getPath() : ModuleInstaller.DATADIR;
+    /**
+     * Where a session keeps its files. Root: tmpfs under /dev (gone at reboot); never /data/adb/magic_v2ray.
+     * Non-root: the cache directory; never files/data.
+     */
+    static String overrideDir(Context c) {
+        return RunMode.isNonRoot(c) ? NonRootEnv.overrideDir(c).getPath() : "/dev/sysctl_stubs/run/override";
     }
 
-    /** Previous config back in place, session exclusions gone. Same shell in both modes. */
-    private static void restoreFiles(Context c) {
-        RootShell.init(c);
-        String d = dataDir(c);
-        RootShell.run("D=" + RootShell.sq(d) + "\n"
-                + "if [ -f \"$D/" + BASE_FILE + "\" ]; then cp -f \"$D/" + BASE_FILE + "\" \"$D/config.v2.json\" && chmod 600 \"$D/config.v2.json\"; fi\n"
-                + "rm -f \"$D/" + BASE_FILE + "\" \"$D/" + SESSION_EXCLUDE_FILE + "\"\n", 30_000);
+    private static void purgeNonRootDir(Context c) {
+        File d = NonRootEnv.overrideDir(c);
+        File[] fs = d.listFiles();
+        if (fs != null) for (File f : fs) f.delete();
+        d.delete();
     }
 
     /**
-     * Ends the session and goes back to the node that was selected before it: the engine is
-     * restarted on the old config when it was running before, and stopped when it was not.
+     * App start: an override directory with no live session is a leftover (crash, reboot in non-root mode where the
+     * cache survives). Delete it. Root mode needs nothing: /dev is wiped by the reboot and the service clears it at start.
+     */
+    static void sweepStale(Context c) {
+        Context app = c.getApplicationContext();
+        if (!isActive(app) && RunMode.isNonRoot(app)) purgeNonRootDir(app);
+    }
+
+    /** Session files gone (the user's own files were never touched). Same shell in both modes. */
+    private static void purgeFiles(Context c) {
+        if (RunMode.isNonRoot(c)) {
+            purgeNonRootDir(c);
+            return;
+        }
+        RootShell.init(c);
+        RootShell.run("rm -rf " + RootShell.sq(overrideDir(c)) + "\n", 30_000);
+    }
+
+    /**
+     * Files left by older versions, which kept a session inside the data dir: put the user's config back.
+     * Only runs when such a leftover exists.
+     */
+    private static void restoreLegacy(Context c) {
+        RootShell.init(c);
+        String d = RunMode.isNonRoot(c) ? NonRootEnv.datadir(c).getPath() : ModuleInstaller.DATADIR;
+        RootShell.run("D=" + RootShell.sq(d) + "\n"
+                + "if [ -f \"$D/" + BASE_FILE + "\" ]; then cp -f \"$D/" + BASE_FILE + "\" \"$D/config.v2.json\" && chmod 600 \"$D/config.v2.json\"; fi\n"
+                + "rm -f \"$D/" + BASE_FILE + "\" \"$D/excludelist.session.txt\"\n", 30_000);
+    }
+
+    /**
+     * Ends the session and goes back to the user's own setup: session files are deleted FIRST (so the engine falls back to
+     * the user's untouched config / settings), then the engine is restarted when it was running before, stopped when not.
      * Blocks, call it from a worker thread.
      */
     static void end(Context c) {
@@ -439,7 +699,8 @@ final class ExternalSession {
             if (s == null) return;
             sp(app).edit().remove(K_SESSION).apply();
         }
-        restoreFiles(app);
+        purgeFiles(app);
+        restoreLegacy(app);
         if (s.optBoolean("wasRunning")) {
             if (RunMode.isNonRoot(app)) {
                 VpnController.handle(app, null, "restart");
@@ -454,9 +715,8 @@ final class ExternalSession {
     }
 
     /**
-     * The session outlived its engine (reboot, crash, stopped some other way): drop it and put the
-     * old config back without touching the engine. Too young a session is left alone, its engine
-     * may still be starting.
+     * The session outlived its engine (crash, stopped some other way): drop it without touching the engine. Too young
+     * a session is left alone, its engine may still be starting.
      */
     static boolean abandon(Context c) {
         Context app = c.getApplicationContext();
@@ -466,7 +726,8 @@ final class ExternalSession {
             if (System.currentTimeMillis() - s.optLong("startedAt") < MIN_AGE_BEFORE_ABANDON_MS) return false;
             sp(app).edit().remove(K_SESSION).apply();
         }
-        restoreFiles(app);
+        purgeFiles(app);
+        restoreLegacy(app);
         pingUi(app);
         return true;
     }

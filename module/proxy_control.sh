@@ -91,7 +91,8 @@ start_proxy() {
         echo "running"
         return 0
     fi
-    if [ ! -s "$DATADIR/config.v2.json" ]; then
+    # a temporary override session (tmpfs, see README "Control from other apps") may be the only config there is
+    if [ ! -s "$DATADIR/config.v2.json" ] && [ ! -s "$RUN_DIR/override/config.v2.json" ]; then
         echo "no config" >&2
         return 1
     fi

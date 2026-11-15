@@ -82,10 +82,15 @@ static void load_cfg(cfg_t *c)
     c->n6 = lan_skip(LAN_V6, unticked, ALWAYS_V6, c->skip6);
     log_msg("Bypass LAN IPv4: %d entries, IPv6: %d entries", c->n4, c->n6);
 
-    /* bypassIface: file exists => enabled; content = comma-separated names */
-    if (u_exists(BYPASS_IFACE_FILE)) {
-        char raw[256]; u_read(BYPASS_IFACE_FILE, raw, sizeof raw); u_trim(raw);
-        if (!raw[0]) snprintf(raw, sizeof raw, "tailscale0,wt0");
+    /* bypassIface: file exists => enabled; content = comma-separated names.
+     * An override session's file wins; its content "-" means "no bypass interface" (the user's file
+     * cannot be hidden any other way, and it must not be touched). */
+    char bpath[300];
+    const char *bfile = u_ov_path(bpath, sizeof bpath, "bypassIface.txt", BYPASS_IFACE_FILE);
+    if (u_exists(bfile)) {
+        char raw[256]; u_read(bfile, raw, sizeof raw); u_trim(raw);
+        if (!strcmp(raw, "-")) raw[0] = 0;
+        else if (!raw[0]) snprintf(raw, sizeof raw, "tailscale0,wt0");
         char *save = NULL;
         for (char *t = strtok_r(raw, ", \t\r\n", &save); t && c->nb < 8; t = strtok_r(NULL, ", \t\r\n", &save))
             if (strlen(t) < IFNAMSIZ) snprintf(c->bypass[c->nb++], IFNAMSIZ, "%s", t);

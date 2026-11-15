@@ -227,6 +227,12 @@ final class KsuBridge {
         POOL.execute(() -> deliver(callback, ExternalSession.abandon(activity.getApplicationContext()) ? 0 : 1, "", ""));
     }
 
+    /** Where an external session keeps its files (RAM under /dev in root mode, the cache dir otherwise). Never the data dir. */
+    @JavascriptInterface
+    public String overrideDir() {
+        return ExternalSession.overrideDir(activity.getApplicationContext());
+    }
+
     /** Apps trusted to connect without a prompt, as JSON [{pkg,label,since,installed}]. */
     @JavascriptInterface
     public String trustList() {

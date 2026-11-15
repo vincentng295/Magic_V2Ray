@@ -116,3 +116,17 @@ int64_t u_mono_ms(void)
     struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t);
     return (int64_t)t.tv_sec * 1000 + t.tv_nsec / 1000000;
 }
+
+const char *u_ov_path(char *buf, size_t cap, const char *name, const char *normal)
+{
+    snprintf(buf, cap, OVERRIDE_DIR "/%s", name);
+    if (access(buf, R_OK) == 0) return buf;
+    snprintf(buf, cap, "%s", normal);
+    return buf;
+}
+
+bool u_ov_active(void)
+{
+    struct stat st;
+    return stat(OVERRIDE_DIR "/" CONFIG_NAME, &st) == 0 && st.st_size > 0;
+}

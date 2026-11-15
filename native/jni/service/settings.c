@@ -11,7 +11,8 @@
 static char *load(void)
 {
     struct stat st;
-    int fd = open(SETTINGS_FILE, O_RDONLY | O_CLOEXEC);
+    char path[300];   /* an override session's settings replace the saved ones (never merged on disk) */
+    int fd = open(u_ov_path(path, sizeof path, "settings.base64", SETTINGS_FILE), O_RDONLY | O_CLOEXEC);
     if (fd < 0) return NULL;
     if (fstat(fd, &st) < 0 || st.st_size <= 0 || st.st_size > (4 << 20)) { close(fd); return NULL; }
     char *raw = malloc(st.st_size + 1);

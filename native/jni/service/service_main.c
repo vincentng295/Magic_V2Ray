@@ -295,6 +295,7 @@ int run_service(int argc, char **argv)
 
     u_mkdir_p(DATADIR, 0700);
     prepare_stub_dir();
+    u_clear_dir(OVERRIDE_DIR);                       /* a temporary override session never outlives the service */
     char *a[] = { g_self, "logservice", "create", "-c", LOG_CTRL, "-i", XRAY_LOG, "--daemonize", NULL };
     u_run(a);                                        /* create the log pipe first so we can write to it */
 

@@ -148,6 +148,36 @@ Bất kỳ ứng dụng hoặc website nào cũng có thể yêu cầu Magic V2R
 - **Ngắt**: `magicv2ray://disconnect`, nút trong thông báo, tile Cài đặt nhanh, nút Dừng / Ngắt kết nối trong app. Khởi động lại máy cũng kết thúc phiên.
 - **Bảo mật**: website nào cũng có thể bắn link `connect`, nên mọi kết nối đều phải xác nhận, hiện đủ uri, người gọi và app bị loại. Người gọi chỉ "đã xác minh" khi Android cung cấp (không bao giờ dùng `EXTRA_REFERRER` có thể giả mạo) và không phải trình duyệt. Node VLESS / Trojan không mã hóa vẫn giữ cảnh báo cũ. Tab **Cấp quyền truy cập** liệt kê các app "luôn tin"; tùy chọn này chỉ có với intent tường minh từ app native đã xác minh (không áp dụng cho link hay trình duyệt) và gắn với chứng chỉ ký của app. App đã tin vẫn bị hỏi với node không mã hóa và với mục loại trừ khác chính nó.
 
+### Thiết lập tạm (`overrides`)
+
+Ngoài node, `connect` có thể kèm tham số `overrides` để **đổi tạm** Thiết lập lưu lượng, Thiết lập mạng, Loại trừ ứng dụng, Định tuyến và Hosts tùy chỉnh trong lúc kết nối. `uri` là tùy chọn khi có `overrides` (khi đó dùng node bạn đang chọn).
+
+- Liên kết: `magicv2ray://connect?uri=...&overrides=<base64url của JSON>`; intent / broadcast: extra `overrides` là chuỗi JSON.
+- Chỉ các khóa trong danh sách trắng và đúng kiểu / khoảng giá trị mới được nhận, phần còn lại bị bỏ (xem `ExternalSession.sanitizeOverrides`). Không thể đổi: `exposeSocks*`, chế độ chuyên nghiệp, ngôn ngữ / giao diện. Quy tắc định tuyến chỉ nhận `outboundTag` là `proxy`, `direct`, `block`.
+
+```json
+{
+  "traffic": { "mux": true, "mtu": 1400, "directDns": "quic+local://223.5.5.5" },
+  "network": { "networkMode": 1, "allowTether": false, "bypassIfaces": ["tailscale0"], "bypassVpnService": true },
+  "exclude": { "apps": ["com.example.app"], "mode": "add", "enabled": true },
+  "routing": { "domainStrategy": "IPIfNonMatch", "mode": "prepend",
+               "rules": [ { "domain": "geosite:google", "outboundTag": "proxy", "remarks": "tạm" } ] },
+  "hosts":   { "mode": "merge", "entries": { "example.com": "1.2.3.4", "b.com": ["::1", "10.0.0.1"] } }
+}
+```
+
+**Riêng tư: thiết lập tạm KHÔNG BAO GIỜ được lưu.**
+
+| Chế độ | Nơi giữ phiên | Không bao giờ ghi vào |
+|---|---|---|
+| Root | `/dev/sysctl_stubs/run/override/` (tmpfs, mất khi khởi động lại) | `/data/adb/magic_v2ray` |
+| Non-root | `cache/override/` | `files/data/` (kể cả `config.v2.json`) |
+
+- Engine đọc `config.v2.json`, `settings.base64`, `excludelist.txt`, `bypassIface.txt` trong thư mục phiên **thay cho** file cùng tên của bạn; file của bạn chỉ được đọc, không bị sửa. Ngắt kết nối = xóa thư mục phiên rồi khởi động lại engine trên thiết lập của bạn.
+- Yêu cầu chờ xác nhận chỉ nằm trong RAM; phiên chỉ lưu metadata (tên, app gọi, danh sách loại trừ), không lưu server hay giá trị nào bị đổi.
+- Phiên **không tự chạy lại sau khi khởi động lại** (root: `/dev` bị xóa và service dọn thư mục phiên khi khởi động; non-root: VpnService là `START_NOT_STICKY`, phiên cũ bị bỏ khi app mở lại). App cần dùng tiếp thì phải gửi lại yêu cầu `connect` sau mỗi lần khởi động. Một phiên tạm cũng không đổi cờ `enabled` quyết định cái gì chạy lại khi boot.
+- Yêu cầu có `overrides` **luôn hỏi xác nhận**, kể cả app đã "luôn tin", và hộp thoại nêu rõ các mục bị đổi.
+
 ## Build từ mã nguồn
 
 ```sh

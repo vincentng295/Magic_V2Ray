@@ -192,6 +192,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        ExternalSession.sweepStale(this);       // leftover of a session that did not survive a reboot / crash
         current = this;
         // not on recreate() / process-death restore: the same intent must not ask again
         if (savedInstanceState == null) handleExternal(getIntent());
