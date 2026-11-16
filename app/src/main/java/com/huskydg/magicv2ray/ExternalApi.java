@@ -70,7 +70,6 @@ final class ExternalApi {
     static final long DISCONNECT_DEBOUNCE_MS = 2_000L;
     private static final long ROOT_REFRESH_DELAY_MS = 700L;
     private static final long ROOT_STATE_MAX_AGE_MS = 5_000L;
-    private static final String CTL = ModuleInstaller.MODDIR + "/proxy_control.sh";
 
     private static final Object LOCK = new Object();
     private static final AtomicLong SEQ = new AtomicLong();
@@ -307,15 +306,15 @@ final class ExternalApi {
 
     // =============================================================== root mode
 
-    /** Root mode: reads the real status (one word from proxy_control.sh). Null when the service cannot be asked. */
+    /** Root mode: reads the real status (one word from `proxy_control status`). Null when the service cannot be asked. */
     static Boolean queryRoot(Context c) {
         Context app = c.getApplicationContext();
         if (RunMode.isNonRoot(app)) return null;
         try {
             RootShell.init(app);
             RootShell.Result r = RootShell.run(
-                    "[ -p /dev/sysctl_stubs/run/control.pipe ] || { echo none; exit 0; }\n"
-                            + "sh " + RootShell.sq(CTL) + " status 2>/dev/null; exit 0", 8_000);
+                    "[ -p " + ModuleInstaller.STUB_DIR + "/run/control.pipe ] || { echo none; exit 0; }\n"
+                            + RootShell.sq(ModuleInstaller.HELPER) + " proxy_control status 2>/dev/null; exit 0", 8_000);
             String o = r.out.trim();
             if (o.endsWith("running")) return Boolean.TRUE;
             if (o.endsWith("stopped") || o.endsWith("crashed")) return Boolean.FALSE;

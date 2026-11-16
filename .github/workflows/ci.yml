@@ -22,7 +22,7 @@ jobs:
       - name: POSIX parse check (dash)
         run: |
           cd module
-          for f in service.sh proxy_control.sh uninstall.sh customize.sh action.sh; do
+          for f in service.sh uninstall.sh customize.sh action.sh; do
             echo "== $f"
             dash -n "$f"
           done
@@ -31,7 +31,7 @@ jobs:
         run: |
           cd module
           shellcheck --shell=dash --severity=warning \
-            service.sh proxy_control.sh uninstall.sh action.sh
+            service.sh uninstall.sh action.sh
           # customize.sh is sourced by the root manager, which predefines
           # ui_print/abort/set_perm* and $MODPATH/$ZIPFILE/$ARCH.
           shellcheck --shell=dash --severity=warning \
@@ -127,9 +127,8 @@ jobs:
         with:
           python-version: '3.x'
 
-      # These run the real service.sh / proxy_control.sh logic under /bin/sh
-      # (dash on ubuntu-latest, same POSIX subset Android's ash/mksh accept)
-      # against fixtures, so nothing touches iptables or a device.
+      # These build the proxy_control applet from native/ and run it against a fake
+      # service FIFO, so nothing touches iptables or a device.
       - name: Run unit tests
         run: python3 -m unittest discover -s .github/tests -v
 
@@ -159,7 +158,7 @@ jobs:
           set -e
           cd module
           fail=0
-          for f in service.sh proxy_control.sh uninstall.sh action.sh module.prop; do
+          for f in service.sh uninstall.sh action.sh module.prop; do
             grep -q "\"$f\"" customize.sh || { echo "::error::$f is never extracted by customize.sh"; fail=1; }
           done
           exit $fail

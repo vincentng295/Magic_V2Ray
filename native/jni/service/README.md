@@ -2,7 +2,8 @@
 
 One static-ish binary replaces `service.sh` and every external tool it called
 (`ip`, `iptables`, `ip6tables`, `busybox`/`toybox`: `sed grep tr base64 stat mount umount
-mkfifo date kill inotifyd getprop sleep`, and `curl`).
+mkfifo date kill inotifyd getprop sleep`, and `curl`), and the control front-end `proxy_control.sh`
+(now the `proxy_control` applet).
 Only your own helper `bin/xhuskydg_helper` is still used (the `logservice` verbs).
 
 ## Layout
@@ -15,17 +16,42 @@ Only your own helper `bin/xhuskydg_helper` is still used (the `logservice` verbs
 | `src/exclude.c` | Exclude Apps (inotify instead of `inotifyd`) |
 | `src/latency.c` | latency monitor (built-in SOCKS5 client instead of `curl`) |
 | `src/xray.c` | start/stop/reload, native `openxtun` (open tun, `TUNSETIFF`, `XRAY_TUN_FD`, exec) |
-| `src/control.c`, `main.c` | FIFO command loop, boot sequencer |
-| `src/settings.c`, `proc_track.c`, `log.c`, `util.c`, `worker.c` | settings.base64 reader, `/proc` bind-mount liveness, logging, threads |
+| `src/control.c`, `main.c` | FIFO command loop (queue + request/reply), boot sequencer |
+| `proxy_control.cpp` | `proxy_control.sh`: client side of the control pipe |
+| `src/settings.c`, `proc_track.c`, `log.c`, `util.c`, `worker.c` | settings.base64 reader, child pid tracking + reaping, logging, threads |
 
-The runtime contract with the WebUI is unchanged: same paths under `/dev/sysctl_stubs`
-(`run/control.pipe`, `proc/<name>/exe`, `time_res`, `addr_info`, ...), same commands, same log format.
+## Runtime directory
+`/mnt/runtime/magicv2ray` (`MV_STUB_DIR`): a plain directory, **no tmpfs mount of its own** (`/mnt` already is one, so
+it is gone at reboot). Every service start recreates it empty; `stop_svc` removes it. Layout: `run/` (control pipe, pid
+files, `time_res`, `addr_info`, `override/`, ...) and `logs/` (log pipes). Builds before this one kept it on a private
+tmpfs at `/dev/sysctl_stubs` (`MV_LEGACY_STUB_DIR`); that location is only looked at to stop / clean up an old service.
+
+## Process tracking
+No `/proc/<pid>` bind mounts any more. The service forks xray itself, so it remembers the pid (`proc_track.c`) and starts a
+reaper thread that `waitpid()`s it: a child that dies - our SIGKILL, the OOM killer, a crash - never stays a zombie, and
+`status` is exact (`running` / `crashed` = it exited while still tracked / `stopped`). A deliberate stop untracks first, so
+it is never reported as a crash, and a dead pid is never signalled again (it may have been reused). The pidfile
+(`run/xray.pid`) is only used to find an xray of a *previous* service, and only if `/proc/<pid>/exe` really is our binary.
+Monitor threads need no tracking: the service owns them.
+
+## Control pipe protocol
+`run/control.pipe` takes one line per command:
+* plain `<verb>` - fire and forget (boot sequencer, older callers, `service --stop` writes `stop_svc`).
+* `REQ <reply-fifo> <verb>` - what `xhuskydg_helper proxy_control <verb>` sends, the same scheme as `logservice read`: the
+  client creates `<pipe>.r<pid>`, the service answers `<exit code>\n` then lines `o <stdout>` / `e <stderr>` and closes it.
+
+`status` and `latency_heartbeat` are answered by the reader thread at once; every other verb goes through a queue to one
+executor thread, so long jobs (`start`, `restart`) run in order and `status` never waits behind them.
+Verbs: `start stop restart reload status reapply start_monitor stop_monitor start_monitor_latency stop_monitor_latency
+latency_heartbeat reset_mobile_network`. Contract with the WebUI: `status` prints one word (`running` 0 / `stopped` 1 /
+`crashed` 2); with no service it prints `stopped`. Diagnostics go to `$DATADIR/proxy_control.log`, never to stdout.
 
 ## Stopping and live upgrade
-`xhuskydg_helper service --stop` writes `stop_svc` into `run/control.pipe` and waits for the service to exit.
-On `stop_svc` the service stops its monitors, kills xray, removes the iptables chains / ip rules / ULA / fwmark
-rule / traffic hold, stops the log daemon and the subscription loop, detaches every mount under
-`/dev/sysctl_stubs` (and the legacy `ip_forward` stub), then exits. The "xray was running" flag is kept,
+`xhuskydg_helper service --stop` writes `stop_svc` into `run/control.pipe` and waits for the service to exit. It does so
+for the current runtime dir **and** the legacy `/dev/sysctl_stubs`, so it stops whichever version of the service is
+running. On `stop_svc` the service stops its monitors, kills xray, removes the iptables chains / ip rules / ULA / fwmark
+rule / traffic hold, stops the log daemon and the subscription loop, deletes the runtime directory (and detaches / removes
+what an old version left at the legacy path, unless an old service is still alive there), then exits. The "xray was running" flag is kept,
 so a freshly started service resumes xray by itself. The app uses this for updates from versionCode 176 on
 (no reboot); older installs get the new module staged in `/data/adb/modules_update/magic_v2ray`, plus
 `touch /data/adb/modules/magic_v2ray/update`, and need a reboot.

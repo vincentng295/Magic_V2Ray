@@ -65,7 +65,7 @@ const EXCLUDE_LIST_FILE = `${DATADIR}/excludelist.txt`;
 // settings, exclude list, bypass interfaces and hosts live in OVERRIDE_DIR (root: tmpfs under /dev, gone at reboot;
 // non-root: the cache dir), which the engine reads INSTEAD of the user's file of the same name while the session runs.
 // The user's own files are only read, so ending the session just deletes OVERRIDE_DIR.
-const OVERRIDE_DIR = MV_NONROOT ? ksu.overrideDir() : "/dev/sysctl_stubs/run/override";
+const OVERRIDE_DIR = MV_NONROOT ? ksu.overrideDir() : "/mnt/runtime/magicv2ray/run/override";
 // Default User-Agent sent when fetching subscription links, so hosts that
 // gate content on the client (e.g. v2rayNG-only subs) still respond.
 // Per-subscription override lives in profiles[category].useragent.
@@ -85,7 +85,7 @@ const LOCAL_DNS_HOST = "localdns";
 const LOCAL_DNS_HOST_DOTTED = "dns-gateway.local";
 const EXPOSE_SOCKS_PORT_MIN = 1024;
 const EXPOSE_SOCKS_PORT_MAX = 65535;
-const STUB_DIR = MV_NONROOT ? ksu.stubdir() : "/dev/sysctl_stubs";
+const STUB_DIR = MV_NONROOT ? ksu.stubdir() : "/mnt/runtime/magicv2ray";
 // Must match TUN_NAME in service.sh; only used to hide it from the
 // upstream-interface list.
 const TUN_NAME_UI = "xraytun0";

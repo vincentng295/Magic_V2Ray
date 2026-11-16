@@ -267,12 +267,12 @@ Besides a node, `connect` can carry an `overrides` parameter that **temporarily 
 
 | Mode | Session lives in | Never written to |
 |---|---|---|
-| Root | `/dev/sysctl_stubs/run/override/` (tmpfs, gone at reboot) | `/data/adb/magic_v2ray` |
+| Root | `/mnt/runtime/magicv2ray/run/override/` (tmpfs, gone at reboot) | `/data/adb/magic_v2ray` |
 | Non-root | `cache/override/` | `files/data/` (not even `config.v2.json`) |
 
 - The engine reads `config.v2.json`, `settings.base64`, `excludelist.txt` and `bypassIface.txt` from the session directory **instead of** your file of the same name; your files are only read, never modified. Disconnecting deletes the session directory and restarts the engine on your own setup.
 - The pending request is kept in memory only; the session stores metadata (name, caller, exclusion list) but neither the server nor any overridden value.
-- A session **never resumes after a reboot** (root: `/dev` is wiped and the service clears the directory at start; non-root: the VpnService is `START_NOT_STICKY` and a stale session is dropped when the app opens). An app that wants it again must send `connect` after each boot. A temporary session also never changes the `enabled` flag that decides what resumes at boot.
+- A session **never resumes after a reboot** (root: `/mnt/runtime` is wiped and the service clears the directory at start; non-root: the VpnService is `START_NOT_STICKY` and a stale session is dropped when the app opens). An app that wants it again must send `connect` after each boot. A temporary session also never changes the `enabled` flag that decides what resumes at boot.
 - A request with `overrides` is confirmed (the dialog lists what changes). An app set to "always trust" is **not asked again while it sends the same `overrides` it was last allowed with**. If they differ (new or changed), the dialog comes back saying the app wants to apply NEW settings. **Always allow** remembers the new set; **Allow once** does not. Only a SHA-256 fingerprint of the overrides is stored, never their values. Links and browsers can never be trusted.
 
 ## Building from Source

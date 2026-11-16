@@ -426,7 +426,7 @@ async function _extStart(req, ov, name, excludes, configText, nodeInfo) {
     try {
         const wasRunning = prev.active
             ? prev.wasRunning       // a session is already on: what it remembered is still the user's own state
-            : (await _extExec(`sh ${MODDIR}/proxy_control.sh status`)).out === 'running';
+            : (await _extExec(`${MODDIR}/bin/xhuskydg_helper proxy_control status`)).out === 'running';
 
         // Everything below is computed first, then written to OVERRIDE_DIR only.
         const merged = await _extWithOverlay(ov, async s => JSON.parse(JSON.stringify(s)));
@@ -465,10 +465,10 @@ async function _extStart(req, ov, name, excludes, configText, nodeInfo) {
         }
 
         // A full restart: the exclusion list and the network settings are read when the VPN / the iptables rules are built.
-        const r = await _extExec(`sh ${MODDIR}/proxy_control.sh restart`);
+        const r = await _extExec(`${MODDIR}/bin/xhuskydg_helper proxy_control restart`);
         let up = false;
         for (let i = 0; i < 4 && !up && r.errno === 0; i++) {
-            up = (await _extExec(`sh ${MODDIR}/proxy_control.sh status`)).out === 'running';
+            up = (await _extExec(`${MODDIR}/bin/xhuskydg_helper proxy_control status`)).out === 'running';
             if (!up) await _extSleep(1500);
         }
         if (!up) {
@@ -507,7 +507,7 @@ async function extReconcile() {
     if (_extReconciling || !extState().active) return;
     _extReconciling = true;
     try {
-        const st = (await _extExec(`sh ${MODDIR}/proxy_control.sh status`)).out;
+        const st = (await _extExec(`${MODDIR}/bin/xhuskydg_helper proxy_control status`)).out;
         const hasBase = (await _extExec(`[ -s ${shQuote(OVERRIDE_DIR + '/config.v2.json')} ] && echo y`)).out === 'y';
         if (st === 'running' && hasBase) return;
         const r = await _extCall('extAbandon');     // too young a session is left alone (its engine may be starting)

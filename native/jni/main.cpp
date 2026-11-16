@@ -14,12 +14,15 @@ extern "C" int run_service(int argc, char* argv[]);
 int run_vpnrun(int argc, char* argv[]);
 // Implemented in obsprobe.cpp (reads xray's ObservatoryService over h2c; node "Check HTTP" probe).
 int run_obsprobe(int argc, char* argv[]);
+// Implemented in proxy_control.cpp (control front-end: talks to the service through its control FIFO).
+int run_proxy_control(int argc, char* argv[]);
 // Implemented in tcping.cpp (TCP handshake time; node "TCPing" test and the real-delay pre-check).
 int run_tcping(int argc, char* argv[]);
 
 static void print_usage(const char* prog) {
-    std::cerr << "Usage: " << prog << " <service|openxtun|dnsjson|logservice|vpnrun|obsprobe|tcping> [args...]\n"
+    std::cerr << "Usage: " << prog << " <service|proxy_control|openxtun|dnsjson|logservice|vpnrun|obsprobe|tcping> [args...]\n"
               << "  " << prog << " service -m <MODDIR> [-f]\n"
+              << "  " << prog << " proxy_control <start|stop|restart|reload|status|reapply|...>\n"
               << "  " << prog << " openxtun <tun_name> <xray_cmd> [args...]\n"
               << "  " << prog << " dnsjson <domain> [dns_server_ip]\n"
               << "  " << prog << " logservice <create|set|read|flush|stop> -c <control.pipe> [...]\n"
@@ -59,6 +62,8 @@ int main(int argc, char* argv[]) {
         return run_obsprobe(sub_argc, sub_argv.data());
     } else if (subcmd == "tcping") {
         return run_tcping(sub_argc, sub_argv.data());
+    } else if (subcmd == "proxy_control") {
+        return run_proxy_control(sub_argc, sub_argv.data());
     } else if (subcmd == "service") {
         return run_service(sub_argc, sub_argv.data());
     } else {

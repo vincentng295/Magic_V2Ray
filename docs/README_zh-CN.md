@@ -283,12 +283,12 @@ echo "Magic V2Ray 已断开"
 
 | 模式 | 会话存放位置 | 绝不写入 |
 |---|---|---|
-| Root | `/dev/sysctl_stubs/run/override/`（tmpfs，重启后消失） | `/data/adb/magic_v2ray` |
+| Root | `/mnt/runtime/magicv2ray/run/override/`（tmpfs，重启后消失） | `/data/adb/magic_v2ray` |
 | 非 Root | `cache/override/` | `files/data/`（连 `config.v2.json` 也不会） |
 
 - 引擎会从会话目录读取 `config.v2.json`、`settings.base64`、`excludelist.txt` 和 `bypassIface.txt`，**取代**你的同名文件；你的文件只会被读取，不会被修改。断开连接即删除会话目录，并以你自己的配置重启引擎。
 - 待确认的请求只保存在内存中；会话仅保存元数据（名称、调用方、排除列表），既不保存服务器，也不保存任何被覆盖的值。
-- 会话**重启后不会恢复**（Root：`/dev` 会被清空，且服务在启动时清理该目录；非 Root：VpnService 为 `START_NOT_STICKY`，应用打开时会丢弃过期会话）。需要再次使用的应用必须在每次开机后重新发送 `connect`。临时会话也不会改变决定开机时恢复什么的 `enabled` 标志。
+- 会话**重启后不会恢复**（Root：`/mnt/runtime` 会被清空，且服务在启动时清理该目录；非 Root：VpnService 为 `START_NOT_STICKY`，应用打开时会丢弃过期会话）。需要再次使用的应用必须在每次开机后重新发送 `connect`。临时会话也不会改变决定开机时恢复什么的 `enabled` 标志。
 - 带有 `overrides` 的请求需要确认（对话框会列出将更改的内容）。设为“始终信任”的应用，只要发送的 `overrides` 与上次获准时相同，**就不会再次询问**。如果不同（新增或已更改），对话框会再次出现，提示该应用想要应用新的设置。**始终允许**会记住新的一组；**仅允许一次**则不会。只保存 `overrides` 的 SHA-256 指纹，绝不保存其值。链接和浏览器永远不能被信任。
 
 ## 从源码构建

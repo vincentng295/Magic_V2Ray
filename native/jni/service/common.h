@@ -11,17 +11,11 @@
 #include <stddef.h>
 #include <sys/types.h>
 
-#ifndef MV_DATADIR
-#define MV_DATADIR "/data/adb/magic_v2ray"
-#endif
-#ifndef MV_STUB_DIR
-#define MV_STUB_DIR "/dev/sysctl_stubs"
-#endif
+#include "paths.h"
 
 #define DATADIR        MV_DATADIR
 #define STUB_DIR       MV_STUB_DIR
 #define RUN_DIR        STUB_DIR "/run"
-#define PROC_DIR       STUB_DIR "/proc"
 #define LOG_DIR        STUB_DIR "/logs"
 #define CONFIG_NAME    "config.v2.json"
 
@@ -34,7 +28,7 @@
 #define ENABLED_FLAG   DATADIR "/enabled"
 #define EXCLUDE_LIST_FILE DATADIR "/excludelist.txt"
 /* Temporary override session (magicv2ray://connect with node / settings overrides). PRIVACY: everything of a
- * session lives ONLY here, on tmpfs (/dev), so it is gone after a reboot and never touches DATADIR. Files:
+ * session lives ONLY here, in the runtime dir (/mnt tmpfs), so it is gone after a reboot and never touches DATADIR. Files:
  *   config.v2.json, settings.base64, excludelist.txt, bypassIface.txt  -> replace the user's file of that name
  *   excludelist.session.txt -> apps excluded whether or not the Exclude apps switch is on (e.g. the app that
  *                              serves the SOCKS5 node the engine now dials). */
@@ -92,6 +86,7 @@ void u_trim(char *s);
 void u_msleep(unsigned ms);
 int  u_mkdir_p(const char *path, mode_t mode);
 void u_clear_dir(const char *path);                    /* unlink files, not recursive */
+void u_rm_rf(const char *path);                        /* remove a whole tree (no symlink / mount crossing) */
 size_t u_b64_decode(const char *in, size_t n, uint8_t *out);
 int  u_run(char *const argv[]);                        /* fork/exec/wait, output to log */
 long u_now_s(void);
@@ -107,10 +102,14 @@ bool settings_query(const char *key, char *out, size_t cap);
 bool settings_present(const char *key);
 bool settings_is_true(const char *key);
 
-/* proc_track.c */
-int  proc_track_path(const char *proc_path, const char *name);
-int  proc_track_pid(pid_t pid, const char *name);
-int  proc_track_self_thread(const char *name);
-void proc_untrack(const char *name);
-bool proc_running(const char *name);
+/* proc_track.c - pids of the processes this service spawned (no /proc bind mounts).
+ * Every tracked child gets a reaper thread that waitpid()s it, so a child that dies - killed by us,
+ * by the OOM killer or by anyone else - never stays a zombie, and its state is known exactly. */
+typedef void (*proc_exit_cb)(pid_t pid, int status);
+int   proc_track_pid(pid_t pid, const char *name, proc_exit_cb cb);   /* remember + start reaping; replaces `name` */
+void  proc_untrack(const char *name);                                  /* forget (we stopped it on purpose) */
+bool  proc_running(const char *name);                                  /* tracked and not yet reaped */
+bool  proc_crashed(const char *name);                                  /* tracked, reaped, but never untracked */
+pid_t proc_pid(const char *name);                                      /* 0 when not tracked */
+bool  proc_wait_gone(pid_t pid, unsigned ms);                          /* true once pid no longer exists */
 #endif

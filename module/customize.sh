@@ -49,7 +49,6 @@ fi
 #    module removal indefinitely.
 # ---------------------------------------------------------------------------
 ui_print "- Extracting management scripts..."
-unzip -j -o "$ZIPFILE" "proxy_control.sh" -d "$MODPATH" >&2 || abort "! Failed to extract proxy_control.sh"
 unzip -j -o "$ZIPFILE" "service.sh"       -d "$MODPATH" >&2 || abort "! Failed to extract service.sh"
 unzip -j -o "$ZIPFILE" "uninstall.sh"     -d "$MODPATH" >&2 || abort "! Failed to extract uninstall.sh"
 unzip -j -o "$ZIPFILE" "action.sh"        -d "$MODPATH" >&2 || abort "! Failed to extract action.sh"
@@ -64,7 +63,7 @@ unzip -j -o "$ZIPFILE" "module.prop"      -d "$MODPATH" >&2 || abort "! Failed t
 # ---------------------------------------------------------------------------
 ui_print "- Verifying payload..."
 for f in bin/xray bin/xhuskydg_helper bin/curl bin/geoip.dat bin/geosite.dat \
-         service.sh proxy_control.sh uninstall.sh action.sh; do
+         service.sh uninstall.sh action.sh; do
     [ -s "$MODPATH/$f" ] || abort "! Missing or empty after extraction: $f"
 done
 
@@ -78,7 +77,6 @@ ui_print "- Setting permissions..."
 set_perm_recursive "$MODPATH"        0 0 0755 0644
 set_perm_recursive "$MODPATH/bin"    0 0 0755 0755
 set_perm "$MODPATH/service.sh"       0 0 0755
-set_perm "$MODPATH/proxy_control.sh" 0 0 0755
 set_perm "$MODPATH/uninstall.sh"     0 0 0755
 set_perm "$MODPATH/action.sh"        0 0 0755
 # geo databases are data, not executables
