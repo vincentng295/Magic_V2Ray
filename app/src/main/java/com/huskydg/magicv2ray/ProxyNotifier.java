@@ -136,7 +136,7 @@ final class ProxyNotifier {
             return;
         }
         RootShell.init(c);
-        RootShell.run("sh " + RootShell.sq(ModuleInstaller.MODDIR + "/proxy_control.sh") + " stop 2>&1", 30_000);
+        RootShell.run(RootShell.sq(ModuleInstaller.HELPER) + " proxy_control stop 2>&1", 30_000);
         showRoot(c, false);
     }
 

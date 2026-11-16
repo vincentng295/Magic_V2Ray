@@ -283,12 +283,12 @@ echo "Magic V2Ray 已中斷連線"
 
 | 模式 | 工作階段存放位置 | 絕不寫入 |
 |---|---|---|
-| Root | `/dev/sysctl_stubs/run/override/`（tmpfs，重新啟動後消失） | `/data/adb/magic_v2ray` |
+| Root | `/mnt/runtime/magicv2ray/run/override/`（tmpfs，重新啟動後消失） | `/data/adb/magic_v2ray` |
 | 非 Root | `cache/override/` | `files/data/`（連 `config.v2.json` 也不會） |
 
 - 引擎會從工作階段目錄讀取 `config.v2.json`、`settings.base64`、`excludelist.txt` 與 `bypassIface.txt`，**取代**你的同名檔案；你的檔案只會被讀取，不會被修改。中斷連線即刪除工作階段目錄，並以你自己的設定重新啟動引擎。
 - 待確認的請求只儲存在記憶體中；工作階段僅儲存中繼資料（名稱、呼叫端、排除清單），既不儲存伺服器，也不儲存任何被覆寫的值。
-- 工作階段**重新啟動後不會恢復**（Root：`/dev` 會被清空，且服務在啟動時清理該目錄；非 Root：VpnService 為 `START_NOT_STICKY`，應用程式開啟時會捨棄過期的工作階段）。需要再次使用的應用程式必須在每次開機後重新傳送 `connect`。暫時工作階段也不會改變決定開機時恢復什麼的 `enabled` 旗標。
+- 工作階段**重新啟動後不會恢復**（Root：`/mnt/runtime` 會被清空，且服務在啟動時清理該目錄；非 Root：VpnService 為 `START_NOT_STICKY`，應用程式開啟時會捨棄過期的工作階段）。需要再次使用的應用程式必須在每次開機後重新傳送 `connect`。暫時工作階段也不會改變決定開機時恢復什麼的 `enabled` 旗標。
 - 帶有 `overrides` 的請求需要確認（對話方塊會列出將變更的內容）。設為「一律信任」的應用程式，只要傳送的 `overrides` 與上次獲准時相同，**就不會再次詢問**。如果不同（新增或已變更），對話方塊會再次出現，提示該應用程式想要套用新的設定。**一律允許**會記住新的一組；**僅允許一次**則不會。只儲存 `overrides` 的 SHA-256 指紋，絕不儲存其值。連結與瀏覽器永遠不能被信任。
 
 ## 從原始碼建置

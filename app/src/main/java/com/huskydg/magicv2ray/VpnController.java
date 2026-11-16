@@ -13,15 +13,15 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Non-root counterpart of proxy_control.sh. The WebUI keeps calling
- * {@code sh <MODDIR>/proxy_control.sh <verb>}; in non-root mode KsuBridge hands those commands
- * to {@link #intercept} instead of a shell, and the answers match the script's contract
+ * Non-root counterpart of {@code xhuskydg_helper proxy_control}. The WebUI keeps calling
+ * {@code <MODDIR>/bin/xhuskydg_helper proxy_control <verb>}; in non-root mode KsuBridge hands those commands
+ * to {@link #intercept} instead of a shell, and the answers match the applet's contract
  * (status prints running / crashed / stopped and sets the same exit codes).
  */
 final class VpnController {
 
     static final int REQ_VPN = 2;
-    private static final Pattern CTL_RE = Pattern.compile("proxy_control\\.sh['\"]?\\s+([a-z_]+)");
+    private static final Pattern CTL_RE = Pattern.compile("xhuskydg_helper['\"]?\\s+proxy_control\\s+([a-z_]+)");
 
     private static final int STOPPED = 0, STARTING = 1, RUNNING = 2, FAILED = 3;
 
@@ -60,7 +60,7 @@ final class VpnController {
         return s != null && state == RUNNING && s.engineUp();
     }
 
-    /** Returns the result for a proxy_control.sh command line, or null when it is something else. */
+    /** Returns the result for a `proxy_control` command line, or null when it is something else. */
     static RootShell.Result intercept(Context ctx, Activity host, String command) {
         Matcher m = CTL_RE.matcher(command == null ? "" : command);
         if (!m.find()) return null;

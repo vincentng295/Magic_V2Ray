@@ -118,6 +118,13 @@ bool ensure_fifo(const std::string& path) {
 
 // ---------------------------------------------------------------- daemon
 
+// unlink `path` only if it still is the file described by `want` (same device + inode).
+void unlink_if_same(const std::string& path, const struct stat& want) {
+    struct stat now;
+    if (stat(path.c_str(), &now) == 0 && now.st_dev == want.st_dev && now.st_ino == want.st_ino)
+        unlink(path.c_str());
+}
+
 class LogBuffer {
 public:
     void set_max(size_t n) {
@@ -228,6 +235,12 @@ int run_daemon(const Args& a) {
         return 1;
     }
 
+    // Remember which FIFOs these are: the runtime dir is recreated by every service start, and a daemon that
+    // outlives its service must not unlink the NEW pipes of the same name when it finally exits.
+    struct stat in_st, ctl_st;
+    fstat(in_fd, &in_st);
+    fstat(ctl_fd, &ctl_st);
+
     if (a.daemonize) {
         pid_t pid = fork();
         if (pid < 0) { std::cerr << "fork: " << strerror(errno) << "\n"; return 1; }
@@ -279,8 +292,8 @@ int run_daemon(const Args& a) {
 
     close(in_fd);
     close(ctl_fd);
-    unlink(a.control.c_str());
-    unlink(a.input.c_str());
+    unlink_if_same(a.control, ctl_st);
+    unlink_if_same(a.input, in_st);
     return 0;
 }
 

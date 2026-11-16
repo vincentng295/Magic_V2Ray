@@ -1,48 +1,124 @@
-/* Liveness tracking by bind-mounting /proc/<pid> (or a thread dir) to a stable
- * name under PROC_DIR - same on-disk contract the WebUI already relies on. */
+/* Liveness tracking of the child processes this service spawns (xray).
+ *
+ * The service forks them itself, so their pid is known exactly: it is remembered here instead of
+ * bind-mounting /proc/<pid> somewhere. A reaper thread per child blocks in waitpid(), which
+ *   - clears the zombie as soon as the child dies, however it died (our SIGKILL, the OOM killer, a crash),
+ *   - tells us it is gone (state EXITED) without polling /proc.
+ * "Crashed" = the child exited while still tracked; proc_untrack() is what a deliberate stop does. */
 #include "common.h"
+#include <errno.h>
+#include <signal.h>
 #include <stdio.h>
-#include <sys/mount.h>
-#include <sys/stat.h>
-#include <sys/syscall.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
-static void path_of(char *b, size_t n, const char *name) { snprintf(b, n, "%s/%s", PROC_DIR, name); }
+#define MAXTRACK 8
+
+typedef struct { bool used, exited; char name[32]; pid_t pid; } slot_t;
+static slot_t g_slot[MAXTRACK];
+static pthread_mutex_t g_pt = PTHREAD_MUTEX_INITIALIZER;
+
+typedef struct { pid_t pid; char name[32]; proc_exit_cb cb; } reap_arg;
+
+static slot_t *find_name(const char *name)
+{
+    for (int i = 0; i < MAXTRACK; i++) if (g_slot[i].used && !strcmp(g_slot[i].name, name)) return &g_slot[i];
+    return NULL;
+}
+
+static slot_t *find_pid(pid_t pid)
+{
+    for (int i = 0; i < MAXTRACK; i++) if (g_slot[i].used && g_slot[i].pid == pid) return &g_slot[i];
+    return NULL;
+}
+
+static void *reaper(void *p)
+{
+    reap_arg a = *(reap_arg *)p; free(p);
+    int st = 0; pid_t r;
+    while ((r = waitpid(a.pid, &st, 0)) < 0 && errno == EINTR) {}
+    if (r < 0) st = -1;                              /* ECHILD: somebody else collected it; status unknown */
+    pthread_mutex_lock(&g_pt);
+    slot_t *s = find_pid(a.pid);
+    if (s && !strcmp(s->name, a.name)) s->exited = true;   /* an untracked / replaced entry no longer matches */
+    pthread_mutex_unlock(&g_pt);
+    if (a.cb) a.cb(a.pid, st);
+    return NULL;
+}
+
+int proc_track_pid(pid_t pid, const char *name, proc_exit_cb cb)
+{
+    if (pid <= 1) return -1;
+    reap_arg *a = malloc(sizeof *a);
+    if (!a) return -1;
+    a->pid = pid; a->cb = cb; snprintf(a->name, sizeof a->name, "%s", name);
+
+    pthread_mutex_lock(&g_pt);
+    slot_t *s = find_name(name);
+    if (!s) for (int i = 0; i < MAXTRACK && !s; i++) if (!g_slot[i].used) s = &g_slot[i];
+    if (!s) { pthread_mutex_unlock(&g_pt); free(a); return -1; }
+    s->used = true; s->exited = false; s->pid = pid;
+    snprintf(s->name, sizeof s->name, "%s", name);
+    pthread_mutex_unlock(&g_pt);
+
+    pthread_t th;
+    if (pthread_create(&th, NULL, reaper, a) != 0) {
+        /* no reaper: the child cannot be waited for, so do not pretend to track it */
+        free(a); proc_untrack(name);
+        return -1;
+    }
+    pthread_detach(th);
+    return 0;
+}
 
 void proc_untrack(const char *name)
 {
-    char p[256]; path_of(p, sizeof p, name);
-    umount2(p, MNT_DETACH);
-    rmdir(p);   /* rmdir only: never recurse into a mount that failed to detach */
-}
-
-int proc_track_path(const char *proc_path, const char *name)
-{
-    char p[256]; path_of(p, sizeof p, name);
-    if (access(proc_path, F_OK) != 0) return -1;
-    proc_untrack(name);                      /* always start clean */
-    mkdir(p, 0700);
-    if (mount(proc_path, p, NULL, MS_BIND, NULL) == 0) { log_msg("tracking %s as %s", proc_path, name); return 0; }
-    log_msg("warning: could not bind-mount %s for %s", proc_path, name);
-    return -1;
-}
-
-int proc_track_pid(pid_t pid, const char *name)
-{
-    char s[64]; snprintf(s, sizeof s, "/proc/%d", (int)pid);
-    return proc_track_path(s, name);
-}
-
-/* Threads replace the shell's background subshells: bind /proc/<pid>/task/<tid>,
- * which has an exe link while the thread lives and goes empty when it exits. */
-int proc_track_self_thread(const char *name)
-{
-    char s[96]; snprintf(s, sizeof s, "/proc/%d/task/%ld", (int)getpid(), (long)syscall(SYS_gettid));
-    return proc_track_path(s, name);
+    pthread_mutex_lock(&g_pt);
+    slot_t *s = find_name(name);
+    if (s) memset(s, 0, sizeof *s);                  /* a running reaper still reaps; it just no longer finds the slot */
+    pthread_mutex_unlock(&g_pt);
 }
 
 bool proc_running(const char *name)
 {
-    char p[300]; snprintf(p, sizeof p, "%s/%s/exe", PROC_DIR, name);
-    return access(p, F_OK) == 0;
+    pthread_mutex_lock(&g_pt);
+    slot_t *s = find_name(name);
+    bool r = s && !s->exited;
+    pthread_mutex_unlock(&g_pt);
+    return r;
+}
+
+bool proc_crashed(const char *name)
+{
+    pthread_mutex_lock(&g_pt);
+    slot_t *s = find_name(name);
+    bool r = s && s->exited;
+    pthread_mutex_unlock(&g_pt);
+    return r;
+}
+
+pid_t proc_pid(const char *name)
+{
+    pthread_mutex_lock(&g_pt);
+    slot_t *s = find_name(name);
+    pid_t p = s ? s->pid : 0;
+    pthread_mutex_unlock(&g_pt);
+    return p;
+}
+
+/* A zombie still answers kill(pid, 0), so a tracked child is judged by its reaper, an unknown pid by kill(). */
+bool proc_wait_gone(pid_t pid, unsigned ms)
+{
+    if (pid <= 1) return true;
+    for (unsigned t = 0; ; t += 10) {
+        pthread_mutex_lock(&g_pt);
+        slot_t *s = find_pid(pid);
+        bool tracked = s != NULL, gone = s && s->exited;
+        pthread_mutex_unlock(&g_pt);
+        if (tracked ? gone : (kill(pid, 0) < 0 && errno == ESRCH)) return true;
+        if (t >= ms) return false;
+        u_msleep(10);
+    }
 }

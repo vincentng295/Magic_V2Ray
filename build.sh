@@ -250,7 +250,7 @@ verify_flashable() {
     command -v unzip >/dev/null 2>&1 || { echo "    (unzip missing, skipped zip-layout check)"; return; }
     list=$(unzip -l "$f")
     for need in META-INF/com/google/android/update-binary META-INF/com/google/android/updater-script \
-                customize.sh module.prop service.sh proxy_control.sh uninstall.sh action.sh \
+                customize.sh module.prop service.sh uninstall.sh action.sh \
                 bin/geoip.dat bin/geosite.dat AndroidManifest.xml; do
         grep -q " ${need}\$" <<<"$list" || { echo "!! $f is missing ${need}" >&2; exit 1; }
     done

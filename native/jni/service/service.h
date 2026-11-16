@@ -4,7 +4,7 @@
 #include "common.h"
 #include <stddef.h>
 
-/* worker.c - a monitor thread with a stop eventfd and a /proc tracking name */
+/* worker.c - a monitor thread with a stop eventfd (the name only labels the thread) */
 typedef struct { pthread_t th; bool started; int stop_fd; const char *name; void (*fn)(int stop_fd); } worker_t;
 int  worker_start(worker_t *w, const char *track_name, void (*fn)(int stop_fd));
 void worker_stop(worker_t *w);

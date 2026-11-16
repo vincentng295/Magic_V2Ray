@@ -3,12 +3,13 @@
 #include <poll.h>
 #include <stdlib.h>
 #include <sys/eventfd.h>
+#include <sys/prctl.h>
 #include <unistd.h>
 
 static void *trampoline(void *a)
 {
     worker_t *w = a;
-    proc_track_self_thread(w->name);
+    prctl(PR_SET_NAME, w->name, 0, 0, 0);          /* shows up as the thread name in ps -T */
     w->fn(w->stop_fd);
     return NULL;
 }
@@ -31,7 +32,6 @@ void worker_stop(worker_t *w)
     (void)!write(w->stop_fd, &one, sizeof one);
     pthread_join(w->th, NULL);             /* never call with g_lock held */
     close(w->stop_fd);
-    proc_untrack(w->name);
     w->started = false;
 }
 

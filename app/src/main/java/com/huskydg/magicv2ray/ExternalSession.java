@@ -722,11 +722,11 @@ final class ExternalSession {
     }
 
     /**
-     * Where a session keeps its files. Root: tmpfs under /dev (gone at reboot); never /data/adb/magic_v2ray.
+     * Where a session keeps its files. Root: the runtime dir under /mnt (tmpfs, gone at reboot); never /data/adb/magic_v2ray.
      * Non-root: the cache directory; never files/data.
      */
     static String overrideDir(Context c) {
-        return RunMode.isNonRoot(c) ? NonRootEnv.overrideDir(c).getPath() : "/dev/sysctl_stubs/run/override";
+        return RunMode.isNonRoot(c) ? NonRootEnv.overrideDir(c).getPath() : ModuleInstaller.STUB_DIR + "/run/override";
     }
 
     private static void purgeNonRootDir(Context c) {
@@ -790,7 +790,7 @@ final class ExternalSession {
             if (RunMode.isNonRoot(app)) {
                 VpnController.handle(app, null, "restart");
             } else {
-                RootShell.run("sh " + RootShell.sq(ModuleInstaller.MODDIR + "/proxy_control.sh") + " restart 2>&1", 60_000);
+                RootShell.run(RootShell.sq(ModuleInstaller.HELPER) + " proxy_control restart 2>&1", 60_000);
                 ProxyNotifier.showRoot(app, true);
             }
         } else {

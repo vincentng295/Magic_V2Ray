@@ -48,18 +48,65 @@ static bool prop_debug(void)
     return false;
 }
 
-/* Fresh private tmpfs for runtime state. Unmount leftovers first: removing a
- * live mountpoint silently leaves the mount in place. */
+/* Detach every mount at or below `dir` plus the legacy ip_forward stub, deepest first. Only needed for what
+ * an older module version left behind: it kept its runtime state on a private tmpfs. Lazy, so any fd that
+ * is still open into it stays valid. */
+static void umount_tree(const char *dir)
+{
+    enum { MAXM = 256 };
+    static char mp[MAXM][256];
+    int n = 0;
+    char *buf = malloc(1 << 18);
+    if (buf) {
+        int r = u_read("/proc/self/mountinfo", buf, (1 << 18) - 1);
+        if (r > 0) {
+            buf[r] = 0;
+            size_t sl = strlen(dir);
+            for (char *line = strtok(buf, "\n"); line && n < MAXM; line = strtok(NULL, "\n")) {
+                char *p = line; int f;
+                for (f = 0; f < 4 && p; f++) { p = strchr(p, ' '); if (p) p++; }   /* 5th field = mount point */
+                if (!p) continue;
+                char *e = strchr(p, ' ');
+                if (e) *e = 0;
+                char path[256]; size_t o = 0;
+                for (const char *q = p; *q && o < sizeof path - 1; q++) {        /* \040 style escapes */
+                    if (q[0] == '\\' && q[1] >= '0' && q[1] <= '3' && q[2] && q[3]) {
+                        path[o++] = (char)(((q[1] - '0') << 6) | ((q[2] - '0') << 3) | (q[3] - '0')); q += 3;
+                    } else path[o++] = *q;
+                }
+                path[o] = 0;
+                if (!strncmp(path, dir, sl) && (path[sl] == 0 || path[sl] == '/'))
+                    snprintf(mp[n++], sizeof mp[0], "%s", path);
+                else if (!strcmp(path, "/proc/sys/net/ipv4/ip_forward"))         /* legacy gateway stub */
+                    snprintf(mp[n++], sizeof mp[0], "%s", path);
+            }
+        }
+        free(buf);
+    }
+    for (int i = n - 1; i >= 0; i--)
+        if (umount2(mp[i], MNT_DETACH) != 0 && errno != EINVAL && errno != ENOENT)
+            fprintf(stderr, "umount %s: %s\n", mp[i], strerror(errno));
+}
+
+/* Remove what an older version left at the legacy location (mounts first, then the directory) - but never
+ * from under an older service that is still alive there (something still reads its control pipe). */
+static void clean_legacy_stub_dir(void)
+{
+    int fd = open(MV_LEGACY_STUB_DIR "/run/control.pipe", O_WRONLY | O_NONBLOCK | O_CLOEXEC);
+    if (fd >= 0) { close(fd); return; }
+    umount_tree(MV_LEGACY_STUB_DIR);
+    u_rm_rf(MV_LEGACY_STUB_DIR);
+}
+
+/* Runtime state lives in a plain directory (no extra tmpfs mount). Every start begins from an empty one:
+ * pipes and files of a previous service must never be mistaken for ours. */
 static void prepare_stub_dir(void)
 {
-    umount2(STUB_DIR, MNT_DETACH);
-    rmdir(STUB_DIR);
+    clean_legacy_stub_dir();
+    u_rm_rf(STUB_DIR);
     u_mkdir_p(STUB_DIR, 0755);
-    if (mount("proc", STUB_DIR, "tmpfs", 0, "mode=0755,context=u:object_r:proc_net:s0") != 0 &&
-        mount("proc", STUB_DIR, "tmpfs", 0, "mode=0755") != 0)
-        fprintf(stderr, "warning: tmpfs mount failed, falling back to a plain directory\n");
-    u_mkdir_p(RUN_DIR, 0700); u_mkdir_p(PROC_DIR, 0700); u_mkdir_p(LOG_DIR, 0700);
-    chmod(RUN_DIR, 0700); chmod(PROC_DIR, 0700); chmod(LOG_DIR, 0700);
+    u_mkdir_p(RUN_DIR, 0700); u_mkdir_p(LOG_DIR, 0700);
+    chmod(RUN_DIR, 0700); chmod(LOG_DIR, 0700);
 }
 
 static void *boot_thread(void *arg)
@@ -97,44 +144,11 @@ static void *boot_thread(void *arg)
 
 /* ------------------------------------------------------------ stop_svc --- */
 
-/* Detach every mount at or below STUB_DIR (proc tracking binds, the tmpfs itself) plus the
- * legacy ip_forward stub, deepest first. Lazy: our own open fds into it stay valid. */
-static void umount_stub_tree(void)
+/* Final cleanup of both locations (the current one and what older versions used). */
+static void cleanup_stub_dirs(void)
 {
-    enum { MAXM = 256 };
-    static char mp[MAXM][256];
-    int n = 0;
-    char *buf = malloc(1 << 18);
-    if (buf) {
-        int r = u_read("/proc/self/mountinfo", buf, (1 << 18) - 1);
-        if (r > 0) {
-            buf[r] = 0;
-            size_t sl = strlen(STUB_DIR);
-            for (char *line = strtok(buf, "\n"); line && n < MAXM; line = strtok(NULL, "\n")) {
-                char *p = line; int f;
-                for (f = 0; f < 4 && p; f++) { p = strchr(p, ' '); if (p) p++; }   /* 5th field = mount point */
-                if (!p) continue;
-                char *e = strchr(p, ' ');
-                if (e) *e = 0;
-                char path[256]; size_t o = 0;
-                for (const char *q = p; *q && o < sizeof path - 1; q++) {        /* \040 style escapes */
-                    if (q[0] == '\\' && q[1] >= '0' && q[1] <= '3' && q[2] && q[3]) {
-                        path[o++] = (char)(((q[1] - '0') << 6) | ((q[2] - '0') << 3) | (q[3] - '0')); q += 3;
-                    } else path[o++] = *q;
-                }
-                path[o] = 0;
-                if (!strncmp(path, STUB_DIR, sl) && (path[sl] == 0 || path[sl] == '/'))
-                    snprintf(mp[n++], sizeof mp[0], "%s", path);
-                else if (!strcmp(path, "/proc/sys/net/ipv4/ip_forward"))         /* legacy gateway stub */
-                    snprintf(mp[n++], sizeof mp[0], "%s", path);
-            }
-        }
-        free(buf);
-    }
-    for (int i = n - 1; i >= 0; i--)
-        if (umount2(mp[i], MNT_DETACH) != 0 && errno != EINVAL && errno != ENOENT)
-            fprintf(stderr, "umount %s: %s\n", mp[i], strerror(errno));
-    rmdir(STUB_DIR);
+    clean_legacy_stub_dir();
+    u_rm_rf(STUB_DIR);
 }
 
 /* The subscription updater is a shell subshell started by service.sh, outside our process. */
@@ -156,7 +170,7 @@ static void kill_sub_loop(void)
 
 /* Counterpart of the boot sequence. Order matters: monitors first (they re-apply rules and
  * take g_lock, so never join them while holding it), then the rules and xray, then the
- * log daemon, and only last the mounts that hold the runtime state. */
+ * log daemon, and only last the directory that holds the runtime state. */
 void service_shutdown(void)
 {
     log_msg("stop_svc: shutting down (moddir=%s)", g_moddir);
@@ -178,31 +192,36 @@ void service_shutdown(void)
 
     log_msg("stop_svc: bye");
     xray_helper_logservice("stop", NULL, NULL);      /* log daemon is a separate process */
-    umount_stub_tree();
+    cleanup_stub_dirs();
 }
 
-/* `service --stop` (a separate short-lived process): ask the running service to stop through
- * its control pipe and wait until it is really gone. */
-int service_stop_request(void)
+/* Stops the service that keeps its runtime state in `dir`: writes `stop_svc` into its control pipe and waits
+ * until it is really gone. Returns 0 = stopped (or was not running here), 1 = failed;
+ * *was_running tells whether a service was found. */
+static int stop_one(const char *dir, bool legacy, bool *was_running)
 {
-    char b[32] = ""; pid_t svc = 0;
-    if (u_read(CONTROL_LOOP_PID_FILE, b, sizeof b - 1) > 0) svc = (pid_t)atoi(b);
+    char pipe[300], pidf[300], b[32] = ""; pid_t svc = 0;
+    snprintf(pipe, sizeof pipe, "%s/run/control.pipe", dir);
+    snprintf(pidf, sizeof pidf, "%s/run/control_loop.pid", dir);
+    if (u_read(pidf, b, sizeof b - 1) > 0) svc = (pid_t)atoi(b);
     if (svc == getpid()) svc = 0;
 
-    int fd = open(PIPE_FILE, O_WRONLY | O_NONBLOCK | O_CLOEXEC);   /* ENXIO: nobody reads it */
+    int fd = open(pipe, O_WRONLY | O_NONBLOCK | O_CLOEXEC);   /* ENXIO: nobody reads it */
     if (fd < 0) {
         int e = errno;
         if (e == ENOENT || e == ENXIO) {
-            printf("service is not running\n");
-            if (e == ENXIO) umount_stub_tree();                    /* stale leftovers of a dead service */
+            if (e == ENXIO) {                                  /* stale leftovers of a dead service */
+                if (legacy) { umount_tree(dir); u_rm_rf(dir); } else u_rm_rf(dir);
+            }
             return 0;
         }
-        fprintf(stderr, "open %s: %s\n", PIPE_FILE, strerror(e));
+        fprintf(stderr, "open %s: %s\n", pipe, strerror(e));
         return 1;
     }
-    const char *cmd = "stop_svc\n";
+    *was_running = true;
+    const char *cmd = "stop_svc\n";            /* the plain-line command every version understands */
     if (write(fd, cmd, strlen(cmd)) != (ssize_t)strlen(cmd)) {
-        fprintf(stderr, "write %s: %s\n", PIPE_FILE, strerror(errno));
+        fprintf(stderr, "write %s: %s\n", pipe, strerror(errno));
         close(fd);
         return 1;
     }
@@ -210,18 +229,31 @@ int service_stop_request(void)
 
     if (svc > 1) {
         for (int i = 0; i < 300; i++) {                            /* up to 30 s */
-            if (kill(svc, 0) < 0 && errno == ESRCH) { printf("service stopped\n"); return 0; }
+            if (kill(svc, 0) < 0 && errno == ESRCH) { printf("service stopped (%s)\n", dir); return 0; }
             usleep(100 * 1000);
         }
         fprintf(stderr, "service pid %d did not exit, killing it\n", (int)svc);
         kill(svc, SIGKILL);
         for (int i = 0; i < 50 && !(kill(svc, 0) < 0 && errno == ESRCH); i++) usleep(100 * 1000);
-        umount_stub_tree();
+        if (legacy) umount_tree(dir);
+        u_rm_rf(dir);
         return 1;
     }
     sleep(2);                                                      /* no pid file: best effort */
-    printf("stop requested\n");
+    printf("stop requested (%s)\n", dir);
     return 0;
+}
+
+/* `service --stop` (a separate short-lived process). Asks a running service to stop through its control pipe,
+ * at the current location AND at the one older versions used, so it works across an upgrade whichever
+ * version is running. */
+int service_stop_request(void)
+{
+    bool running = false;
+    int rc = stop_one(STUB_DIR, false, &running);
+    rc |= stop_one(MV_LEGACY_STUB_DIR, true, &running);
+    if (!running) printf("service is not running\n");
+    return rc;
 }
 
 /* `service -p`: read-only diagnostic. Tries to load every xtables table the

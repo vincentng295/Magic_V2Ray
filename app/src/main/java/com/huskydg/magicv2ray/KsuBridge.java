@@ -63,7 +63,7 @@ final class KsuBridge {
         final String script = buildScript(command == null ? "" : command, options);
         POOL.execute(() -> {
             RootShell.Result r = null;
-            if (RunMode.isNonRoot(activity)) {          // no proxy_control.sh without root: drive the VpnService
+            if (RunMode.isNonRoot(activity)) {          // no root engine without root: drive the VpnService
                 r = VpnController.intercept(activity.getApplicationContext(), activity, command);
             }
             if (r == null) r = RootShell.run(script, 0);
@@ -485,7 +485,7 @@ final class KsuBridge {
             if (RunMode.isNonRoot(activity)) {
                 VpnController.stop();
             } else {
-                RootShell.run("sh " + RootShell.sq(ModuleInstaller.MODDIR + "/proxy_control.sh") + " stop", 30_000);
+                RootShell.run(RootShell.sq(ModuleInstaller.HELPER) + " proxy_control stop", 30_000);
             }
             RunMode.set(activity, mode);
             activity.runOnUiThread(activity::recreate);

@@ -99,13 +99,13 @@ dependencies {
 // KernelSU and APatch look for these at the zip root, so they are packaged as Java
 // resources, straight from module/ (single source of truth for the module):
 //   META-INF/com/google/android/{update-binary,updater-script}, customize.sh,
-//   module.prop, service.sh, proxy_control.sh, uninstall.sh, action.sh,
+//   module.prop, service.sh, uninstall.sh, action.sh,
 //   bin/geoip.dat, bin/geosite.dat
 // The executables are the lib/<abi>/lib*.so entries (see jniLibs below).
 tasks.register('stageModuleAssets', Sync) {
     into genRes
     from("$rootDir/module") {
-        include 'customize.sh', 'service.sh', 'proxy_control.sh', 'uninstall.sh', 'action.sh', 'module.prop'
+        include 'customize.sh', 'service.sh', 'uninstall.sh', 'action.sh', 'module.prop'
     }
     from("$rootDir/module/META-INF") {
         include 'com/google/android/update-binary', 'com/google/android/updater-script'

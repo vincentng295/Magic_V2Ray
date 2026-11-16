@@ -283,12 +283,12 @@ Ngoài node, `connect` có thể kèm tham số `overrides` để **đổi tạm
 
 | Chế độ | Nơi giữ phiên | Không bao giờ ghi vào |
 |---|---|---|
-| Root | `/dev/sysctl_stubs/run/override/` (tmpfs, mất khi khởi động lại) | `/data/adb/magic_v2ray` |
+| Root | `/mnt/runtime/magicv2ray/run/override/` (tmpfs, mất khi khởi động lại) | `/data/adb/magic_v2ray` |
 | Non-root | `cache/override/` | `files/data/` (kể cả `config.v2.json`) |
 
 - Engine đọc `config.v2.json`, `settings.base64`, `excludelist.txt`, `bypassIface.txt` trong thư mục phiên **thay cho** file cùng tên của bạn; file của bạn chỉ được đọc, không bị sửa. Ngắt kết nối = xóa thư mục phiên rồi khởi động lại engine trên thiết lập của bạn.
 - Yêu cầu chờ xác nhận chỉ nằm trong RAM; phiên chỉ lưu metadata (tên, app gọi, danh sách loại trừ), không lưu server hay giá trị nào bị đổi.
-- Phiên **không tự chạy lại sau khi khởi động lại** (root: `/dev` bị xóa và service dọn thư mục phiên khi khởi động; non-root: VpnService là `START_NOT_STICKY`, phiên cũ bị bỏ khi app mở lại). App cần dùng tiếp thì phải gửi lại yêu cầu `connect` sau mỗi lần khởi động. Một phiên tạm cũng không đổi cờ `enabled` quyết định cái gì chạy lại khi boot.
+- Phiên **không tự chạy lại sau khi khởi động lại** (root: `/mnt/runtime` bị xóa và service dọn thư mục phiên khi khởi động; non-root: VpnService là `START_NOT_STICKY`, phiên cũ bị bỏ khi app mở lại). App cần dùng tiếp thì phải gửi lại yêu cầu `connect` sau mỗi lần khởi động. Một phiên tạm cũng không đổi cờ `enabled` quyết định cái gì chạy lại khi boot.
 - Yêu cầu có `overrides` được hỏi xác nhận (hộp thoại nêu rõ các mục bị đổi). App đã "luôn tin" thì **không bị hỏi lại khi gửi đúng `overrides` như lần được cho phép trước**. Nếu `overrides` khác (mới hoặc đã đổi), hộp thoại hiện lại với thông báo "ứng dụng đang muốn áp dụng thiết lập MỚI". Chọn **Luôn cho phép** để ghi nhớ bộ `overrides` mới; **Cho phép một lần** thì không ghi nhớ. Chỉ lưu dấu vân tay (SHA-256) của `overrides`, không lưu giá trị nào. Liên kết và trình duyệt không bao giờ được "luôn tin".
 
 ## Build từ mã nguồn

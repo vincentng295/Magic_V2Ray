@@ -14,12 +14,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Quick Settings tile: tap turns the core (xray) on or off, long-press opens the app
  * (the system opens the activity that handles QS_TILE_PREFERENCES, i.e. MainActivity).
  *
- * All work goes through proxy_control.sh, the same front-end the app uses, so the tile and
+ * All work goes through `xhuskydg_helper proxy_control`, the same front-end the app uses, so the tile and
  * the app always agree. Root calls block, so they run on a worker thread.
  */
 public class CoreTileService extends TileService {
-
-    private static final String CTL = ModuleInstaller.MODDIR + "/proxy_control.sh";
 
     private enum State {ON, OFF, UNAVAILABLE}
 
@@ -55,7 +53,7 @@ public class CoreTileService extends TileService {
                 } else {
                     r = RunMode.isNonRoot(this)
                             ? VpnController.handle(getApplicationContext(), null, turnOff ? "stop" : "start")
-                            : RootShell.run("sh " + RootShell.sq(CTL) + (turnOff ? " stop" : " start") + " 2>&1", 60_000);
+                            : RootShell.run(RootShell.sq(ModuleInstaller.HELPER) + " proxy_control" + (turnOff ? " stop" : " start") + " 2>&1", 60_000);
                 }
                 // "no config": nothing selected yet, let the user pick a node in the app.
                 boolean needApp = !turnOff && !r.ok();
@@ -89,15 +87,15 @@ public class CoreTileService extends TileService {
         }, "mv-tile-status").start();
     }
 
-    /** proxy_control.sh status prints exactly one word: running / crashed / stopped. */
+    /** `proxy_control status` prints exactly one word: running / crashed / stopped. */
     private State query() {
         if (RunMode.isNonRoot(this)) {
             if (VpnController.isRunning()) return State.ON;
             return NonRootEnv.configReady(this) ? State.OFF : State.UNAVAILABLE;
         }
         RootShell.Result r = RootShell.run(
-                "[ -p /dev/sysctl_stubs/run/control.pipe ] || { echo none; exit 0; }\n"
-                        + "sh " + RootShell.sq(CTL) + " status 2>/dev/null; exit 0", 15_000);
+                "[ -p " + ModuleInstaller.STUB_DIR + "/run/control.pipe ] || { echo none; exit 0; }\n"
+                        + RootShell.sq(ModuleInstaller.HELPER) + " proxy_control status 2>/dev/null; exit 0", 15_000);
         String o = r.out.trim();
         if (o.endsWith("running")) return State.ON;
         if (o.endsWith("stopped") || o.endsWith("crashed")) return State.OFF;

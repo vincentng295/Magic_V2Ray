@@ -359,7 +359,7 @@
         var done = function () { busy = false; if (btn) btn.disabled = false; };
         var engineStatus = '', excludeList = [];
 
-        execShell('sh ' + MODDIR + '/proxy_control.sh status', function (status, stderr, errno) {
+        execShell(MODDIR + '/bin/xhuskydg_helper proxy_control status', function (status, stderr, errno) {
             engineStatus = (status || 'stopped') + (errno === 0 ? ' (running)' : ' (exit code ' + errno + ')');
             execShell('cat ' + shQuote(EXCLUDE_LIST_FILE) + ' 2>/dev/null', function (raw) {
                 excludeList = String(raw || '').split(/\r?\n/).map(function (l) { return l.replace(/#.*/, '').trim(); })

@@ -23,7 +23,7 @@ import java.util.regex.Pattern;
  * /data/adb/modules/magic_v2ray.
  *
  * Payload layout inside the APK (zip root, same files a flashed module zip uses):
- *   {service.sh, proxy_control.sh, uninstall.sh, action.sh, module.prop}
+ *   {service.sh, uninstall.sh, action.sh, module.prop}
  *   bin/{geoip.dat, geosite.dat}
  *   lib/<abi>/{libxray.so, libxhuskydg_helper.so, libcurl.so}   (real executables,
  *       extracted to nativeLibraryDir at install; installed as bin/xray etc.)
@@ -41,6 +41,12 @@ final class ModuleInstaller {
     /** Where Magisk / KernelSU / APatch stage a module update that is applied at the next boot. */
     static final String UPDATE_DIR = "/data/adb/modules_update/magic_v2ray";
     static final String DATADIR = "/data/adb/magic_v2ray";
+    /** Runtime state of the root service (control pipe, log pipes); a plain directory, no extra mount. */
+    static final String STUB_DIR = "/mnt/runtime/magicv2ray";
+    /** Where builds before the move kept it (a private tmpfs). Only checked so an old service is still noticed and stopped. */
+    static final String LEGACY_STUB_DIR = "/dev/sysctl_stubs";
+    /** The control front-end: `<HELPER> proxy_control <verb>` (it replaced proxy_control.sh). */
+    static final String HELPER = MODDIR + "/bin/xhuskydg_helper";
 
     /**
      * First versionCode whose service understands "stop_svc" (xhuskydg_helper service --stop).
@@ -70,7 +76,7 @@ final class ModuleInstaller {
     }
 
     private static final String[] TEXT_ASSETS = {
-            "service.sh", "proxy_control.sh", "uninstall.sh", "action.sh", "module.prop"};
+            "service.sh", "uninstall.sh", "action.sh", "module.prop"};
     private static final String[] DATA_ASSETS = {"bin/geoip.dat", "bin/geosite.dat"};
     // lib file in nativeLibraryDir -> path inside the module
     private static final String[][] NATIVE_BINS = {
@@ -116,10 +122,10 @@ final class ModuleInstaller {
                         + "fi\n"
                         + "if [ -s \"$M/module.prop\" ] && [ -x \"$M/bin/xray\" ] && [ -x \"$M/bin/xhuskydg_helper\" ] \\\n"
                         + "   && [ -x \"$M/bin/curl\" ] && [ -s \"$M/bin/geoip.dat\" ] && [ -s \"$M/bin/geosite.dat\" ] \\\n"
-                        + "   && [ -x \"$M/service.sh\" ] && [ -x \"$M/proxy_control.sh\" ] && [ -s \"$M/app.apk\" ]; then\n"
+                        + "   && [ -x \"$M/service.sh\" ] && [ -s \"$M/app.apk\" ]; then\n"
                         + "  :\n"
                         + "else echo MISSING; fi\n"
-                        + "[ -p /dev/sysctl_stubs/run/control.pipe ] && echo SVC=1 || echo SVC=0\n"
+                        + "{ [ -p " + STUB_DIR + "/run/control.pipe ] || [ -p " + LEGACY_STUB_DIR + "/run/control.pipe ]; } && echo SVC=1 || echo SVC=0\n"
                         + hashCheckScript(ctx, expected),
                 120_000);   // hashing the installed apk / geo files can take a while on slow storage
         if (!probe.ok()) {
@@ -239,7 +245,6 @@ final class ModuleInstaller {
                         + "put bin/geoip.dat 0644 || fail bin/geoip.dat\n"
                         + "put bin/geosite.dat 0644 || fail bin/geosite.dat\n"
                         + "put service.sh 0755 || fail service.sh\n"
-                        + "put proxy_control.sh 0755 || fail proxy_control.sh\n"
                         + "put uninstall.sh 0755 || fail uninstall.sh\n"
                         + "put action.sh 0755 || fail action.sh\n"
                         // The app's own APK, used by action.sh to (re)install the app.
@@ -248,6 +253,8 @@ final class ModuleInstaller {
                         + "put module.prop 0644 || fail module.prop\n"
                         // Old zip installs shipped a webroot; the UI is the app now.
                         + "rm -rf \"$MOD/webroot\" \"$MOD/remove\"\n"
+                        // proxy_control.sh is gone: `xhuskydg_helper proxy_control` replaced it
+                        + "rm -f \"$MOD/proxy_control.sh\"\n"
                         + "chown 0:0 \"$MOD\" \"$MOD/bin\"; chmod 0755 \"$MOD\" \"$MOD/bin\"\n"
                         + "chcon u:object_r:system_file:s0 \"$MOD\" \"$MOD/bin\" 2>/dev/null\n"
                         + "for f in profiles.base64 settings.base64 active_config.txt config.json ip_hunt.list; do\n"
@@ -274,7 +281,7 @@ final class ModuleInstaller {
     private static void startService() {
         RootShell.run(
                 "M=" + RootShell.sq(MODDIR) + "\n"
-                        + "[ -p /dev/sysctl_stubs/run/control.pipe ] && exit 0\n"
+                        + "[ -p " + STUB_DIR + "/run/control.pipe ] && exit 0\n"
                         + "[ -x \"$M/service.sh\" ] || exit 1\n"
                         + "( sh \"$M/service.sh\" </dev/null >/dev/null 2>&1 & )\n"
                         + "sleep 2\n"
@@ -291,10 +298,12 @@ final class ModuleInstaller {
         RootShell.Result r = RootShell.run(
                 "M=" + RootShell.sq(MODDIR) + "\n"
                         + "\"$M/bin/xhuskydg_helper\" service --stop >/dev/null 2>&1\n"
-                        + "[ -p /dev/sysctl_stubs/run/control.pipe ] && { echo STILL_UP; exit 0; }\n"
+                        // --stop handles both the current and the legacy runtime dir; check both
+                        + "[ -p " + STUB_DIR + "/run/control.pipe ] && { echo STILL_UP; exit 0; }\n"
+                        + "[ -p " + LEGACY_STUB_DIR + "/run/control.pipe ] && { echo STILL_UP; exit 0; }\n"
                         + "( sh \"$M/service.sh\" </dev/null >/dev/null 2>&1 & )\n"
                         + "sleep 2\n"
-                        + "[ -p /dev/sysctl_stubs/run/control.pipe ] && echo STARTED || echo NOT_STARTED\n"
+                        + "[ -p " + STUB_DIR + "/run/control.pipe ] && echo STARTED || echo NOT_STARTED\n"
                         + "exit 0\n",
                 60_000);
         return r.ok() && r.out.contains("STARTED") && !r.out.contains("NOT_STARTED");

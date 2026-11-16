@@ -452,11 +452,11 @@ function _forceRestart(options, onDone) {
         if (onDone) onDone(true);
     };
     if (!options.onlyIfRunning) {
-        execShell(`sh ${MODDIR}/proxy_control.sh restart`, done);
+        execShell(`${MODDIR}/bin/xhuskydg_helper proxy_control restart`, done);
         return;
     }
-    execShell(`sh ${MODDIR}/proxy_control.sh status`, (status) => {
-        if (status === 'running') execShell(`sh ${MODDIR}/proxy_control.sh restart`, done);
+    execShell(`${MODDIR}/bin/xhuskydg_helper proxy_control status`, (status) => {
+        if (status === 'running') execShell(`${MODDIR}/bin/xhuskydg_helper proxy_control restart`, done);
         else done();
     });
 }
@@ -509,12 +509,12 @@ function applyActiveConfig(options = {}) {
             _forceRestart(options, onDone);
             return;
         }
-        execShell(`sh ${MODDIR}/proxy_control.sh status`, (status) => {
+        execShell(`${MODDIR}/bin/xhuskydg_helper proxy_control status`, (status) => {
             if (status === 'running') {
                 // Node/config changed but nothing that apply_routing_rules
                 // reads did — swap the xray process only, leave the
                 // iptables/policy routing rules exactly as they are.
-                execShell(`sh ${MODDIR}/proxy_control.sh reload`, () => {
+                execShell(`${MODDIR}/bin/xhuskydg_helper proxy_control reload`, () => {
                     hideLoading();
                     _markStatusPending();
                 });
@@ -695,9 +695,9 @@ function writeProConfigAndReload(text, options = {}) {
             _forceRestart(options, onDone);
             return;
         }
-        execShell(`sh ${MODDIR}/proxy_control.sh status`, (status) => {
+        execShell(`${MODDIR}/bin/xhuskydg_helper proxy_control status`, (status) => {
             if (status === 'running') {
-                execShell(`sh ${MODDIR}/proxy_control.sh reload`, () => {
+                execShell(`${MODDIR}/bin/xhuskydg_helper proxy_control reload`, () => {
                     hideLoading();
                     _markStatusPending();
                 });
@@ -924,7 +924,7 @@ function _setStatusBadge(text, nodeName, isExternal = false) {
 }
 
 function updateStatusDisplay() {
-    execShell(`sh ${MODDIR}/proxy_control.sh status`, (status, stderr, errno) => {
+    execShell(`${MODDIR}/bin/xhuskydg_helper proxy_control status`, (status, stderr, errno) => {
         const badge = document.getElementById('service-status');
         const s = status || 'stopped';
         // "RUNNING - <name>" while an external session (magicv2ray://connect) is on
@@ -1048,7 +1048,7 @@ function _markStatusPending() {
     setTimeout(updateStatusDisplay, 1200);
 }
 
-// Only these verbs may be forwarded to proxy_control.sh. `action` reaches us
+// Only these verbs may be forwarded to `xhuskydg_helper proxy_control`. `action` reaches us
 // from inline handlers, so it is validated against a fixed list rather than
 // interpolated straight into the command.
 const PROXY_CONTROL_ACTIONS = [
@@ -1078,7 +1078,7 @@ async function toggleService(action) {
         // Re-apply the mark rule for the live interface first, and only start
         // once that has actually completed — this used to be fire-and-forget,
         // racing the engine start against the routing rule it depends on.
-        execShell(`sh ${MODDIR}/proxy_control.sh reapply`, () => {
+        execShell(`${MODDIR}/bin/xhuskydg_helper proxy_control reapply`, () => {
             applyActiveConfig({
                 force: true,
                 onDone: (ok) => { if (ok) _markStatusPending(); }
@@ -1091,7 +1091,7 @@ async function toggleService(action) {
         console.error('[toggleService] refusing unknown action:', action);
         return;
     }
-    execShell(`sh ${MODDIR}/proxy_control.sh ${action}`, () => {
+    execShell(`${MODDIR}/bin/xhuskydg_helper proxy_control ${action}`, () => {
         _markStatusPending();
     });
 }
@@ -1167,7 +1167,7 @@ async function fetchSubscription(category, url, isReload = false) {
     _subFetching.add(category);
     renderProfiles();
 
-    const status = await execShellAsync(`sh ${MODDIR}/proxy_control.sh status`);
+    const status = await execShellAsync(`${MODDIR}/bin/xhuskydg_helper proxy_control status`);
     const viaProxy = (status === 'running') ? `--socks5-hostname ${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT}` : "";
 
     // Certificate validation is ON by default. It used to be disabled
@@ -3760,7 +3760,7 @@ window.addEventListener('pagehide', () => {
     // which is exactly why the backend also self-terminates on heartbeat
     // timeout rather than relying on this.
     if (_isLatencyTabActive()) {
-        execShell(`sh ${MODDIR}/proxy_control.sh stop_monitor_latency`, () => {});
+        execShell(`${MODDIR}/bin/xhuskydg_helper proxy_control stop_monitor_latency`, () => {});
     }
 });
  
@@ -5056,7 +5056,7 @@ async function fetchRoutingPresetFromUrl() {
         return showToast(t('toast_invalid_sub'), 'error');
     }
 
-    const status = await execShellAsync(`sh ${MODDIR}/proxy_control.sh status`);
+    const status = await execShellAsync(`${MODDIR}/bin/xhuskydg_helper proxy_control status`);
     const viaProxy = (status === 'running') ? `--socks5-hostname ${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT}` : "";
 
     // Certificate validation is ON by default, matching fetchSubscription().
@@ -5876,7 +5876,7 @@ function _isLatencyTabActive() {
 // state, so a leftover probe from a previous visit can never be mistaken for
 // a live one.
 function startLatencyMonitor() {
-    execShell(`sh ${MODDIR}/proxy_control.sh start_monitor_latency`, () => {
+    execShell(`${MODDIR}/bin/xhuskydg_helper proxy_control start_monitor_latency`, () => {
         // The user may have left the tab (or backgrounded the WebUI) while
         // the exec was in flight. Don't poll then; with no heartbeat the
         // backend loop ends by itself after LATENCY_HB_TIMEOUT.
@@ -5893,7 +5893,7 @@ function stopLatencyMonitor() {
     const dot = document.getElementById('latency-status-dot');
     dot && dot.classList.remove('live');
     renderNetworkInterfaceInfo('');
-    execShell(`sh ${MODDIR}/proxy_control.sh stop_monitor_latency`, () => {});
+    execShell(`${MODDIR}/bin/xhuskydg_helper proxy_control stop_monitor_latency`, () => {});
 }
 
 // Used when the WebUI comes back to the foreground while the Latency tab is
@@ -6616,7 +6616,7 @@ async function refreshProviderInfo(category) {
     _providerInfoBusy.add(category);
     try {
         const site = cat.website;
-        const status = await execShellAsync(`sh ${MODDIR}/proxy_control.sh status`);
+        const status = await execShellAsync(`${MODDIR}/bin/xhuskydg_helper proxy_control status`);
         const viaProxy = (status === 'running') ? `--socks5-hostname ${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT}` : '';
         const curl = `${MODDIR}/bin/curl ${viaProxy} -sSL -f --max-redirs 3 --proto '=https' ` +
                      `--proto-redir '=https' --max-time 15 -A ${shQuote(_PROVIDER_UA)}`;
@@ -6671,7 +6671,7 @@ async function checkProviderConnect() {
     try { job = JSON.parse(String(k.takeProviderConnect() || '')); } catch (e) { return; }
     if (!job || !profiles[job.category]) return;
     if (!await selectNode(job.category, job.id)) return;
-    const status = await execShellAsync(`sh ${MODDIR}/proxy_control.sh status`);
+    const status = await execShellAsync(`${MODDIR}/bin/xhuskydg_helper proxy_control status`);
     if (status !== 'running') toggleService('start');
 }
 window.checkProviderConnect = checkProviderConnect;

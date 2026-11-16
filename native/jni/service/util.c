@@ -1,4 +1,5 @@
 #include "common.h"
+#include <ftw.h>
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -129,4 +130,16 @@ bool u_ov_active(void)
 {
     struct stat st;
     return stat(OVERRIDE_DIR "/" CONFIG_NAME, &st) == 0 && st.st_size > 0;
+}
+
+/* rm -rf of a directory tree. Never follows symlinks and never leaves `path`'s filesystem. */
+static int rm_cb(const char *p, const struct stat *st, int flag, struct FTW *w)
+{
+    (void)st; (void)w;
+    return (flag == FTW_DP || flag == FTW_D) ? rmdir(p) : unlink(p);
+}
+
+void u_rm_rf(const char *path)
+{
+    nftw(path, rm_cb, 16, FTW_DEPTH | FTW_PHYS | FTW_MOUNT);
 }

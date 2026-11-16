@@ -61,30 +61,25 @@ void notify_app_state(void)
     else g_notify_busy = 0;
 }
 
-static void *reaper(void *arg)
+/* Called by proc_track's reaper thread once xray has been waitpid()ed (no zombie is left behind). */
+static void xray_exited(pid_t pid, int st)
 {
-    pid_t pid = (pid_t)(intptr_t)arg; int st;
-    while (waitpid(pid, &st, 0) < 0 && errno == EINTR) {}
-    log_msg("xray pid %d exited (%s %d)", (int)pid, WIFSIGNALED(st) ? "signal" : "status",
-            WIFSIGNALED(st) ? WTERMSIG(st) : WEXITSTATUS(st));
+    if (st < 0) log_msg("xray pid %d exited (status unknown)", (int)pid);
+    else log_msg("xray pid %d exited (%s %d)", (int)pid, WIFSIGNALED(st) ? "signal" : "status",
+                 WIFSIGNALED(st) ? WTERMSIG(st) : WEXITSTATUS(st));
     notify_app_state();                            /* covers a crash; our own kills are merged / ignored by the app */
-    return NULL;
 }
 
 /* SIGKILL is asynchronous: kill() returns before the process is gone, and a non-persistent
  * tun device is only released when the LAST holder of its fd exits. Starting the next xray
  * right after the kill therefore raced the old one and failed with
  * "TUNSETIFF xraytun0 failed: Device or resource busy". Block until the pid is really gone
- * (zombies still answer kill(pid,0), the reaper thread clears them within milliseconds). */
+ * (for our own child that means: its reaper thread has waitpid()ed it). */
 static void kill_and_wait(pid_t pid)
 {
     if (pid <= 1) return;
     kill(pid, SIGKILL);
-    for (int i = 0; i < 300; i++) {                  /* up to 3 s */
-        if (kill(pid, 0) < 0 && errno == ESRCH) return;
-        u_msleep(10);
-    }
-    log_msg("xray pid %d still alive 3s after SIGKILL", (int)pid);
+    if (!proc_wait_gone(pid, 3000)) log_msg("xray pid %d still alive 3s after SIGKILL", (int)pid);
 }
 
 /* Opens /dev/net/tun and attaches it to TUN_NAME. EBUSY (old holder not released yet) is
@@ -135,19 +130,44 @@ static pid_t spawn_xray(void)
         _exit(127);
     }
     close(tun); free(env); if (nul >= 0) close(nul);   /* only xray keeps the tun alive */
-    if (pid > 0) {
-        pthread_t th;
-        if (pthread_create(&th, NULL, reaper, (void *)(intptr_t)pid) == 0) pthread_detach(th);
+    if (pid > 0 && proc_track_pid(pid, "xray", xray_exited) != 0) {
+        /* without a tracked pid + reaper we could neither tell its state nor clear its zombie */
+        log_msg("cannot track xray pid %d (no reaper thread): killing it", (int)pid);
+        int st; kill(pid, SIGKILL); waitpid(pid, &st, 0);
+        return -1;
     }
     return pid;
 }
 
+/* Deliberate stop of our own xray. It is untracked FIRST, so that its exit is never reported as a crash
+ * (status would flicker "crashed" between the kill and the untrack). A child that already died is not
+ * signalled: its pid is free and may belong to somebody else by now. */
+static void kill_tracked_xray(void)
+{
+    bool alive = proc_running("xray");
+    pid_t p = g_xray;
+    proc_untrack("xray");
+    if (alive) kill_and_wait(p);
+}
+
+/* A pid left in the pidfile by a previous service. Pids get reused, so it is only killed when it still is
+ * this module's xray binary. (Our own child never goes through here: it is tracked.) */
 static void kill_stale_pidfile(void)
 {
     char b[32];
     if (u_read(PIDFILE, b, sizeof b) > 0) {
         pid_t p = atoi(b);
-        if (p > 1 && p != g_xray) { log_msg("killing untracked xray pid %d from pidfile", (int)p); kill_and_wait(p); }
+        if (p > 1 && p != g_xray) {
+            char link[64], want[300], got[300];
+            snprintf(link, sizeof link, "/proc/%d/exe", (int)p);
+            bin(want, sizeof want, "xray");
+            ssize_t n = readlink(link, got, sizeof got - 1);
+            if (n > 0) {
+                got[n] = 0;
+                if (!strcmp(got, want)) { log_msg("killing untracked xray pid %d from pidfile", (int)p); kill_and_wait(p); }
+                else log_msg("pidfile pid %d is %s, not xray: left alone", (int)p, got);
+            }
+        }
     }
 }
 
@@ -176,7 +196,6 @@ int start_xray(void)
     if (g_xray <= 0) { g_xray = 0; return -1; }
     u_writef(PIDFILE, "%d\n", (int)g_xray);
     log_msg("xray (tun=%s) started with pid %d", TUN_NAME, (int)g_xray);
-    proc_track_pid(g_xray, "xray");
     apply_routing_rules();
     /* upstream setting is saved with settings that force a full restart and
      * the monitor only reacts to route events: re-pin the fwmark rule here */
@@ -191,11 +210,10 @@ int stop_xray(void)
 {
     apps_monitor_stop();
     clear_routing_rules();
-    if (g_xray > 0) kill_and_wait(g_xray);
+    kill_tracked_xray();
     kill_stale_pidfile();
     unlink(PIDFILE);
     g_xray = 0;
-    proc_untrack("xray");
     enabled_set(false);
     log_msg("xray stopped");
     notify_app_state();
@@ -211,16 +229,14 @@ int restart_xray(void)
     if (!config_ok()) { log_msg("refusing to reload: %s missing or empty", CONFIG_NAME); return -1; }
     root_direct_window(true);                   /* uid 0 (dnsjson) keeps the real network while the tun is down */
     install_tun_blackhole();                    /* fail closed for everyone else while the tun is gone */
-    if (g_xray > 0) kill_and_wait(g_xray);
+    kill_tracked_xray();
     kill_stale_pidfile();
-    proc_untrack("xray");
     xray_helper_logservice("read", "-o", XRAY_LOG_FILE);
     xray_helper_logservice("flush", NULL, NULL);
     g_xray = spawn_xray();
     if (g_xray <= 0) { g_xray = 0; root_direct_window(false); return -1; }
     u_writef(PIDFILE, "%d\n", (int)g_xray);
     log_msg("xray reloaded with pid %d (tun=%s re-created, firewall/ip-rule left untouched)", (int)g_xray, TUN_NAME);
-    proc_track_pid(g_xray, "xray");
     int rc = configure_tun_iface();
     root_direct_window(false);                  /* tun is back: uid 0 returns to normal routing */
     if (rc < 0) return -1;

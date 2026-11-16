@@ -18,7 +18,8 @@
 
 MODDIR=${0%/*}
 DATADIR="/data/adb/magic_v2ray"
-STUB_DIR="/dev/sysctl_stubs"
+STUB_DIR="/mnt/runtime/magicv2ray"          # runtime state: a plain directory, no mount
+LEGACY_STUB_DIR="/dev/sysctl_stubs"        # older builds kept it on a private tmpfs there
 TUN_NAME="xraytun0"
 TUN_ADDR="127.17.1.3"
 TUN_PORT="808"
@@ -132,11 +133,13 @@ else
 fi
 
 # --- 6. Runtime state ------------------------------------------------------
-umount -l "$STUB_DIR/proc/xray" 2>/dev/null
-umount -l "$STUB_DIR/proc/monitor_net_interfaces" 2>/dev/null
-umount -l "$STUB_DIR/proc/monitor_network_latency" 2>/dev/null
-umount -l "$STUB_DIR" 2>/dev/null
 rm -rf "$STUB_DIR" 2>/dev/null
+# leftovers of an older build (it bind-mounted /proc/<pid> entries under proc/ and mounted a tmpfs on the dir)
+umount -l "$LEGACY_STUB_DIR/proc/xray" 2>/dev/null
+umount -l "$LEGACY_STUB_DIR/proc/monitor_net_interfaces" 2>/dev/null
+umount -l "$LEGACY_STUB_DIR/proc/monitor_network_latency" 2>/dev/null
+umount -l "$LEGACY_STUB_DIR" 2>/dev/null
+rm -rf "$LEGACY_STUB_DIR" 2>/dev/null
 
 # --- 7. User data ----------------------------------------------------------
 # profiles / settings / config.json hold every server address, UUID, password

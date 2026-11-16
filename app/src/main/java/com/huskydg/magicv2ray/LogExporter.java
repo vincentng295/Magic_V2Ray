@@ -85,7 +85,7 @@ final class LogExporter {
     static File build(Context c, String webFiles) throws IOException {
         final boolean nonRoot = RunMode.isNonRoot(c);
         final String datadir = nonRoot ? NonRootEnv.datadir(c).getPath() : ModuleInstaller.DATADIR;
-        final String stubdir = nonRoot ? NonRootEnv.stubdir(c).getPath() : "/dev/sysctl_stubs";
+        final String stubdir = nonRoot ? NonRootEnv.stubdir(c).getPath() : ModuleInstaller.STUB_DIR;
         final String moddir = nonRoot ? NonRootEnv.moddir(c).getPath() : ModuleInstaller.MODDIR;
 
         LinkedHashMap<String, String> entries = new LinkedHashMap<>();
