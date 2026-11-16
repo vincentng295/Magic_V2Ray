@@ -127,7 +127,7 @@ public class ExternalPromptActivity extends Activity {
             approve(false);
             return;
         }
-        buildDialog(nativeCaller, caller, host, uri, excludes, warnings, !warnings.isEmpty() || !onlyCaller, ovSummary);
+        buildDialog(nativeCaller, caller, host, uri, excludes, warnings, false, ovSummary);
     }
 
     // ------------------------------------------------------------------ result
