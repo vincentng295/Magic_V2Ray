@@ -893,57 +893,91 @@
             </section>
         </div>
 
-        <!-- ===== Traffic Monitor Tab ===== -->
+        <!-- ===== Traffic Monitor Tab: two sub-tabs (Tunnel per second / Devices) ===== -->
         <div id="tab-traffic" class="tab-content">
             <section class="latency-panel traffic-panel">
-                <div class="latency-toolbar">
-                    <div class="latency-toolbar-left">
-                        <span class="latency-status-dot" id="traffic-status-dot"></span>
-                        <span class="traffic-iface" id="traffic-iface">&mdash;</span>
-                    </div>
-                    <div class="traffic-actions" id="traffic-root-actions">
-                        <button type="button" class="traffic-btn" onclick="resetTrafficCounters()" data-i18n="traffic_reset">Reset counters</button>
-                        <button type="button" class="traffic-btn" id="btn-traffic-toggle" onclick="toggleTrafficCounting()">Stop counting</button>
-                    </div>
+                <div class="traffic-subtabs" role="tablist">
+                    <button type="button" role="tab" class="traffic-subtab active" id="traffic-subtab-tun" aria-selected="true" aria-controls="traffic-pane-tun" onclick="switchTrafficSub('tun')" data-i18n="traffic_sub_tun">Tunnel</button>
+                    <button type="button" role="tab" class="traffic-subtab" id="traffic-subtab-ip" aria-selected="false" aria-controls="traffic-pane-ip" onclick="switchTrafficSub('ip')" data-i18n="traffic_ip_stat_devices">Devices</button>
                 </div>
 
-                <div class="ip-hunter-hint" id="traffic-note"></div>
+                <!-- sub-tab 1: everything crossing xraytun0, once per second -->
+                <div class="traffic-pane active" id="traffic-pane-tun" role="tabpanel">
+                    <div class="latency-toolbar">
+                        <div class="latency-toolbar-left">
+                            <span class="latency-status-dot" id="traffic-status-dot"></span>
+                            <span class="traffic-iface" id="traffic-iface">&mdash;</span>
+                        </div>
+                    </div>
 
-                <div class="latency-stats-row">
-                    <div class="latency-stat">
-                        <span class="latency-stat-label" data-i18n="traffic_stat_up_rate">Upload speed</span>
-                        <span class="latency-stat-value" id="traffic-up-rate">&mdash;</span>
+                    <div class="ip-hunter-hint" id="traffic-note"></div>
+
+                    <div class="latency-stats-row">
+                        <div class="latency-stat">
+                            <span class="latency-stat-label" data-i18n="traffic_stat_up_rate">Upload speed</span>
+                            <span class="latency-stat-value" id="traffic-up-rate">&mdash;</span>
+                        </div>
+                        <div class="latency-stat">
+                            <span class="latency-stat-label" data-i18n="traffic_stat_down_rate">Download speed</span>
+                            <span class="latency-stat-value" id="traffic-down-rate">&mdash;</span>
+                        </div>
+                        <div class="latency-stat">
+                            <span class="latency-stat-label" data-i18n="traffic_stat_up_total">Sent into tunnel</span>
+                            <span class="latency-stat-value" id="traffic-up-total">&mdash;</span>
+                        </div>
+                        <div class="latency-stat">
+                            <span class="latency-stat-label" data-i18n="traffic_stat_down_total">Received from tunnel</span>
+                            <span class="latency-stat-value" id="traffic-down-total">&mdash;</span>
+                        </div>
                     </div>
-                    <div class="latency-stat">
-                        <span class="latency-stat-label" data-i18n="traffic_stat_down_rate">Download speed</span>
-                        <span class="latency-stat-value" id="traffic-down-rate">&mdash;</span>
+
+                    <div class="latency-chart-wrap">
+                        <svg id="traffic-chart-svg" viewBox="0 0 600 200" preserveAspectRatio="none"></svg>
                     </div>
-                    <div class="latency-stat">
-                        <span class="latency-stat-label" data-i18n="traffic_stat_up_total">Sent into tunnel</span>
-                        <span class="latency-stat-value" id="traffic-up-total">&mdash;</span>
+
+                    <div class="latency-legend">
+                        <span class="latency-legend-item"><i class="traffic-dot traffic-dot--up"></i><span data-i18n="traffic_legend_up">Into tunnel (upload)</span></span>
+                        <span class="latency-legend-item"><i class="traffic-dot traffic-dot--down"></i><span data-i18n="traffic_legend_down">From tunnel (download)</span></span>
+                        <span class="latency-legend-item" id="traffic-peak"></span>
                     </div>
-                    <div class="latency-stat">
-                        <span class="latency-stat-label" data-i18n="traffic_stat_down_total">Received from tunnel</span>
-                        <span class="latency-stat-value" id="traffic-down-total">&mdash;</span>
-                    </div>
+
+                    <div class="ip-hunter-hint" id="traffic-extra"></div>
                 </div>
 
-                <div class="latency-chart-wrap">
-                    <svg id="traffic-chart-svg" viewBox="0 0 600 200" preserveAspectRatio="none"></svg>
-                </div>
+                <!-- sub-tab 2: per device (IPs sharing a MAC merged), root only -->
+                <div class="traffic-pane" id="traffic-pane-ip" role="tabpanel">
+                    <div class="latency-toolbar">
+                        <div class="latency-toolbar-left">
+                            <span class="latency-status-dot" id="traffic-ip-dot"></span>
+                            <span class="ip-hunter-title" data-i18n="traffic_ip_title">Sent into the tunnel, by device</span>
+                        </div>
+                        <div class="traffic-actions" id="traffic-root-actions">
+                            <button type="button" class="traffic-btn" onclick="resetTrafficCounters()" data-i18n="traffic_reset">Reset counters</button>
+                            <button type="button" class="traffic-btn" id="btn-traffic-toggle" onclick="toggleTrafficCounting()">Stop counting</button>
+                        </div>
+                    </div>
 
-                <div class="latency-legend">
-                    <span class="latency-legend-item"><i class="traffic-dot traffic-dot--up"></i><span data-i18n="traffic_legend_up">Into tunnel (upload)</span></span>
-                    <span class="latency-legend-item"><i class="traffic-dot traffic-dot--down"></i><span data-i18n="traffic_legend_down">From tunnel (download)</span></span>
-                    <span class="latency-legend-item" id="traffic-peak"></span>
-                </div>
+                    <div class="ip-hunter-hint" id="traffic-ip-note"></div>
 
-                <div class="traffic-ip-section" id="traffic-ip-section">
-                    <div class="ip-hunter-title" data-i18n="traffic_by_ip">By source IP</div>
-                    <div class="traffic-ip-list" id="traffic-ip-list"></div>
-                </div>
+                    <div class="latency-stats-row">
+                        <div class="latency-stat">
+                            <span class="latency-stat-label" data-i18n="traffic_ip_stat_devices">Devices</span>
+                            <span class="latency-stat-value" id="traffic-ip-count">&mdash;</span>
+                        </div>
+                        <div class="latency-stat">
+                            <span class="latency-stat-label" data-i18n="traffic_stat_up_rate">Upload speed</span>
+                            <span class="latency-stat-value" id="traffic-ip-rate">&mdash;</span>
+                        </div>
+                        <div class="latency-stat">
+                            <span class="latency-stat-label" data-i18n="traffic_stat_up_total">Sent into tunnel</span>
+                            <span class="latency-stat-value" id="traffic-ip-total">&mdash;</span>
+                        </div>
+                    </div>
 
-                <div class="ip-hunter-hint" id="traffic-extra"></div>
+                    <div class="traffic-ip-section" id="traffic-ip-section">
+                        <div class="traffic-ip-list" id="traffic-ip-list"></div>
+                    </div>
+                </div>
             </section>
         </div>
     </div>

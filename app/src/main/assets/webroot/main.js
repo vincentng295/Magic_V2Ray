@@ -5877,33 +5877,70 @@ function copyLogToClipboard() {
 
 /* ===== Traffic monitor =====
  *
- * Counts what goes INTO the tunnel (the system writing packets to the tun device, i.e.
- * upload as seen from the clients) and what comes OUT of it (download).
+ * One tab with two sub-tabs and one poller (the timer reads only what the visible sub-tab needs):
  *
- *   root      the service (native/jni/service/traffic.c) keeps a private mangle chain
- *             (MV2R_TRAFFIC) hooked into POSTROUTING with `-o xraytun0`, one counter-only rule per
- *             source IP, and writes a snapshot to TMON_FILE on every `traffic_poll`. Source IPs come
- *             from the neighbour table (hotspot / LAN clients) and from xraytun0's own addresses;
- *             everything else lands in "this device / other". Tunnel totals come from
- *             /sys/class/net/xraytun0/statistics.
- *   non-root  iptables is out of reach, so the host (KsuBridge.trafficStats) reads the
- *             VPN interface counters through Android's TrafficStats API. There is no
- *             per-IP data without root.
+ *   "Tunnel" (tun)  Everything that crosses xraytun0, once per second: speed chart and totals.
+ *     root          /sys/class/net/xraytun0/statistics/{tx,rx}_bytes through a plain `cat`. No
+ *                   iptables involved, so a 1 s cadence stays cheap.
+ *     non-root      the host (KsuBridge.trafficStats) reads the VPN interface counters through
+ *                   Android's TrafficStats API. There is no per-IP data without root.
+ *   "Devices" (ip) Root only. The service (native/jni/service/traffic.c) keeps a private mangle
+ *                   chain (MV2R_TRAFFIC) hooked into POSTROUTING with `-o xraytun0`, one
+ *                   counter-only rule per source IP, and writes a snapshot to TMON_FILE on every
+ *                   `traffic_poll`. Source IPs come from the neighbour table (hotspot / LAN
+ *                   clients) and from xraytun0's own addresses; everything else lands in
+ *                   "this device / other". The kernel can only count per IP (the iptables mac
+ *                   match is not valid in POSTROUTING), so the WebUI folds the IPs that share a
+ *                   MAC address into one device. Counts are upload only: packets sent INTO the tunnel.
  *
- * Polling runs only while the tab is visible (see switchTab / _suspendBackgroundWork).
+ * Polling runs only while the Traffic tab is visible (see switchTab / _suspendBackgroundWork).
  * In root mode the rules stay in the kernel until "Stop counting" or uninstall.sh removes them.
  */
-const TMON_POLL_MS = 2000;
-const TMON_MAX_SAMPLES = 60;
+const TMON_POLL_MS = 1000;       // Tunnel sub-tab: xraytun0 totals, once per second
+const TMON_IP_POLL_MS = 2000;    // Devices sub-tab: iptables snapshot, heavier than a sysfs read
+const TMON_MAX_SAMPLES = 120;    // chart window: 2 minutes at 1 s
 const TMON_MAX_ROWS = 100;
+const TMON_IFACE = 'xraytun0';
 let _tmonTimer = null;
 let _tmonBusy = false;
-let _tmonCounting = true;       // root: false = rules removed, only the interface totals are read
-let _tmonPrev = null;           // { t, tx, rx, ips } of the previous sample (rates are deltas)
+let _tmonCounting = true;       // root: false = rules removed, the per-device list is empty
+let _tmonPrev = null;           // Tunnel: { t, haveTun, tx, rx } of the previous sample
+let _tmonIpPrev = null;         // Devices: { t, ips } of the previous snapshot
 let _tmonHist = [];             // [{ up, down }] in bytes/s, newest last
+// ip -> MAC, last seen. The neighbour table forgets idle clients, but the kernel counter of their
+// IP does not, so a device would fall apart into bare IPs once its entry expired.
+let _tmonMacMemo = {};
+
+// Which sub-tab is showing ('tun' | 'ip'); remembered while the user is on other tabs.
+let _tmonSub = 'tun';
+
+// The visible sub-tab, or null while the Traffic tab itself is not the active one.
+function _activeTrafficTab() {
+    return document.querySelector('.tab-content.active')?.id === 'tab-traffic' ? _tmonSub : null;
+}
 
 function _isTrafficTabActive() {
-    return document.getElementById('tab-traffic')?.classList.contains('active') === true;
+    return _activeTrafficTab() !== null;
+}
+
+function _tmonSyncSubtabs() {
+    for (const name of ['tun', 'ip']) {
+        const on = name === _tmonSub;
+        const btn = document.getElementById('traffic-subtab-' + name);
+        if (btn) {
+            btn.classList.toggle('active', on);
+            btn.setAttribute('aria-selected', on ? 'true' : 'false');
+        }
+        document.getElementById('traffic-pane-' + name)?.classList.toggle('active', on);
+    }
+}
+
+function switchTrafficSub(name) {
+    if ((name !== 'tun' && name !== 'ip') || name === _tmonSub) return;
+    _tmonSub = name;
+    _tmonSyncSubtabs();
+    // each sub-tab reads a different source, at a different cadence
+    if (_isTrafficTabActive()) startTrafficMonitor();
 }
 
 function fmtTrafficBytes(n) {
@@ -5952,22 +5989,24 @@ function _tmonParse(out) {
     return r;
 }
 
+// Called when the Traffic tab is opened and whenever its sub-tab changes.
 function startTrafficMonitor() {
-    _tmonPrev = null;
     _tmonHist = [];
-    const rootOnly = !MV_NONROOT;
+    _tmonSyncSubtabs();
     const acts = document.getElementById('traffic-root-actions');
-    const ipSec = document.getElementById('traffic-ip-section');
-    if (acts) acts.style.display = rootOnly ? '' : 'none';
-    if (ipSec) ipSec.style.display = rootOnly ? '' : 'none';
+    if (acts) acts.style.display = MV_NONROOT ? 'none' : '';
     renderTrafficChart();
     startTrafficPolling();
 }
 
 function startTrafficPolling() {
     stopTrafficPolling();
+    // A sample taken before a pause would turn the pause into one long, flat "second".
+    _tmonPrev = null;
+    _tmonIpPrev = null;
     pollTraffic();
-    _tmonTimer = setInterval(pollTraffic, TMON_POLL_MS);
+    const ms = _activeTrafficTab() === 'ip' ? TMON_IP_POLL_MS : TMON_POLL_MS;
+    _tmonTimer = setInterval(pollTraffic, ms);
 }
 
 function stopTrafficPolling() {
@@ -5975,23 +6014,33 @@ function stopTrafficPolling() {
         clearInterval(_tmonTimer);
         _tmonTimer = null;
     }
-    const dot = document.getElementById('traffic-status-dot');
-    dot && dot.classList.remove('live');
+    for (const id of ['traffic-status-dot', 'traffic-ip-dot']) {
+        const dot = document.getElementById(id);
+        dot && dot.classList.remove('live');
+    }
 }
 
 function pollTraffic() {
     if (_tmonBusy) return;
+    const tab = _activeTrafficTab();
+    if (!tab) return;
+    if (tab === 'ip') {
+        pollTrafficIps();
+        return;
+    }
     if (MV_NONROOT) {
         pollTrafficNonRoot();
         return;
     }
     _tmonBusy = true;
-    // `&&`: when the service is not running the verb fails and a stale file must not be shown
-    const verb = _tmonCounting ? 'traffic_poll' : 'traffic_readonly';
-    execShell(`${_tmonVerb(verb)} >/dev/null 2>&1 && cat '${TMON_FILE}'`, (out) => {
+    const base = `/sys/class/net/${TMON_IFACE}/statistics`;
+    // Missing interface: cat prints nothing, both counters come back NaN.
+    execShell(`cat ${base}/tx_bytes ${base}/rx_bytes 2>/dev/null`, (out) => {
         _tmonBusy = false;
-        if (!_isTrafficTabActive() || document.hidden) return;
-        _tmonApply(_tmonParse(out), { iface: 'xraytun0' });
+        if (_activeTrafficTab() !== 'tun' || document.hidden) return;
+        const [tx, rx] = String(out || '').split(/\s+/).map(v => parseInt(v, 10));
+        _tmonApplyTun({ tx: Number.isFinite(tx) ? tx : NaN, rx: Number.isFinite(rx) ? rx : NaN },
+            { iface: TMON_IFACE });
     });
 }
 
@@ -6002,34 +6051,45 @@ function pollTrafficNonRoot() {
         if (window.ksu && typeof ksu.trafficStats === 'function') j = JSON.parse(ksu.trafficStats());
     } catch (e) { j = null; }
     if (!j) {
-        _tmonApply({ tx: NaN, rx: NaN, ips: {}, self: new Set(), mac: {}, all: 0 }, { iface: '', unsupported: true });
+        _tmonApplyTun({ tx: NaN, rx: NaN }, { iface: '', unsupported: true });
         return;
     }
-    _tmonApply({ tx: j.tx, rx: j.rx, ips: {}, self: new Set(), mac: {}, all: 0 }, {
+    _tmonApplyTun({ tx: j.tx, rx: j.rx }, {
         iface: j.iface || '', src: j.src || '', uidTx: j.uidTx, uidRx: j.uidRx
     });
 }
 
-function _tmonApply(sample, meta) {
+// Per-device snapshot (root only): one `traffic_poll`, then the file it wrote.
+function pollTrafficIps() {
+    if (MV_NONROOT) {
+        _tmonApplyIps(null);
+        return;
+    }
+    _tmonBusy = true;
+    // `&&`: when the service is not running the verb fails and a stale file must not be shown
+    const verb = _tmonCounting ? 'traffic_poll' : 'traffic_readonly';
+    execShell(`${_tmonVerb(verb)} >/dev/null 2>&1 && cat '${TMON_FILE}'`, (out) => {
+        _tmonBusy = false;
+        if (_activeTrafficTab() !== 'ip' || document.hidden) return;
+        _tmonApplyIps(_tmonParse(out));
+    });
+}
+
+// ---- Tunnel sub-tab: totals of the tunnel interface, per second
+
+function _tmonApplyTun(sample, meta) {
     const now = Date.now();
     const haveTun = Number.isFinite(sample.tx) && Number.isFinite(sample.rx) && sample.tx >= 0 && sample.rx >= 0;
     const prev = _tmonPrev;
     const dt = prev ? (now - prev.t) / 1000 : 0;
 
     let up = NaN, down = NaN;
-    const ipRate = {};
     if (haveTun && prev && prev.haveTun && dt > 0) {
         // a counter that went backwards (interface recreated / counters reset) counts as 0
         up = Math.max(0, (sample.tx - prev.tx) / dt);
         down = Math.max(0, (sample.rx - prev.rx) / dt);
     }
-    if (prev && dt > 0) {
-        for (const ip of Object.keys(sample.ips)) {
-            const before = prev.ips[ip];
-            ipRate[ip] = before === undefined ? 0 : Math.max(0, (sample.ips[ip] - before) / dt);
-        }
-    }
-    _tmonPrev = { t: now, haveTun, tx: sample.tx, rx: sample.rx, ips: sample.ips, all: sample.all };
+    _tmonPrev = { t: now, haveTun, tx: sample.tx, rx: sample.rx };
 
     if (Number.isFinite(up)) {
         _tmonHist.push({ up, down });
@@ -6038,7 +6098,7 @@ function _tmonApply(sample, meta) {
 
     const $ = (id) => document.getElementById(id);
     const set = (id, v) => { const e = $(id); if (e) e.textContent = v; };
-    const ifaceName = meta.iface || (MV_NONROOT ? '—' : 'xraytun0');
+    const ifaceName = meta.iface || (MV_NONROOT ? '—' : TMON_IFACE);
     set('traffic-iface', ifaceName);
     const dot = $('traffic-status-dot');
     dot && dot.classList.toggle('live', haveTun);
@@ -6054,17 +6114,10 @@ function _tmonApply(sample, meta) {
         else note = t('traffic_note_nonroot', { src: meta.src || 'TrafficStats' });
     } else if (!haveTun) {
         note = t('traffic_iface_missing', { iface: ifaceName });
-    } else if (!_tmonCounting) {
-        note = t('traffic_note_stopped');
-    } else if (sample.err) {
-        note = t('traffic_no_iptables');
     } else {
-        note = t('traffic_note_root', { iface: ifaceName });
+        note = t('traffic_note_tun', { iface: ifaceName });
     }
     set('traffic-note', note);
-
-    const tog = $('btn-traffic-toggle');
-    if (tog) tog.textContent = t(_tmonCounting ? 'traffic_stop' : 'traffic_start');
 
     const extra = $('traffic-extra');
     if (extra) {
@@ -6074,7 +6127,6 @@ function _tmonApply(sample, meta) {
     }
 
     renderTrafficChart();
-    if (!MV_NONROOT) renderTrafficIpList(sample, ipRate);
 }
 
 function renderTrafficChart() {
@@ -6107,25 +6159,106 @@ function renderTrafficChart() {
     if (peakEl) peakEl.textContent = t('traffic_peak', { v: fmtTrafficRate(max) });
 }
 
-function renderTrafficIpList(sample, ipRate) {
+// ---- Devices sub-tab: per device (IPs that share a MAC are one device)
+
+// Folds the per-IP counters into devices. Key order: this device (xraytun0's own addresses) first,
+// then the MAC the IP was last seen with, then the bare IP. A device's rate is the sum of its
+// IPs' rates, each computed from that IP's own delta: an IP that only now got its MAC attached
+// would otherwise add its whole history to the device as one false spike.
+function _tmonGroups(sample, ipRate) {
+    const groups = new Map();
+    let known = 0;
+    for (const ip of Object.keys(sample.ips)) {
+        const bytes = sample.ips[ip];
+        known += bytes;
+        // Idle sources (gateways, clients that are connected but silent) would only be noise: show
+        // the ones that actually sent something into the tunnel.
+        if (!(bytes > 0)) continue;
+        let key, mac = '';
+        if (sample.self.has(ip)) {
+            key = 'self';
+        } else {
+            mac = String(_tmonMacMemo[ip] || '').toLowerCase();
+            key = mac ? 'mac:' + mac : 'ip:' + ip;
+        }
+        let g = groups.get(key);
+        if (!g) {
+            g = { self: key === 'self', mac, ips: [], bytes: 0, rate: 0 };
+            groups.set(key, g);
+        }
+        g.ips.push(ip);
+        g.bytes += bytes;
+        g.rate += ipRate[ip] || 0;
+    }
+    const rows = Array.from(groups.values());
+    const v4 = (ip) => ip.indexOf(':') < 0;
+    for (const g of rows) {
+        g.ips.sort((a, b) => (v4(b) - v4(a)) || (a < b ? -1 : (a > b ? 1 : 0)));
+    }
+    rows.sort((a, b) => b.bytes - a.bytes);
+    return { rows, known };
+}
+
+function _tmonApplyIps(sample) {
+    const $ = (id) => document.getElementById(id);
+    const set = (id, v) => { const e = $(id); if (e) e.textContent = v; };
+    const dot = $('traffic-ip-dot');
+
+    if (MV_NONROOT || !sample) {
+        dot && dot.classList.remove('live');
+        set('traffic-ip-note', t('traffic_ip_needs_root'));
+        set('traffic-ip-count', '—');
+        set('traffic-ip-total', '—');
+        set('traffic-ip-rate', '—');
+        const l = $('traffic-ip-list');
+        l && l.replaceChildren();
+        return;
+    }
+
+    const now = Date.now();
+    const prev = _tmonIpPrev;
+    const dt = prev ? (now - prev.t) / 1000 : 0;
+    const ipRate = {};
+    if (prev && dt > 0) {
+        for (const ip of Object.keys(sample.ips)) {
+            const before = prev.ips[ip];
+            ipRate[ip] = before === undefined ? 0 : Math.max(0, (sample.ips[ip] - before) / dt);
+        }
+    }
+    _tmonIpPrev = { t: now, ips: sample.ips };
+    for (const ip of Object.keys(sample.mac)) _tmonMacMemo[ip] = sample.mac[ip];
+
+    const haveTun = Number.isFinite(sample.tx) && sample.tx >= 0;
+    dot && dot.classList.toggle('live', haveTun);
+    let note;
+    if (!haveTun) note = t('traffic_iface_missing', { iface: TMON_IFACE });
+    else if (!_tmonCounting) note = t('traffic_ip_stopped');
+    else if (sample.err) note = t('traffic_no_iptables');
+    else note = t('traffic_ip_note', { iface: TMON_IFACE });
+    set('traffic-ip-note', note);
+
+    const tog = $('btn-traffic-toggle');
+    if (tog) tog.textContent = t(_tmonCounting ? 'traffic_stop' : 'traffic_start');
+
+    const { rows, known } = _tmonGroups(sample, ipRate);
+    const other = Math.max(0, sample.all - known);
+    const total = Math.max(sample.all, known);
+    let rate = 0;
+    for (const g of rows) rate += g.rate;
+    const live = _tmonCounting && haveTun;
+    set('traffic-ip-count', live ? String(rows.length) : '—');
+    set('traffic-ip-total', live ? fmtTrafficBytes(total) : '—');
+    set('traffic-ip-rate', live && prev && dt > 0 ? fmtTrafficRate(rate) : '—');
+    renderTrafficIpList(rows, other, Math.max(total, 1));
+}
+
+function renderTrafficIpList(rows, other, total) {
     const list = document.getElementById('traffic-ip-list');
     if (!list) return;
-    // Idle sources (gateways, clients that are connected but silent) would only be noise: show the
-    // ones that actually sent something into the tunnel.
-    const rows = Object.keys(sample.ips).map(ip => ({
-        ip, bytes: sample.ips[ip], rate: ipRate[ip] || 0,
-        self: sample.self.has(ip), mac: sample.mac[ip] || ''
-    })).filter(r => r.bytes > 0);
-    let known = 0;
-    for (const ip of Object.keys(sample.ips)) known += sample.ips[ip];
-    const other = Math.max(0, sample.all - known);
-    rows.sort((a, b) => b.bytes - a.bytes);
-    const shown = rows.slice(0, TMON_MAX_ROWS);
-    if (other > 0) shown.push({ ip: '', bytes: other, rate: 0, other: true });
-    const total = Math.max(sample.all, known, 1);
-
     list.replaceChildren();
     if (!_tmonCounting) return;
+    const shown = rows.slice(0, TMON_MAX_ROWS);
+    if (other > 0) shown.push({ other: true, bytes: other, rate: 0, ips: [] });
     if (!shown.length) {
         const d = document.createElement('div');
         d.className = 'traffic-empty';
@@ -6141,9 +6274,19 @@ function renderTrafficIpList(sample, ipRate) {
         const left = document.createElement('div');
         const addr = document.createElement('div');
         addr.className = 'traffic-ip-addr';
-        addr.textContent = r.other ? t('traffic_other') : r.ip;
+        if (r.other) addr.textContent = t('traffic_other');
+        else if (r.self) addr.textContent = t('traffic_this_device');
+        else addr.textContent = r.mac || r.ips[0];
         left.appendChild(addr);
-        const subTxt = r.other ? '' : [r.self ? t('traffic_self') : '', r.mac].filter(Boolean).join(' · ');
+
+        // Under a device: its addresses, IPv4 first. A bare IP is already the title.
+        let subTxt = '';
+        if (!r.other && (r.mac || r.self)) {
+            const MAX_IPS = 3;
+            const parts = r.ips.slice(0, MAX_IPS);
+            if (r.ips.length > MAX_IPS) parts.push(t('traffic_ip_more', { n: r.ips.length - MAX_IPS }));
+            subTxt = parts.join(' · ');
+        }
         if (subTxt) {
             const sub = document.createElement('div');
             sub.className = 'traffic-ip-sub';
@@ -6169,8 +6312,7 @@ function renderTrafficIpList(sample, ipRate) {
 function resetTrafficCounters() {
     if (MV_NONROOT) return;
     execShell(_tmonVerb('traffic_reset'), () => {
-        _tmonPrev = null;
-        _tmonHist = [];
+        _tmonIpPrev = null;
         showToast(t('toast_traffic_reset'), 'success');
         pollTraffic();
     });
@@ -6182,13 +6324,11 @@ function toggleTrafficCounting() {
         stopTrafficPolling();
         execShell(_tmonVerb('traffic_stop'), () => {
             _tmonCounting = false;
-            _tmonPrev = null;
             showToast(t('toast_traffic_stopped'), 'success');
             if (_isTrafficTabActive() && !document.hidden) startTrafficPolling();
         });
     } else {
         _tmonCounting = true;
-        _tmonPrev = null;
         showToast(t('toast_traffic_started'), 'success');
         startTrafficPolling();
     }

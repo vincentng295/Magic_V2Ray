@@ -3247,6 +3247,38 @@ html.has-bg .category-group:has(> .nodes-list[style*="display: none"]) > .catego
 .access-badge.warn { background: color-mix(in srgb, var(--md-warning) 18%, transparent); color: var(--md-warning); }
 
 /* ===== Traffic monitor tab ===== */
+/* Chrome-style sub-tabs: the active one is a raised card that merges into the panel below. */
+.traffic-subtabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--md-outline-variant);
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.traffic-subtabs::-webkit-scrollbar { display: none; }
+.traffic-subtab {
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 18px;
+    margin-bottom: -1px;
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: var(--md-shape-md) var(--md-shape-md) 0 0;
+    background: transparent;
+    color: var(--md-on-surface-variant);
+    cursor: pointer;
+    white-space: nowrap;
+}
+.traffic-subtab:active { opacity: .7; }
+.traffic-subtab.active {
+    background: var(--md-surface-2);
+    border-color: var(--md-outline-variant);
+    color: var(--md-on-surface);
+}
+/* a pane adds no box of its own: its children stay in the panel's own column layout */
+.traffic-pane { display: none; }
+.traffic-pane.active { display: contents; }
 .traffic-iface {
     font-family: var(--md-font-mono);
     font-size: 16px;
@@ -3322,6 +3354,7 @@ html.has-bg .category-group:has(> .nodes-list[style*="display: none"]) > .catego
 .traffic-ip-sub {
     font-size: 11px;
     color: var(--md-on-surface-variant);
+    word-break: break-all;
 }
 .traffic-ip-val {
     font-family: var(--md-font-mono);
