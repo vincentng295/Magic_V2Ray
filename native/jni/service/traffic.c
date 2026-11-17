@@ -75,6 +75,20 @@ static bool is_link_local6(const char *a)
     return x.s6_addr[0] == 0xfe && (x.s6_addr[1] & 0xc0) == 0x80;
 }
 
+/* Multicast (224.0.0.0/4, ff00::/8) and the limited broadcast can be a destination, never a client. The kernel keeps
+ * NOARP neighbour entries for them (01:00:5e:.. / 33:33:.. / ff:ff:..), so they show up on the neighbour table. */
+static bool is_group_addr(int fam, const char *a)
+{
+    if (fam == AF_INET6) {
+        struct in6_addr x;
+        return inet_pton(AF_INET6, a, &x) == 1 && x.s6_addr[0] == 0xff;
+    }
+    struct in_addr x;
+    if (inet_pton(AF_INET, a, &x) != 1) return false;
+    uint32_t h = ntohl(x.s_addr);
+    return (h >> 28) == 0xE || h == 0xFFFFFFFFu;
+}
+
 static long long read_stat_if(const char *ifn, const char *name)
 {
     char path[128], b[40];
@@ -108,6 +122,7 @@ static int collect_clients(int fam, const nl_neigh *nb, int nn, const char *upst
         const nl_neigh *e = &nb[i];
         if (!e->has_mac || (e->state & (NUD_INCOMPLETE_ | NUD_FAILED_))) continue;
         if (fam == AF_INET6 && is_link_local6(e->addr)) continue;
+        if (is_group_addr(fam, e->addr) || (e->mac[0] & 1)) continue;   /* multicast / broadcast: not a device */
         char b[IF_NAMESIZE];
         const char *ifn = mv_ifname(e->ifindex, b);
         if (!ifn || !*ifn || !strcmp(ifn, "lo") || !strcmp(ifn, TUN_NAME) || (upstream[0] && !strcmp(ifn, upstream))) continue;
@@ -420,6 +435,10 @@ static void family_pass(int fam, FILE *f, nl_neigh *nb, const char *upstream, ch
     (void)ipt_dedup_chain(t, TM_CHAIN);
     (void)ipt_dedup_chain(t, RX_CHAIN);
 
+    /* Older builds installed counter rules for multicast groups too (224.0.0.x, ff02::x): drop them. */
+    (void)ipt_purge_group(t, TM_CHAIN, false);
+    (void)ipt_purge_group(t, RX_CHAIN, true);
+
     int nrules = ipt_chain_stats(t, TM_CHAIN, NULL, 0);
     int nrx = ipt_chain_stats(t, RX_CHAIN, NULL, 0);
     if (nrules < 0) nrules = 0;
@@ -444,11 +463,11 @@ static void family_pass(int fam, FILE *f, nl_neigh *nb, const char *upstream, ch
     int cnt = st ? ipt_chain_stats(t, TM_CHAIN, st, TM_MAX_RULES + 8) : 0;
     if (cnt > TM_MAX_RULES + 8) cnt = TM_MAX_RULES + 8;
     for (int i = 0; i < cnt; i++)
-        if (!st[i].any) fprintf(f, "R %s %llu %llu\n", st[i].src, (unsigned long long)st[i].pkts, (unsigned long long)st[i].bytes);
+        if (!st[i].any && !is_group_addr(fam, st[i].src)) fprintf(f, "R %s %llu %llu\n", st[i].src, (unsigned long long)st[i].pkts, (unsigned long long)st[i].bytes);
     cnt = st ? ipt_chain_stats(t, RX_CHAIN, st, TM_MAX_RULES + 8) : 0;
     if (cnt > TM_MAX_RULES + 8) cnt = TM_MAX_RULES + 8;
     for (int i = 0; i < cnt; i++)
-        if (!st[i].any_dst) fprintf(f, "D %s %llu %llu\n", st[i].dst, (unsigned long long)st[i].pkts, (unsigned long long)st[i].bytes);
+        if (!st[i].any_dst && !is_group_addr(fam, st[i].dst)) fprintf(f, "D %s %llu %llu\n", st[i].dst, (unsigned long long)st[i].pkts, (unsigned long long)st[i].bytes);
     free(st);
     for (int i = 0; i < ncl; i++) {
         const nl_neigh *e = NULL;

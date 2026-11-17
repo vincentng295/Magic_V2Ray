@@ -191,7 +191,7 @@ struct xchain {
 };
 
 typedef struct { ipt_spec s; char in_if[24], out_if[24], src[64], dst[64], jump[32], dnat[48], mac[20]; } spec_store;
-enum { OP_NEW, OP_FLUSH, OP_DEL_CHAIN, OP_APPEND, OP_INSERT, OP_DELETE, OP_ZERO, OP_ZERO_SRC, OP_ZERO_DST, OP_DEL_MAC,
+enum { OP_NEW, OP_FLUSH, OP_DEL_CHAIN, OP_APPEND, OP_INSERT, OP_DELETE, OP_ZERO, OP_ZERO_SRC, OP_ZERO_DST, OP_DEL_MAC, OP_PURGE_SRC, OP_PURGE_DST,
        OP_DEDUP_CHAIN, OP_DEDUP_RULE };
 struct op { int kind; char chain[32]; int pos; spec_store sp; };
 
@@ -861,6 +861,27 @@ static int do_zero_addr(ipt_tx *t, const char *name, const char *src, bool dst)
     return n ? 0 : -ENOENT;
 }
 
+static bool addr_is_group(int family, const char *a)
+{
+    if (family == AF_INET6) { struct in6_addr x; return inet_pton(AF_INET6, a, &x) == 1 && x.s6_addr[0] == 0xff; }
+    struct in_addr x;
+    if (inet_pton(AF_INET, a, &x) != 1) return false;
+    uint32_t h = ntohl(x.s_addr);
+    return (h >> 28) == 0xE || h == 0xFFFFFFFFu;
+}
+static int do_purge_group(ipt_tx *t, const char *name, bool dst)
+{
+    xchain *c = find_chain(t, name);
+    if (!c) return -ENOENT;
+    int n = 0;
+    for (int i = 0; i < c->nr;) {
+        char have[64]; rule_addr(t->family, &c->r[i], dst, have, sizeof have);
+        if (have[0] && addr_is_group(t->family, have)) { drop_rule_at(c, i); n++; }
+        else i++;
+    }
+    return n ? 0 : -ENOENT;
+}
+
 /* Walks the matches of an entry; returns the data of the first match called `name` (NULL when absent). */
 static const uint8_t *rule_match(const fam_t *f, const xrule *r, const char *name)
 {
@@ -940,6 +961,8 @@ static int run_op(ipt_tx *t, const struct op *o)
     case OP_ZERO_SRC: return do_zero_addr(t, o->chain, o->sp.s.src, false);
     case OP_ZERO_DST: return do_zero_addr(t, o->chain, o->sp.s.dst, true);
     case OP_DEL_MAC: return do_del_mac(t, o->chain, o->sp.s.mac);
+    case OP_PURGE_SRC: return do_purge_group(t, o->chain, false);
+    case OP_PURGE_DST: return do_purge_group(t, o->chain, true);
     }
     return -EINVAL;
 }
@@ -979,6 +1002,8 @@ int ipt_zero_src(ipt_tx *t, const char *c, const char *src)
 { ipt_spec s = IPT_SPEC(.src = src); return apply(t, OP_ZERO_SRC, c, 0, &s); }
 int ipt_zero_dst(ipt_tx *t, const char *c, const char *dst)
 { ipt_spec s = IPT_SPEC(.dst = dst); return apply(t, OP_ZERO_DST, c, 0, &s); }
+int ipt_purge_group(ipt_tx *t, const char *c, bool dst)
+{ return apply(t, dst ? OP_PURGE_DST : OP_PURGE_SRC, c, 0, NULL); }
 int ipt_delete_mac(ipt_tx *t, const char *c, const char *mac)
 { ipt_spec s = IPT_SPEC(.mac = mac); return apply(t, OP_DEL_MAC, c, 0, &s); }
 

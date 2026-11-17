@@ -71,6 +71,9 @@ int ipt_dedup_rule(ipt_tx *t, const char *chain, const ipt_spec *s);
 int ipt_zero_src(ipt_tx *t, const char *chain, const char *src);
 /* Same for rules matching this destination address. */
 int ipt_zero_dst(ipt_tx *t, const char *chain, const char *dst);
+/* Removes every rule of the chain whose source (dst=false) or destination (dst=true) address is a multicast group
+ * (224.0.0.0/4, ff00::/8) or the limited broadcast. 0, or -ENOENT when there was none. */
+int ipt_purge_group(ipt_tx *t, const char *chain, bool dst);
 /* Removes every rule of the chain that matches this source MAC. 0, or -ENOENT when there was none. */
 int ipt_delete_mac(ipt_tx *t, const char *chain, const char *mac);
 /* One entry per distinct MAC found in the chain's rules (rules with a "mac" match). */

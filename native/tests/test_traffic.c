@@ -42,7 +42,11 @@ int nl_neigh_list(int family, nl_neigh *o, int max)
         snprintf(o[n].addr, 64, "192.168.43.99"); o[n].has_mac = true; o[n].state = 0x20; o[n].ifindex = 7; n++;   /* FAILED: skipped */
         snprintf(o[n].addr, 64, "192.168.43.1");  o[n].has_mac = false; o[n].state = 0x01; o[n].ifindex = 7; n++;  /* no mac: skipped */
         snprintf(o[n].addr, 64, "10.0.0.1"); o[n].has_mac = true; o[n].state = 0x02; o[n].ifindex = 9; memcpy(o[n].mac, "\x11\x22\x33\x44\x55\x66", 6); n++; /* upstream gateway: skipped */
+        snprintf(o[n].addr, 64, "224.0.0.251"); o[n].has_mac = true; memcpy(o[n].mac, "\x01\x00\x5e\x00\x00\xfb", 6); o[n].state = 0x40; o[n].ifindex = 7; n++;   /* mDNS group: skipped */
+        snprintf(o[n].addr, 64, "224.0.0.22");  o[n].has_mac = true; memcpy(o[n].mac, "\x01\x00\x5e\x00\x00\x16", 6); o[n].state = 0x40; o[n].ifindex = 7; n++;   /* IGMP: skipped */
     } else {
+        snprintf(o[n].addr, 64, "ff02::fb"); o[n].has_mac = true; memcpy(o[n].mac, "\x33\x33\x00\x00\x00\xfb", 6); o[n].state = 0x40; o[n].ifindex = 7; n++;      /* mDNS group: skipped */
+        snprintf(o[n].addr, 64, "ff02::1:ff00:5"); o[n].has_mac = true; memcpy(o[n].mac, "\x33\x33\xff\x00\x00\x05", 6); o[n].state = 0x40; o[n].ifindex = 7; n++;  /* solicited-node: skipped */
         snprintf(o[n].addr, 64, "fe80::1"); o[n].has_mac = true; o[n].state = 0x02; o[n].ifindex = 7; n++;                  /* link-local: skipped */
         snprintf(o[n].addr, 64, "fd00::5"); o[n].has_mac = true; memcpy(o[n].mac, "\xaa\xbb\xcc\xdd\xee\x03", 6); o[n].state = 0x04; o[n].ifindex = 7; n++;
     }
@@ -104,6 +108,7 @@ int main(void)
     assert(strstr(o, "R 192.168.43.10 0 0\n") && !strstr(o, "R *") && !strstr(o, "198.18"));
     assert(!strstr(o, "192.168.43.99") && !strstr(o, "192.168.43.1 ") && !strstr(o, "10.0.0.1"));
     assert(strstr(o, "R fd00::5 0 0\n") && !strstr(o, "fe80"));
+    assert(!strstr(o, "224.0.0.") && !strstr(o, "ff02::"));                         /* multicast groups are never devices */
     assert(strstr(o, "M 192.168.43.10 aa:bb:cc:dd:ee:01\n"));
     assert(strstr(o, "D 192.168.43.10 0 0\n") && strstr(o, "D fd00::5 0 0\n") && !strstr(o, "D *"));
     assert(strstr(o, "H ap0 67890 12345\n") && !strstr(o, "H wlan0"));              /* the door's own byte counters */
@@ -127,6 +132,27 @@ int main(void)
     assert(traffic_poll(true) == 0);
     assert(stores[0] == s4 && stores[1] == s6);
 
+    /* rules for multicast groups left by an older build are removed, the real client keeps its rule and counter */
+    {
+        ipt_tx *tt = ipt_tx_begin(AF_INET, "mangle"); assert(tt);
+        assert(ipt_append(tt, "MV2R_HS_UP", &IPT_SPEC(.in_if = "ap0", .src = "224.0.0.251", .target = MVT_COUNT)) == 0);
+        assert(ipt_append(tt, "MV2R_HS_DN", &IPT_SPEC(.out_if = "ap0", .dst = "224.0.0.251", .target = MVT_COUNT)) == 0);
+        assert(ipt_tx_commit(tt) == 0);
+        tt = ipt_tx_begin(AF_INET6, "mangle"); assert(tt);
+        assert(ipt_append(tt, "MV2R_HS_UP", &IPT_SPEC(.in_if = "ap0", .src = "ff02::fb", .target = MVT_COUNT)) == 0);
+        assert(ipt_tx_commit(tt) == 0);
+    }
+    assert(traffic_poll(true) == 0);
+    {
+        ipt_tx *tt = ipt_tx_begin(AF_INET, "mangle"); assert(tt);
+        assert(ipt_chain_stats(tt, "MV2R_HS_UP", NULL, 0) == 1 && ipt_chain_stats(tt, "MV2R_HS_DN", NULL, 0) == 1);
+        ipt_tx_abort(tt);
+        tt = ipt_tx_begin(AF_INET6, "mangle"); assert(tt);
+        assert(ipt_chain_stats(tt, "MV2R_HS_UP", NULL, 0) == 1);
+        ipt_tx_abort(tt);
+        assert(!strstr(slurp(TRAFFIC_FILE), "224.0.0.") && !strstr(slurp(TRAFFIC_FILE), "ff02::"));
+    }
+    s4 = stores[0]; s6 = stores[1];                 /* the clean-up above stored on purpose */
     /* read-only mode: totals only, table untouched */
     assert(traffic_poll(false) == 0);
     o = slurp(TRAFFIC_FILE); assert(!strstr(o, "R ") && strstr(o, "T 12345 67890"));
