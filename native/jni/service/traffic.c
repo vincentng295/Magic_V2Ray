@@ -1,35 +1,40 @@
 /* Traffic Monitor tab backend (replaces the iptables shell snippets the WebUI used to run).
  *
- * Counts what the system pushes INTO xraytun0 (upload as seen from the clients) per source IP:
+ * Counts what every hotspot / LAN client sends and receives, measured at the phone's own door - independent of
+ * xraytun0 and of whether the proxy runs at all:
  *
- *   mangle POSTROUTING:  -o xraytun0 -j MV2R_TRAFFIC          (inserted at position 1: nothing before it can
- *                                                              end the walk with a verdict)
- *   MV2R_TRAFFIC:        <catch-all, no target>                (everything that enters the chain)
- *                        -s <ip>   (no target)                (one counter-only rule per known source)
+ *   upload    mangle PREROUTING:   -j MV2R_HS_UP         (position 1; the first netfilter hook a client packet meets)
+ *             MV2R_HS_UP:          -i <ap-if> -s <ip>   (no target: counter only), one rule per known client
+ *   download  mangle POSTROUTING:  -j MV2R_HS_DN         (position 1; the last hook before the packet leaves)
+ *             MV2R_HS_DN:          -o <ap-if> -d <ip>   (no target), one rule per known client
  *
- * mangle POSTROUTING runs before nat POSTROUTING, so a forwarded hotspot packet still carries the client's own
- * address. Sources are found, on every poll, from the neighbour table (hotspot / LAN clients) and from the
- * addresses of xraytun0 itself; whatever else enters the chain is only visible in the catch-all rule, which the
- * UI shows as "this device / other".
+ * <ap-if> is the interface the client sits on (from the neighbour table), so only packets that really cross the
+ * hotspot interface are counted: the same address seen anywhere else is ignored. Interfaces that are the upstream
+ * or the tun, and `lo`, never hold clients. The download rule sits in POSTROUTING because reverse NAT
+ * (nat PREROUTING) runs after mangle PREROUTING: only there does the packet carry the client's own address again.
+ *
+ * On/off: the switch is a flag file (TRAFFIC_OFF_FILE, absent = counting). While off no rule of ours is in the
+ * table; `traffic_poll` then only reports the tun totals. It survives service restarts.
+ * Older builds hooked `-o xraytun0` (MV2R_TRAFFIC) and `-i xraytun0` (MV2R_TRAFFIC_RX); those hooks and chains are
+ * removed on every pass.
  *
  * One poll = one table load per family. New sources go in with a single commit; ipt_tx_commit hands the old
  * counters back to the surviving entries (IPT_SO_SET_ADD_COUNTERS), so adding a source never resets the others.
  *
  * Output: TRAFFIC_FILE, rewritten atomically (the control reply buffer is far too small for a per-IP list).
- *   T <tx> <rx>               xraytun0 byte counters, -1 when the interface is absent. tx = bytes sent INTO the
- *                             tunnel, rx = bytes that came back out of it
+ *   T <tx> <rx>               xraytun0 byte counters, -1 when the interface is absent (the Tunnel sub-tab)
+ *   O <0|1>                   per-device counting is on / off
  *   E <4|6>                   the table of that family could not be loaded / edited
- *   R <src|*> <pkts> <bytes>  one line per rule of the chain; "*" = the catch-all rule (v4 and v6 both give one)
- *   D <dst|*> <pkts> <bytes>  the same for the way back (download): chain MV2R_TRAFFIC_RX, `-i xraytun0` from
- *                             mangle FORWARD (clients, already de-NATed) and INPUT (this device), one `-d <ip>` rule per source
- *   S <ip>                    an address of xraytun0 ("this device")
+ *   R <src> <pkts> <bytes>    one line per client rule of the upload chain
+ *   D <dst> <pkts> <bytes>    the same for download
+ *   H <if> <rx> <tx>          byte counters of a hotspot interface itself (sysfs): the rules can never add up to more
  *   M <ip> <mac>              neighbour with a link-layer address
  *   B <mac>                   device that is blocked
- *   L <mac|*> <bytes>         traffic limit of a device ("*" = the limit for every device without its own)
+ *   L <mac|*> <bytes>         traffic limit of a device (\"*\" = the limit for every device without its own)
  *   Q <4|6> <mac> <bytes>     quota the kernel still has for that device (per family)
  *
  * Device control (block / limit), keyed by MAC address. A second chain, MV2R_TRAFFIC_CTL, hangs off mangle FORWARD
- * (the "mac" match is not valid in POSTROUTING), at position 1, for every outgoing interface:
+ * (the \"mac\" match is not valid in POSTROUTING), at position 1, for every outgoing interface:
  *   blocked:  -m mac --mac-source X -j DROP
  *   limited:  -m mac --mac-source X -m quota --quota N -j RETURN
  *             -m mac --mac-source X -j DROP                 (reached once the quota is used up)
@@ -43,14 +48,18 @@
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <errno.h>
+#include <net/if.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
-#define TM_CHAIN       "MV2R_TRAFFIC"
-#define RX_CHAIN       "MV2R_TRAFFIC_RX"
+#define TM_CHAIN       "MV2R_HS_UP"
+#define RX_CHAIN       "MV2R_HS_DN"
+#define OLD_TM_CHAIN   "MV2R_TRAFFIC"       /* pre-hotspot builds: `-o xraytun0` */
+#define OLD_RX_CHAIN   "MV2R_TRAFFIC_RX"    /* ... and `-i xraytun0` */
+#define TRAFFIC_OFF_FILE DATADIR "/traffic_off"
 #define CTL_CHAIN      "MV2R_TRAFFIC_CTL"
 #define CTL_STATE_FILE DATADIR "/traffic_ctl"
 #define CTL_MAX        64
@@ -66,35 +75,50 @@ static bool is_link_local6(const char *a)
     return x.s6_addr[0] == 0xfe && (x.s6_addr[1] & 0xc0) == 0x80;
 }
 
-static long long read_stat(const char *name)
+static long long read_stat_if(const char *ifn, const char *name)
 {
-    char path[96], b[40];
-    snprintf(path, sizeof path, "/sys/class/net/%s/statistics/%s", TUN_NAME, name);
+    char path[128], b[40];
+    snprintf(path, sizeof path, "/sys/class/net/%s/statistics/%s", ifn, name);
     if (u_read(path, b, sizeof b) <= 0) return -1;
     return atoll(b);
 }
+static long long read_stat(const char *name) { return read_stat_if(TUN_NAME, name); }
 
-/* ipt_spec for "-o xraytun0 -j MV2R_TRAFFIC" */
-#define HOOK_SPEC() IPT_SPEC(.out_if = TUN_NAME, .target = MVT_JUMP, .jump_chain = TM_CHAIN)
-/* ... and for the way back: "-i xraytun0 -j MV2R_TRAFFIC_RX" from FORWARD (hotspot clients) and INPUT (this device) */
-#define RX_HOOK()   IPT_SPEC(.in_if = TUN_NAME, .target = MVT_JUMP, .jump_chain = RX_CHAIN)
-static const char *const RX_HOOKS[] = { "FORWARD", "INPUT" };
+/* hooks: "-j MV2R_HS_UP" from PREROUTING, "-j MV2R_HS_DN" from POSTROUTING */
+#define UP_HOOK() IPT_SPEC(.target = MVT_JUMP, .jump_chain = TM_CHAIN)
+#define DN_HOOK() IPT_SPEC(.target = MVT_JUMP, .jump_chain = RX_CHAIN)
+/* what the old builds installed, for the clean-up */
+#define OLD_UP_HOOK() IPT_SPEC(.out_if = TUN_NAME, .target = MVT_JUMP, .jump_chain = OLD_TM_CHAIN)
+#define OLD_RX_HOOK() IPT_SPEC(.in_if = TUN_NAME, .target = MVT_JUMP, .jump_chain = OLD_RX_CHAIN)
 
-/* The addresses of xraytun0 that can be a packet's source (v4: the first one; v6: global / ULA). */
-static int tun_addrs(int fam, char out[][64], int max)
+/* Interface name of an index; weak so the host tests can fake it. */
+__attribute__((weak)) const char *mv_ifname(unsigned idx, char *buf)
+{
+    return idx && if_indextoname(idx, buf) ? buf : NULL;
+}
+
+typedef struct { char ip[64]; char ifn[IF_NAMESIZE]; } tm_client;
+
+/* The clients of this family: neighbour entries with a link-layer address, on an interface that can hold hotspot /
+ * LAN clients (not lo, not the tun, not the upstream). Returns how many went into `out`. */
+static int collect_clients(int fam, const nl_neigh *nb, int nn, const char *upstream, tm_client *out, int max)
 {
     int n = 0;
-    if (fam == AF_INET) {
-        char a[64];
-        if (max > 0 && nl_addr_first_v4(TUN_NAME, a, sizeof a)) { snprintf(out[n++], 64, "%s", a); }
-    } else {
-        char list[512];
-        nl_addr_list_v6(TUN_NAME, list, sizeof list);
-        for (char *save = NULL, *tok = strtok_r(list, " ", &save); tok && n < max; tok = strtok_r(NULL, " ", &save))
-            snprintf(out[n++], 64, "%s", tok);
+    for (int i = 0; i < nn && n < max; i++) {
+        const nl_neigh *e = &nb[i];
+        if (!e->has_mac || (e->state & (NUD_INCOMPLETE_ | NUD_FAILED_))) continue;
+        if (fam == AF_INET6 && is_link_local6(e->addr)) continue;
+        char b[IF_NAMESIZE];
+        const char *ifn = mv_ifname(e->ifindex, b);
+        if (!ifn || !*ifn || !strcmp(ifn, "lo") || !strcmp(ifn, TUN_NAME) || (upstream[0] && !strcmp(ifn, upstream))) continue;
+        snprintf(out[n].ip, sizeof out[n].ip, "%s", e->addr);
+        snprintf(out[n].ifn, sizeof out[n].ifn, "%s", ifn);
+        n++;
     }
     return n;
 }
+
+static bool traffic_enabled(void) { return access(TRAFFIC_OFF_FILE, F_OK) != 0; }
 
 /* ================================================================ device control === */
 
@@ -365,75 +389,74 @@ static void ctl_print_state(FILE *f)
     if (s.all) fprintf(f, "L * %llu\n", (unsigned long long)s.all);
 }
 
-/* One family: make the chain + hook exist, learn new sources, read the counters, print them. */
-static void family_pass(int fam, FILE *f, nl_neigh *nb)
+/* Remove what pre-hotspot builds left behind (tun-based hooks and chains). Part of the caller's transaction. */
+static void drop_legacy(ipt_tx *t)
+{
+    ipt_spec uh = OLD_UP_HOOK(), rh = OLD_RX_HOOK();
+    while (ipt_delete(t, "POSTROUTING", &uh) == 0) {}
+    while (ipt_delete(t, "FORWARD", &rh) == 0) {}
+    while (ipt_delete(t, "INPUT", &rh) == 0) {}
+    (void)ipt_flush_chain(t, OLD_TM_CHAIN); (void)ipt_delete_chain(t, OLD_TM_CHAIN);
+    (void)ipt_flush_chain(t, OLD_RX_CHAIN); (void)ipt_delete_chain(t, OLD_RX_CHAIN);
+}
+
+/* One family: make the chains + hooks exist, learn new clients, read the counters, print them. */
+static void family_pass(int fam, FILE *f, nl_neigh *nb, const char *upstream, char ifs[][IF_NAMESIZE], int *nifs)
 {
     ipt_tx *t = ipt_tx_begin(fam, "mangle");
     if (!t) { fprintf(f, "E %d\n", fam == AF_INET ? 4 : 6); return; }
 
+    drop_legacy(t);
     (void)ipt_new_chain(t, TM_CHAIN);                                   /* -EEXIST is fine */
-    if (ipt_chain_stats(t, TM_CHAIN, NULL, 0) == 0)
-        (void)ipt_append(t, TM_CHAIN, &IPT_SPEC(.target = MVT_COUNT));  /* the catch-all goes first */
-    ipt_spec hook = HOOK_SPEC();
-    if (ipt_check(t, "POSTROUTING", &hook) != 0) (void)ipt_insert(t, "POSTROUTING", 1, &hook);
-
+    ipt_spec uh = UP_HOOK(), dh = DN_HOOK();
+    if (ipt_check(t, "PREROUTING", &uh) != 0) (void)ipt_insert(t, "PREROUTING", 1, &uh);
     (void)ipt_new_chain(t, RX_CHAIN);
-    if (ipt_chain_stats(t, RX_CHAIN, NULL, 0) == 0) (void)ipt_append(t, RX_CHAIN, &IPT_SPEC(.target = MVT_COUNT));
-    ipt_spec rxh = RX_HOOK();
-    for (size_t h = 0; h < sizeof RX_HOOKS / sizeof *RX_HOOKS; h++)
-        if (ipt_check(t, RX_HOOKS[h], &rxh) != 0) (void)ipt_insert(t, RX_HOOKS[h], 1, &rxh);
+    if (ipt_check(t, "POSTROUTING", &dh) != 0) (void)ipt_insert(t, "POSTROUTING", 1, &dh);
 
-    /* Self-heal: a copy of a counter-only rule counts every packet again, so duplicates (left by an older build, or
-     * by a table edit that raced with another writer) inflate the numbers by the number of copies. Collapse them
-     * first; the survivor keeps the biggest counter, which is what one rule would have counted. */
-    (void)ipt_dedup_rule(t, "POSTROUTING", &hook);
-    for (size_t h = 0; h < sizeof RX_HOOKS / sizeof *RX_HOOKS; h++) (void)ipt_dedup_rule(t, RX_HOOKS[h], &rxh);
+    /* Self-heal: a copy of a counter-only rule counts every packet again, so duplicates inflate the numbers by the
+     * number of copies. Collapse them first; the survivor keeps the biggest counter. */
+    (void)ipt_dedup_rule(t, "PREROUTING", &uh);
+    (void)ipt_dedup_rule(t, "POSTROUTING", &dh);
     (void)ipt_dedup_chain(t, TM_CHAIN);
     (void)ipt_dedup_chain(t, RX_CHAIN);
 
     int nrules = ipt_chain_stats(t, TM_CHAIN, NULL, 0);
     int nrx = ipt_chain_stats(t, RX_CHAIN, NULL, 0);
-    char self[8][64];
-    int nself = tun_addrs(fam, self, 8);
+    if (nrules < 0) nrules = 0;
+    if (nrx < 0) nrx = 0;
     int nn = nl_neigh_list(fam, nb, TM_MAX_NEIGH);
     if (nn < 0) nn = 0;
     for (int i = 0; i < nn; i++) if (nb[i].has_mac && !(nb[i].state & (NUD_INCOMPLETE_ | NUD_FAILED_))) memo_put(nb[i].addr, nb[i].mac);
 
-    for (int i = 0; i < nself + nn; i++) {
-        const char *ip;
-        if (i < nself) ip = self[i];
-        else {
-            const nl_neigh *e = &nb[i - nself];
-            if (!e->has_mac || (e->state & (NUD_INCOMPLETE_ | NUD_FAILED_))) continue;
-            if (fam == AF_INET6 && is_link_local6(e->addr)) continue;
-            ip = e->addr;
-        }
-        ipt_spec s = IPT_SPEC(.src = ip, .target = MVT_COUNT);
+    tm_client *cl = calloc(TM_MAX_NEIGH, sizeof *cl);
+    int ncl = cl ? collect_clients(fam, nb, nn, upstream, cl, TM_MAX_NEIGH) : 0;
+    for (int i = 0; i < ncl; i++) {
+        ipt_spec s = IPT_SPEC(.in_if = cl[i].ifn, .src = cl[i].ip, .target = MVT_COUNT);
         if (ipt_check(t, TM_CHAIN, &s) != 0 && nrules < TM_MAX_RULES && ipt_append(t, TM_CHAIN, &s) == 0) nrules++;
-        ipt_spec d = IPT_SPEC(.dst = ip, .target = MVT_COUNT);
+        ipt_spec d = IPT_SPEC(.out_if = cl[i].ifn, .dst = cl[i].ip, .target = MVT_COUNT);
         if (ipt_check(t, RX_CHAIN, &d) != 0 && nrx < TM_MAX_RULES && ipt_append(t, RX_CHAIN, &d) == 0) nrx++;
+        bool seen = false;
+        for (int k = 0; k < *nifs; k++) if (!strcmp(ifs[k], cl[i].ifn)) seen = true;
+        if (!seen && *nifs < 8) snprintf(ifs[(*nifs)++], IF_NAMESIZE, "%s", cl[i].ifn);
     }
 
     ipt_rule_stat *st = calloc(TM_MAX_RULES + 8, sizeof *st);
     int cnt = st ? ipt_chain_stats(t, TM_CHAIN, st, TM_MAX_RULES + 8) : 0;
     if (cnt > TM_MAX_RULES + 8) cnt = TM_MAX_RULES + 8;
     for (int i = 0; i < cnt; i++)
-        fprintf(f, "R %s %llu %llu\n", st[i].any ? "*" : st[i].src,
-                (unsigned long long)st[i].pkts, (unsigned long long)st[i].bytes);
+        if (!st[i].any) fprintf(f, "R %s %llu %llu\n", st[i].src, (unsigned long long)st[i].pkts, (unsigned long long)st[i].bytes);
     cnt = st ? ipt_chain_stats(t, RX_CHAIN, st, TM_MAX_RULES + 8) : 0;
     if (cnt > TM_MAX_RULES + 8) cnt = TM_MAX_RULES + 8;
     for (int i = 0; i < cnt; i++)
-        fprintf(f, "D %s %llu %llu\n", st[i].any_dst ? "*" : st[i].dst,
-                (unsigned long long)st[i].pkts, (unsigned long long)st[i].bytes);
+        if (!st[i].any_dst) fprintf(f, "D %s %llu %llu\n", st[i].dst, (unsigned long long)st[i].pkts, (unsigned long long)st[i].bytes);
     free(st);
-    for (int i = 0; i < nself; i++) fprintf(f, "S %s\n", self[i]);
-    for (int i = 0; i < nn; i++) {
-        const nl_neigh *e = &nb[i];
-        if (!e->has_mac || (e->state & (NUD_INCOMPLETE_ | NUD_FAILED_))) continue;
-        if (fam == AF_INET6 && is_link_local6(e->addr)) continue;
-        fprintf(f, "M %s %02x:%02x:%02x:%02x:%02x:%02x\n", e->addr,
-                e->mac[0], e->mac[1], e->mac[2], e->mac[3], e->mac[4], e->mac[5]);
+    for (int i = 0; i < ncl; i++) {
+        const nl_neigh *e = NULL;
+        for (int j = 0; j < nn && !e; j++) if (!strcmp(nb[j].addr, cl[i].ip)) e = &nb[j];
+        if (e) fprintf(f, "M %s %02x:%02x:%02x:%02x:%02x:%02x\n", e->addr,
+                       e->mac[0], e->mac[1], e->mac[2], e->mac[3], e->mac[4], e->mac[5]);
     }
+    free(cl);
     int rc = ipt_tx_commit(t);              /* no-op when nothing changed */
     if (rc < 0) { log_msg("traffic: v%d commit failed: %s", fam == AF_INET ? 4 : 6, strerror(-rc)); fprintf(f, "E %d\n", fam == AF_INET ? 4 : 6); }
 }
@@ -445,20 +468,30 @@ int traffic_poll(bool counting)
     if (!f) return -errno;
     long long tx = read_stat("tx_bytes"), rx = read_stat("rx_bytes");
     fprintf(f, "T %lld %lld\n", tx, rx);
+    bool on = traffic_enabled();
+    fprintf(f, "O %d\n", on ? 1 : 0);
     ctl_print_state(f);
-    /* No tun, no point in leaving rules around: clear_routing_rules() removes them when xray stops. */
-    if (counting && tx >= 0) {
-        nl_neigh *nb = calloc(TM_MAX_NEIGH, sizeof *nb);
-        if (nb) {
-            family_pass(AF_INET, f, nb);
-            family_pass(AF_INET6, f, nb);
-            free(nb);
-            ctl_state cs; ctl_load(&cs);
-            if (cs.nblocked || cs.nlim || cs.all)           /* nothing set: leave the table alone */
-                ctl_apply(NULL, false, f);                  /* picks up new devices for the default limit, reports the quotas */
-        } else {
-            fprintf(f, "E 4\nE 6\n");
+    /* Block / limit is a feature of its own: it keeps working whether or not the per-device counting is on, and
+     * whether or not the proxy runs. (`counting` false = read-only verb: the table is not touched at all.) */
+    if (counting) {
+        ctl_state cs; ctl_load(&cs);
+        if (on) {
+            nl_neigh *nb = calloc(TM_MAX_NEIGH, sizeof *nb);
+            if (nb) {
+                char up[64] = "";
+                if (get_upstream_interface(up, sizeof up) != 0) up[0] = 0;
+                char ifs[8][IF_NAMESIZE]; int nifs = 0;
+                family_pass(AF_INET, f, nb, up, ifs, &nifs);
+                family_pass(AF_INET6, f, nb, up, ifs, &nifs);
+                for (int i = 0; i < nifs; i++)
+                    fprintf(f, "H %s %lld %lld\n", ifs[i], read_stat_if(ifs[i], "rx_bytes"), read_stat_if(ifs[i], "tx_bytes"));
+                free(nb);
+            } else {
+                fprintf(f, "E 4\nE 6\n");
+            }
         }
+        if (cs.nblocked || cs.nlim || cs.all)               /* nothing set: leave the table alone */
+            ctl_apply(NULL, false, f);                      /* picks up new devices for the default limit, reports the quotas */
     }
     int rc = (fclose(f) == 0) ? 0 : -errno;
     if (rc == 0 && rename(tmp, TRAFFIC_FILE) != 0) rc = -errno;
@@ -484,15 +517,29 @@ void traffic_remove(void)
         int fam = i ? AF_INET6 : AF_INET;
         ipt_tx *t = ipt_tx_begin(fam, "mangle");
         if (!t) continue;
-        ipt_spec hook = HOOK_SPEC();
-        while (ipt_delete(t, "POSTROUTING", &hook) == 0) {}
-        (void)ipt_flush_chain(t, TM_CHAIN);
-        (void)ipt_delete_chain(t, TM_CHAIN);
-        ipt_spec rxh = RX_HOOK();
-        for (size_t h = 0; h < sizeof RX_HOOKS / sizeof *RX_HOOKS; h++)
-            while (ipt_delete(t, RX_HOOKS[h], &rxh) == 0) {}
-        (void)ipt_flush_chain(t, RX_CHAIN);
-        (void)ipt_delete_chain(t, RX_CHAIN);
+        ipt_spec uh = UP_HOOK(), dh = DN_HOOK();
+        while (ipt_delete(t, "PREROUTING", &uh) == 0) {}
+        while (ipt_delete(t, "POSTROUTING", &dh) == 0) {}
+        (void)ipt_flush_chain(t, TM_CHAIN); (void)ipt_delete_chain(t, TM_CHAIN);
+        (void)ipt_flush_chain(t, RX_CHAIN); (void)ipt_delete_chain(t, RX_CHAIN);
+        drop_legacy(t);
         (void)ipt_tx_commit(t);
     }
+}
+
+/* The per-device counting switch. Off removes every rule of ours; on only clears the flag (the next poll installs). */
+int traffic_set(bool on)
+{
+    if (on) { if (unlink(TRAFFIC_OFF_FILE) != 0 && errno != ENOENT) return -errno; return 0; }
+    FILE *f = fopen(TRAFFIC_OFF_FILE, "w");
+    if (!f) return -errno;
+    fclose(f);
+    traffic_remove();
+    return 0;
+}
+
+/* Service start: bring the rules back when counting is on. */
+void traffic_autostart(void)
+{
+    if (traffic_enabled()) (void)traffic_poll(true);
 }

@@ -34,7 +34,7 @@ const char* const kVerbs[] = {
     "start", "stop", "restart", "reload", "status", "reapply",
     "start_monitor", "stop_monitor", "start_monitor_latency", "stop_monitor_latency",
     "latency_heartbeat", "reset_mobile_network",
-    "traffic_poll", "traffic_readonly", "traffic_reset", "traffic_stop",
+    "traffic_poll", "traffic_readonly", "traffic_reset", "traffic_stop", "traffic_start",
 };
 
 // Verbs that take arguments: traffic_block <mac>, traffic_unblock <mac>, traffic_limit <mac> <bytes>,

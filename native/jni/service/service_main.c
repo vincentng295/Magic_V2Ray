@@ -118,6 +118,7 @@ static void *boot_thread(void *arg)
 
     ensure_exclude_app_chain();
     traffic_ctl_apply();                     /* blocked / limited devices stay that way across restarts */
+    traffic_autostart();                     /* per-device counting comes back if it was on */
     release_traffic();                       /* clear a stale gate if the loop died mid hard_restart */
     control_submit("start_monitor");
 
@@ -186,6 +187,7 @@ void service_shutdown(void)
     remove_mark_rule();                              /* fwmark rule is kept by stop_xray; not ours any more */
     release_traffic();                               /* a hard_restart gate must never outlive us */
     traffic_ctl_remove();                            /* device block / limit rules; the saved settings stay */
+    traffic_remove();                                /* per-device counting rules (the on / off switch stays) */
     pthread_mutex_unlock(&g_lock);
 
     if (was_enabled) u_write(ENABLED_FLAG, "");      /* the next service resumes xray on its own */

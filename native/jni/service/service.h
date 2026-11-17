@@ -51,8 +51,11 @@ void root_direct_window(bool on);   /* soft restart: let uid 0 bypass the tun bl
 void latency_monitor_start(void);
 void latency_monitor_stop(void);
 
-/* traffic.c - Traffic Monitor tab: per-source-IP counters of what enters xraytun0 (mangle POSTROUTING -o xraytun0) */
-int  traffic_poll(bool counting);   /* writes TRAFFIC_FILE; counting=false only reads the tun totals. 0 / -errno */
+/* traffic.c - Traffic Monitor tab: per-client counters at the hotspot interface (mangle PREROUTING / POSTROUTING),
+ * independent of xraytun0 */
+int  traffic_poll(bool counting);   /* writes TRAFFIC_FILE; counting=false only reads (nothing is touched). 0 / -errno */
+int  traffic_set(bool on);          /* per-device counting on / off (persistent); off removes the rules */
+void traffic_autostart(void);       /* service start: reinstall the rules when counting is on */
 int  traffic_reset(void);           /* zero the counters */
 void traffic_remove(void);          /* remove hook, chain and rules (v4 + v6) */
 /* device control (block / limit by MAC), see traffic.c */

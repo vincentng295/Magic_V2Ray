@@ -5884,15 +5884,15 @@ function copyLogToClipboard() {
  *                   iptables involved, so a 1 s cadence stays cheap.
  *     non-root      the host (KsuBridge.trafficStats) reads the VPN interface counters through
  *                   Android's TrafficStats API. There is no per-IP data without root.
- *   "Devices" (ip) Root only. The service (native/jni/service/traffic.c) keeps a private mangle
- *                   chain (MV2R_TRAFFIC) hooked into POSTROUTING with `-o xraytun0`, one
- *                   counter-only rule per source IP, and writes a snapshot to TMON_FILE on every
- *                   `traffic_poll`. Source IPs come from the neighbour table (hotspot / LAN
- *                   clients) and from xraytun0's own addresses; everything else lands in
- *                   "this device / other". The kernel can only count per IP (the iptables mac
- *                   match is not valid in POSTROUTING), so the WebUI folds the IPs that share a
- *                   MAC address into one device. Upload = packets sent INTO the tunnel (`-s`); download = packets coming OUT of
- *                   it (`-d`, chain MV2R_TRAFFIC_RX from FORWARD / INPUT).
+ *   "Devices" (ip) Root only. Independent of xraytun0 and of the proxy: the service
+ *                   (native/jni/service/traffic.c) counts every hotspot / LAN client at the phone's
+ *                   own door. Upload = packets that arrive on the hotspot interface (mangle
+ *                   PREROUTING, chain MV2R_HS_UP, `-i <ap-if> -s <ip>`); download = packets that
+ *                   leave through it (mangle POSTROUTING, chain MV2R_HS_DN, `-o <ap-if> -d <ip>`).
+ *                   Clients come from the neighbour table. The kernel counts per IP, so the WebUI
+ *                   folds the IPs that share a MAC address into one device. The on / off switch
+ *                   lives in the service (`traffic_start` / `traffic_stop`, persistent): the
+ *                   snapshot's `O` line says which it is, and while off no rule is in the kernel.
  *
  * Polling runs only while the Traffic tab is visible (see switchTab / _suspendBackgroundWork).
  * In root mode the rules stay in the kernel until "Stop counting" or uninstall.sh removes them.
@@ -5959,10 +5959,11 @@ function fmtTrafficRate(n) {
 
 // Snapshot written by the service's `traffic_poll` / `traffic_readonly` verbs (traffic.c):
 //   T <tx> <rx>               tun byte counters, -1 when the interface is absent
+//   O <0|1>                   per-device counting is on / off (the service keeps the switch)
 //   E <4|6>                   the iptables table of that family could not be loaded / edited
-//   R <src|*> <pkts> <bytes>  one line per rule of the chain; "*" = the catch-all rule
-//   D <dst|*> <pkts> <bytes>  the same for download (packets coming out of the tunnel, by destination)
-//   S <ip>                    an address of xraytun0 (this device)
+//   R <src> <pkts> <bytes>    one line per client rule: packets that came in on the hotspot interface
+//   D <dst> <pkts> <bytes>    the same for download (packets that left through the hotspot interface)
+//   H <if> <rx> <tx>          byte counters of a hotspot interface itself
 //   M <ip> <mac>              neighbour with a link-layer address
 //   B <mac>                   blocked device
 //   L <mac|*> <bytes>         traffic limit ("*" = every device without its own)
@@ -5976,12 +5977,13 @@ function _tmonVerb(verb) {
 }
 
 function _tmonParse(out) {
-    const r = { tx: NaN, rx: NaN, err: false, all: 0, ips: {}, self: new Set(), mac: {},
+    const r = { tx: NaN, rx: NaN, on: null, err: false, all: 0, ips: {}, self: new Set(), mac: {},
         blocked: new Set(), limit: {}, quota: {}, dips: {}, dall: 0 };
     for (const raw of String(out || '').split('\n')) {
         const p = raw.trim().split(/\s+/);
         switch (p[0]) {
             case 'T': r.tx = parseInt(p[1], 10); r.rx = parseInt(p[2], 10); break;
+            case 'O': r.on = p[1] === '1'; break;
             case 'E': r.err = true; break;
             case 'R': {
                 const bytes = parseInt(p[3], 10);
@@ -6094,9 +6096,9 @@ function pollTrafficIps() {
         return;
     }
     _tmonBusy = true;
-    // `&&`: when the service is not running the verb fails and a stale file must not be shown
-    const verb = _tmonCounting ? 'traffic_poll' : 'traffic_readonly';
-    execShell(`${_tmonVerb(verb)} >/dev/null 2>&1 && cat '${TMON_FILE}'`, (out) => {
+    // `&&`: when the service is not running the verb fails and a stale file must not be shown.
+    // The service owns the on / off switch: a poll while it is off installs nothing.
+    execShell(`${_tmonVerb('traffic_poll')} >/dev/null 2>&1 && cat '${TMON_FILE}'`, (out) => {
         _tmonBusy = false;
         if (_activeTrafficTab() !== 'ip' || document.hidden) return;
         _tmonApplyIps(_tmonParse(out));
@@ -6275,13 +6277,12 @@ function _tmonApplyIps(sample) {
     _tmonSyncLimitAll();
     for (const ip of Object.keys(sample.mac)) _tmonMacMemo[ip] = sample.mac[ip];
 
-    const haveTun = Number.isFinite(sample.tx) && sample.tx >= 0;
-    dot && dot.classList.toggle('live', haveTun);
+    if (sample.on !== null) _tmonCounting = sample.on;      // the service is the source of truth
+    dot && dot.classList.toggle('live', _tmonCounting && !sample.err);
     let note;
-    if (!haveTun) note = t('traffic_iface_missing', { iface: TMON_IFACE });
-    else if (!_tmonCounting) note = t('traffic_ip_stopped');
+    if (!_tmonCounting) note = t('traffic_ip_stopped');
     else if (sample.err) note = t('traffic_no_iptables');
-    else note = t('traffic_ip_note', { iface: TMON_IFACE });
+    else note = t('traffic_ip_note');
     set('traffic-ip-note', note);
 
     const tog = $('btn-traffic-toggle');
@@ -6294,7 +6295,7 @@ function _tmonApplyIps(sample) {
     const totalDown = Math.max(sample.dall, knownDown);
     let rate = 0, drate = 0;
     for (const g of rows) { rate += g.rate; drate += g.drate; }
-    const live = _tmonCounting && haveTun;
+    const live = _tmonCounting && !sample.err;
     set('traffic-ip-count', live ? String(rows.length) : '—');
     set('traffic-ip-total', live ? fmtTrafficBytes(total) : '—');
     set('traffic-ip-rate', live && prev && dt > 0 ? fmtTrafficRate(rate) : '—');
@@ -6523,9 +6524,11 @@ function toggleTrafficCounting() {
             if (_isTrafficTabActive() && !document.hidden) startTrafficPolling();
         });
     } else {
-        _tmonCounting = true;
-        showToast(t('toast_traffic_started'), 'success');
-        startTrafficPolling();
+        execShell(_tmonVerb('traffic_start'), () => {
+            _tmonCounting = true;
+            showToast(t('toast_traffic_started'), 'success');
+            startTrafficPolling();
+        });
     }
 }
 

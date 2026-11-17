@@ -71,8 +71,15 @@ drop_chain "$iptables"  mangle FORWARD MV2R_MSS
 drop_chain "$ip6tables" mangle FORWARD HOTSPOT_FORWARD
 drop_chain "$ip6tables" filter FORWARD HOTSPOT_FORWARD
 
-# Traffic Monitor tab counters (hooked into mangle POSTROUTING with -o xraytun0).
+# Traffic Monitor tab counters: per-client upload (mangle PREROUTING) and download (mangle POSTROUTING) at the hotspot.
 for bin in "$iptables" "$ip6tables"; do
+    drop_rule "$bin" -t mangle -D PREROUTING -j MV2R_HS_UP
+    $bin -t mangle -F MV2R_HS_UP 2>/dev/null
+    $bin -t mangle -X MV2R_HS_UP 2>/dev/null
+    drop_rule "$bin" -t mangle -D POSTROUTING -j MV2R_HS_DN
+    $bin -t mangle -F MV2R_HS_DN 2>/dev/null
+    $bin -t mangle -X MV2R_HS_DN 2>/dev/null
+    # older builds: hooked on xraytun0
     drop_rule "$bin" -t mangle -D POSTROUTING -o "$TUN_NAME" -j MV2R_TRAFFIC
     $bin -t mangle -F MV2R_TRAFFIC 2>/dev/null
     $bin -t mangle -X MV2R_TRAFFIC 2>/dev/null

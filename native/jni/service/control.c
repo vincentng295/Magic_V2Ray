@@ -157,7 +157,11 @@ static void do_job(const char *c, out_t *o)
         return;
     }
     if (!strcmp(c, "traffic_reset")) { traffic_reset(); OUT(o, "ok"); return; }
-    if (!strcmp(c, "traffic_stop")) { traffic_remove(); OUT(o, "ok"); return; }
+    if (!strcmp(c, "traffic_stop") || !strcmp(c, "traffic_start")) {
+        int r = traffic_set(!strcmp(c, "traffic_start"));
+        if (r < 0) { o->rc = 1; ERR(o, "traffic: %s", strerror(-r)); } else OUT(o, "ok");
+        return;
+    }
     if (!strcmp(c, "reset_mobile_network")) {
         char ifn[64];
         pthread_mutex_lock(&g_lock);

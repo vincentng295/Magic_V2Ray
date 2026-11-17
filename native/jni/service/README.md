@@ -91,29 +91,33 @@ Without root the app drives `MagicVpnService` instead of this daemon: `VpnServic
 With *Enable IPv6* off, IPv6 is still routed into the tunnel and dropped by a leading `::/0 -> block` rule (like the root engine's ip6tables drop), so it cannot leak out of the physical interface.
 
 ## Traffic Monitor (`traffic.c`)
-Counts what the system pushes **into** `xraytun0`, per source IP. `mangle POSTROUTING -o xraytun0 -j MV2R_TRAFFIC`
-(inserted at position 1) jumps into a chain holding a catch-all rule and one counter-only rule (`-s <ip>`, no target)
-per known source, v4 and v6. mangle POSTROUTING runs before nat POSTROUTING, so forwarded hotspot packets still carry
-the client's own address. Sources are learned on every poll from the neighbour table (`nl_neigh_list`, RTM_GETNEIGH)
-and from the addresses of `xraytun0`; anything else is only visible in the catch-all ("this device / other"). Capped at
-200 rules per family.
+Counts every hotspot / LAN client **at the phone's own door**, independent of `xraytun0` and of whether the proxy runs.
 
-* `traffic_poll` creates chain/hook/rules when missing, reads the counters and rewrites `run/traffic` atomically
-  (`T tx rx`, `R <src|*> <pkts> <bytes>`, `S`, `M`, `E`; the control reply buffer is too small for a per-IP list, so
-  the WebUI runs the verb and `cat`s the file). `traffic_readonly` only reads the tun totals from sysfs. With no tun
-  it creates nothing.
-* `traffic_reset` zeroes the chain, `traffic_stop` removes hook + chain. `clear_routing_rules()` calls the same removal
-  when xray stops, `uninstall.sh` has an iptables fallback.
+* Upload: `mangle PREROUTING -j MV2R_HS_UP` (position 1, the first hook a client packet meets), one counter-only rule
+  `-i <ap-if> -s <ip>` per client.
+* Download: `mangle POSTROUTING -j MV2R_HS_DN` (position 1), one rule `-o <ap-if> -d <ip>` per client. It sits in
+  POSTROUTING because reverse NAT (nat PREROUTING) runs after mangle PREROUTING; only there does the packet carry the
+  client's own address again.
+* Clients are learned on every poll from the neighbour table (`nl_neigh_list`); `<ap-if>` is the interface of the
+  neighbour entry. Entries on `lo`, `xraytun0` or the upstream interface are never clients. v4 and v6, capped at 200
+  rules per family. There is no catch-all rule any more (it would count all inbound traffic of the phone).
+* `traffic_poll` creates chains/hooks/rules when missing, collapses duplicates, reads the counters and rewrites
+  `run/traffic` atomically (`T tx rx`, `O 0|1`, `R <src> <pkts> <bytes>`, `D <dst> <pkts> <bytes>`, `H <if> <rx> <tx>`,
+  `M`, `E`). `H` is the interface's own sysfs byte counter: the client rules can never add up to more than it.
+  `traffic_readonly` only reads (nothing in the table is touched).
+* **On / off**: `traffic_stop` writes `data/traffic_off` and removes every rule of ours; `traffic_start` deletes the
+  file (the next poll installs the rules). The switch survives restarts: service start calls `traffic_autostart()`,
+  service shutdown calls `traffic_remove()`. While off, `traffic_poll` only reports `T` / `O 0`.
+* Block / limit (below) is a separate feature and keeps working whether counting is on or off.
+* Older builds hooked `-o xraytun0` (`MV2R_TRAFFIC`) and `-i xraytun0` (`MV2R_TRAFFIC_RX`); each poll removes those
+  hooks and chains (`drop_legacy`), and `uninstall.sh` has an iptables fallback for both generations.
+* `traffic_reset` zeroes both chains.
 * **Counters survive table commits.** The kernel zeroes every counter on `IPT_SO_SET_REPLACE` and returns the old ones;
-  `ipt.c` now maps them back onto the surviving entries with `IPT_SO_SET_ADD_COUNTERS` (`ipt_image.ctr_map`, like
-  libiptc), so adding a source - or any other change by this service - no longer resets the other rules' counters.
-  `ipt_zero_chain` drops them on purpose. Tests: `native/tests/test_counters.c`, `test_traffic.c`.
-
-### Download counters
-`MV2R_TRAFFIC_RX` mirrors the upload chain for the way back: `mangle FORWARD -i xraytun0` (hotspot clients; reverse NAT
-has already restored their own address by then, which PREROUTING has not) and `mangle INPUT -i xraytun0` (this device)
-both jump into it. It holds a catch-all rule and one `-d <ip>` counter rule per known source; `traffic_poll` prints them as
-`D <ip|*> <pkts> <bytes>`. Reset and Stop counting treat both chains alike. Limits still count upload only.
+  `ipt.c` maps them back onto the surviving entries with `IPT_SO_SET_ADD_COUNTERS` (`ipt_image.ctr_map`, like
+  libiptc), so adding a client - or any other change by this service - does not reset the other rules' counters.
+  Tests: `native/tests/test_counters.c`, `test_traffic.c`; real kernel: `live_hotspot.c` (needs root, see its header).
+* Limitation: if the phone's tethering offload forwards packets in hardware, they never reach netfilter and cannot be
+  counted by any iptables rule. The `H` line (interface counters) shows whether that happens.
 
 ### Device control (block / limit by MAC)
 The Devices list can block a device, give it a data limit, or reset its counters (`xhuskydg_helper proxy_control`
