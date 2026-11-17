@@ -108,6 +108,7 @@ out:
     return rc;
 }
 
+static uint16_t rd16(const uint8_t *p);
 static int be_store(int family, const char *table, const ipt_image *im, uint32_t old_entries)
 {
     const fam_t *f = family == AF_INET ? &F4 : &F6;
@@ -134,23 +135,34 @@ static int be_store(int family, const char *table, const ipt_image *im, uint32_t
     }
     memcpy(buf + hdr, im->entries, im->size);
     if (setsockopt(fd, f->level, IPT_SO_SET_REPLACE, buf, hdr + im->size) < 0) rc = -errno;
-    /* The kernel zeroes every counter on a replace and returns the old ones in `ctr` (indexed by old
-     * entry). Like libiptc, put them back on the entries that survived (best effort: a failure here
-     * only costs the counters, never the rules). */
+    /* After a replace the new rules' counters should be the old ones of the entries that survived. libiptc
+     * simply ADDs the old values, which is only right when the kernel started the new table from zero. Do not
+     * rely on that: read what the new table holds now and ADD the difference (modulo 2^64, so a negative
+     * difference subtracts). That gives the intended value whatever the kernel did, and never double counts.
+     * Best effort: a failure here only costs the counters, never the rules. */
     if (rc == 0 && im->ctr_map && im->num_entries) {
+        ipt_image cur; memset(&cur, 0, sizeof cur);
         size_t csz = sizeof(struct xt_counters_info) + (size_t)im->num_entries * sizeof(struct xt_counters);
         struct xt_counters_info *ci = calloc(1, csz);
-        if (ci) {
+        if (ci && be_load(family, table, &cur) == 0 && cur.num_entries == im->num_entries) {
             bool any = false;
             snprintf(ci->name, sizeof ci->name, "%s", table);
             ci->num_counters = im->num_entries;
-            for (uint32_t i = 0; i < im->num_entries; i++) {
+            const uint8_t *p = cur.entries;
+            for (uint32_t i = 0; i < im->num_entries && p < cur.entries + cur.size; i++) {
                 int32_t m = im->ctr_map[i];
-                if (m >= 0 && (uint32_t)m < old_entries && (ctr[m].pcnt || ctr[m].bcnt)) { ci->counters[i] = ctr[m]; any = true; }
+                struct xt_counters want = { 0, 0 }, now;
+                if (m >= 0 && (uint32_t)m < old_entries) want = ctr[m];
+                if (family == AF_INET) now = ((const struct ipt_entry *)p)->counters;
+                else now = ((const struct ip6t_entry *)p)->counters;
+                ci->counters[i].pcnt = want.pcnt - now.pcnt;
+                ci->counters[i].bcnt = want.bcnt - now.bcnt;
+                if (ci->counters[i].pcnt || ci->counters[i].bcnt) any = true;
+                p += rd16(p + f->o_next);
             }
             if (any) (void)setsockopt(fd, f->level, family == AF_INET ? IPT_SO_SET_ADD_COUNTERS : IP6T_SO_SET_ADD_COUNTERS, ci, csz);
-            free(ci);
         }
+        free(cur.entries); free(ci);
     }
 out:
     free(buf); free(ctr); close(fd);
