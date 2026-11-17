@@ -487,4 +487,5 @@ void clear_routing_rules(void)
     /* nothing references table 100 any more: drop the fail-closed fallback */
     NOP(nl_route_flush_table(AF_INET, 100)); NOP(nl_route_flush_table(AF_INET6, 100));
     NOP(link_set_up(TUN_NAME, false));
+    traffic_remove();                    /* Traffic Monitor counters hang off xraytun0 */
 }

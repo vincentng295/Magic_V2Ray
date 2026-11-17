@@ -71,6 +71,13 @@ drop_chain "$iptables"  mangle FORWARD MV2R_MSS
 drop_chain "$ip6tables" mangle FORWARD HOTSPOT_FORWARD
 drop_chain "$ip6tables" filter FORWARD HOTSPOT_FORWARD
 
+# Traffic Monitor tab counters (hooked into mangle POSTROUTING with -o xraytun0).
+for bin in "$iptables" "$ip6tables"; do
+    drop_rule "$bin" -t mangle -D POSTROUTING -o "$TUN_NAME" -j MV2R_TRAFFIC
+    $bin -t mangle -F MV2R_TRAFFIC 2>/dev/null
+    $bin -t mangle -X MV2R_TRAFFIC 2>/dev/null
+done
+
 # Standalone rules that were inserted directly into built-in chains.
 drop_rule "$iptables" -t mangle -D FORWARD -o "$TUN_NAME" -p tcp \
     --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1350

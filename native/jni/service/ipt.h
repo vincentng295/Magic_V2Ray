@@ -9,7 +9,8 @@
 #include <stddef.h>
 
 typedef enum { MVT_ACCEPT = 1, MVT_DROP, MVT_RETURN, MVT_JUMP, MVT_MARK, MVT_REJECT,
-               MVT_TCPMSS, MVT_DNAT } mv_target_t;
+               MVT_TCPMSS, MVT_DNAT,
+               MVT_COUNT /* no target: counter-only rule, the packet keeps walking the chain */ } mv_target_t;
 enum { MVR_DEFAULT = 0, MVR_TCP_RESET, MVR_6_NO_ROUTE };
 
 typedef struct ipt_spec {
@@ -54,11 +55,24 @@ int ipt_append(ipt_tx *t, const char *chain, const ipt_spec *s);
 int ipt_insert(ipt_tx *t, const char *chain, int pos1, const ipt_spec *s);  /* -I chain pos */
 int ipt_delete(ipt_tx *t, const char *chain, const ipt_spec *s);            /* -D, first match */
 int ipt_check(ipt_tx *t, const char *chain, const ipt_spec *s);             /* -C: 0 if present */
+/* -Z: zero the counters of every rule in the chain (applied by the commit). */
+int ipt_zero_chain(ipt_tx *t, const char *chain);
+
+/* Counters as they were when the table was loaded (or 0 for rules added in this transaction). */
+typedef struct { char src[64]; bool any; uint64_t pkts, bytes; } ipt_rule_stat;   /* any: no source match */
+/* Fills up to `max` entries in chain order; returns the number of rules in the chain (may exceed
+ * `max`), or -ENOENT. `out` may be NULL with max 0 to just count. */
+int ipt_chain_stats(ipt_tx *t, const char *chain, ipt_rule_stat *out, int max);
 
 /* ---- backend seam (tests substitute a fake kernel) ---- */
 typedef struct {
     uint32_t valid_hooks, hook_entry[5], underflow[5], num_entries, size;
     uint8_t *entries;                    /* malloc'd, `size` bytes */
+    /* Written by ipt_tx_commit for store(): for every entry of the NEW image the ordinal of the entry
+     * it was loaded as (-1 = brand new or zeroed). The kernel resets all counters on a table replace;
+     * a real backend hands the old ones back through IPT_SO_SET_ADD_COUNTERS using this map.
+     * malloc'd, num_entries items; NULL in images produced by load(). */
+    int32_t *ctr_map;
 } ipt_image;
 typedef struct {
     int (*load)(int family, const char *table, ipt_image *out);

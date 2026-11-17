@@ -13,7 +13,9 @@ import android.net.LinkAddress;
 import android.net.LinkProperties;
 import android.net.Network;
 import android.net.NetworkCapabilities;
+import android.net.TrafficStats;
 import android.net.Uri;
+import android.os.Process;
 import android.system.OsConstants;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
@@ -42,6 +44,7 @@ final class KsuBridge {
 
     private static final Pattern CB_RE = Pattern.compile("^[A-Za-z0-9_]{1,64}$");
     private static final Pattern ENV_KEY_RE = Pattern.compile("^[A-Za-z_][A-Za-z0-9_]*$");
+    private static final Pattern IFACE_RE = Pattern.compile("^[A-Za-z0-9_.:-]{1,15}$");
     private static final ExecutorService POOL = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "ksu-exec");
         t.setDaemon(true);
@@ -307,6 +310,94 @@ final class KsuBridge {
         String j = MainActivity.pendingProviderSync;
         MainActivity.pendingProviderSync = null;
         return j == null ? "" : j;
+    }
+
+    /**
+     * Byte counters of the VPN tunnel interface for the Traffic Monitor tab, as JSON:
+     * {"iface":"tun0","tx":n,"rx":n,"src":"TrafficStats","uidTx":n,"uidRx":n}.
+     * tx = bytes the system pushed INTO the tunnel (upload), rx = bytes that came back out of it
+     * (download). iface is "" while no VPN network exists; tx/rx are -1 when Android gives no
+     * counter for it. Without root there is no per-IP data, only these per-interface counters.
+     * uidTx/uidRx are this app's own totals (Xray talking to the physical network).
+     */
+    @JavascriptInterface
+    public String trafficStats() {
+        JSONObject o = new JSONObject();
+        try {
+            String iface = vpnInterfaceName();
+            long tx = -1, rx = -1;
+            String src = "";
+            if (iface != null) {
+                tx = ifaceStat(iface, true);
+                rx = ifaceStat(iface, false);
+                if (tx >= 0 && rx >= 0) {
+                    src = "TrafficStats";
+                } else {
+                    long stx = sysfsStat(iface, "tx_bytes");
+                    long srx = sysfsStat(iface, "rx_bytes");
+                    if (stx >= 0 && srx >= 0) {
+                        tx = stx;
+                        rx = srx;
+                        src = "sysfs";
+                    } else {
+                        tx = -1;
+                        rx = -1;
+                    }
+                }
+            }
+            o.put("iface", iface == null ? "" : iface);
+            o.put("tx", tx);
+            o.put("rx", rx);
+            o.put("src", src);
+            o.put("uidTx", TrafficStats.getUidTxBytes(Process.myUid()));
+            o.put("uidRx", TrafficStats.getUidRxBytes(Process.myUid()));
+        } catch (Exception ignored) {
+        }
+        return o.toString();
+    }
+
+    /** Interface name of the VPN network (normally "tun0"), or null when no VPN network exists. */
+    private String vpnInterfaceName() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) activity.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return null;
+            for (Network n : cm.getAllNetworks()) {
+                NetworkCapabilities nc = cm.getNetworkCapabilities(n);
+                if (nc == null || !nc.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue;
+                LinkProperties lp = cm.getLinkProperties(n);
+                String name = lp == null ? null : lp.getInterfaceName();
+                if (name != null && IFACE_RE.matcher(name).matches()) return name;
+            }
+        } catch (RuntimeException ignored) {
+        }
+        return null;
+    }
+
+    /**
+     * TrafficStats.getTxBytes/getRxBytes(iface), through reflection so the build does not depend on
+     * the method being in the SDK stubs and a hidden-API refusal degrades to the sysfs fallback.
+     * Returns -1 when unavailable.
+     */
+    private static long ifaceStat(String iface, boolean tx) {
+        try {
+            java.lang.reflect.Method m = TrafficStats.class.getMethod(tx ? "getTxBytes" : "getRxBytes", String.class);
+            Object r = m.invoke(null, iface);
+            if (r instanceof Long && (Long) r >= 0) return (Long) r;
+        } catch (Throwable ignored) {
+        }
+        return -1;
+    }
+
+    /** /sys/class/net/<iface>/statistics/<name>; readable by apps on some devices only. -1 on failure. */
+    private static long sysfsStat(String iface, String name) {
+        if (!IFACE_RE.matcher(iface).matches()) return -1;
+        try (java.io.BufferedReader br = new java.io.BufferedReader(
+                new java.io.FileReader("/sys/class/net/" + iface + "/statistics/" + name))) {
+            String line = br.readLine();
+            return line == null ? -1 : Long.parseLong(line.trim());
+        } catch (Exception e) {
+            return -1;
+        }
     }
 
     /** "root" or "nonroot": decides which base paths and engine the WebUI uses. */

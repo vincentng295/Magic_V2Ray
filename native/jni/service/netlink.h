@@ -28,6 +28,11 @@ int  nl_rule_table(int family, uint32_t pref, bool has_mark, uint32_t mark);
 /* Appends the non-link-local IPv6 addresses of `dev` to out, space separated; returns how many. */
 int  nl_addr_list_v6(const char *dev, char *out, size_t cap);
 
+/* Neighbour table (`ip neigh show`). state = NUD_* bits. Fills up to `max` entries and returns how many,
+ * or -errno. */
+typedef struct { char addr[64]; uint8_t mac[6]; bool has_mac; uint16_t state; unsigned ifindex; } nl_neigh;
+int  nl_neigh_list(int family, nl_neigh *out, int max);
+
 int  nl_route_replace_dev(int family, uint32_t table, const char *dev,
                           const void *prefsrc, uint32_t metric);
 int  nl_route_blackhole(int family, uint32_t table, uint32_t metric);

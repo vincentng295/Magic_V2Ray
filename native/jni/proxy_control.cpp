@@ -34,6 +34,7 @@ const char* const kVerbs[] = {
     "start", "stop", "restart", "reload", "status", "reapply",
     "start_monitor", "stop_monitor", "start_monitor_latency", "stop_monitor_latency",
     "latency_heartbeat", "reset_mobile_network",
+    "traffic_poll", "traffic_readonly", "traffic_reset", "traffic_stop",
 };
 
 constexpr const char* kRunDir = MV_STUB_DIR MV_RUN_SUBDIR;

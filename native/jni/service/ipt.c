@@ -132,6 +132,24 @@ static int be_store(int family, const char *table, const ipt_image *im, uint32_t
     }
     memcpy(buf + hdr, im->entries, im->size);
     if (setsockopt(fd, f->level, IPT_SO_SET_REPLACE, buf, hdr + im->size) < 0) rc = -errno;
+    /* The kernel zeroes every counter on a replace and returns the old ones in `ctr` (indexed by old
+     * entry). Like libiptc, put them back on the entries that survived (best effort: a failure here
+     * only costs the counters, never the rules). */
+    if (rc == 0 && im->ctr_map && im->num_entries) {
+        size_t csz = sizeof(struct xt_counters_info) + (size_t)im->num_entries * sizeof(struct xt_counters);
+        struct xt_counters_info *ci = calloc(1, csz);
+        if (ci) {
+            bool any = false;
+            snprintf(ci->name, sizeof ci->name, "%s", table);
+            ci->num_counters = im->num_entries;
+            for (uint32_t i = 0; i < im->num_entries; i++) {
+                int32_t m = im->ctr_map[i];
+                if (m >= 0 && (uint32_t)m < old_entries && (ctr[m].pcnt || ctr[m].bcnt)) { ci->counters[i] = ctr[m]; any = true; }
+            }
+            if (any) (void)setsockopt(fd, f->level, family == AF_INET ? IPT_SO_SET_ADD_COUNTERS : IP6T_SO_SET_ADD_COUNTERS, ci, csz);
+            free(ci);
+        }
+    }
 out:
     free(buf); free(ctr); close(fd);
     return rc;
@@ -147,7 +165,9 @@ typedef struct xchain xchain;
 /* fall: libiptc encodes a rule with NO target (counter-only, e.g. netd's bw_* chains)
  * as a standard target whose verdict is the offset of the NEXT entry. We keep it as
  * a flag and recompute that offset on write (src_off = offset in the loaded image). */
-typedef struct { uint8_t *b; uint32_t len; xchain *jump; bool fall; uint32_t src_off; } xrule;
+typedef struct { uint8_t *b; uint32_t len; xchain *jump; bool fall; uint32_t src_off;
+                 int32_t src_idx;   /* ordinal of the entry in the loaded image, -1 = new */
+                 bool zero; } xrule;   /* zero: counters are dropped on the next commit */
 struct xchain {
     char name[XT_FUNCTION_MAXNAMELEN];
     int hook;                            /* 0..4 builtin, -1 user */
@@ -157,7 +177,7 @@ struct xchain {
 };
 
 typedef struct { ipt_spec s; char in_if[24], out_if[24], src[64], dst[64], jump[32], dnat[48]; } spec_store;
-enum { OP_NEW, OP_FLUSH, OP_DEL_CHAIN, OP_APPEND, OP_INSERT, OP_DELETE };
+enum { OP_NEW, OP_FLUSH, OP_DEL_CHAIN, OP_APPEND, OP_INSERT, OP_DELETE, OP_ZERO };
 struct op { int kind; char chain[32]; int pos; spec_store sp; };
 
 struct ipt_tx {
@@ -357,7 +377,7 @@ static int load_table(ipt_tx *t)
             if (!builtin[h]) { rc = -ENOMEM; goto fail; }
         }
     xchain *cur = NULL;
-    uint32_t off = 0;
+    uint32_t off = 0; int32_t eidx = 0;
     while (off < im.size) {
         if (off + f->hdr + sizeof(struct xt_entry_target) > im.size) { PERR(0, 0); }
         uint8_t *e = im.entries + off;
@@ -372,13 +392,13 @@ static int load_table(ipt_tx *t)
             cur->first_off = off + len;
         } else {
             if (!cur) { PERR(0, 0); }
-            xrule r = { malloc(len), len, NULL, false, off };
+            xrule r = { malloc(len), len, NULL, false, off, eidx, false };
             if (!r.b) { rc = -ENOMEM; goto fail; }
             memcpy(r.b, e, len);
             if (cur->hook >= 0 && im.underflow[cur->hook] == off) cur->pol = r;
             else if ((rc = chain_insert(cur, cur->nr, r)) < 0) { free(r.b); goto fail; }
         }
-        off += len;
+        off += len; eidx++;
     }
     /* user chains end with an implicit RETURN: drop it, we regenerate it */
     for (int i = 0; i < t->nch; i++) {
@@ -447,27 +467,31 @@ static int serialise(ipt_tx *t, ipt_image *im)
     off += f->hdr + ERR_SZ; n++;
     im->size = off; im->num_entries = n;
     im->entries = calloc(1, off);
-    if (!im->entries) { free(ord); return -ENOMEM; }
-    uint8_t *p = im->entries;
+    im->ctr_map = malloc((n ? n : 1) * sizeof *im->ctr_map);
+    if (!im->entries || !im->ctr_map) { free(im->entries); free(im->ctr_map); im->entries = NULL; im->ctr_map = NULL; free(ord); return -ENOMEM; }
+    uint8_t *p = im->entries; uint32_t mi = 0;
     for (int i = 0; i < t->nch; i++) {
         xchain *c = ord[i]; uint32_t l;
         if (c->hook < 0) {
             uint8_t *e = make_error_entry(f, c->name, &l);
             memcpy(p, e, l); p += l; free(e);
+            im->ctr_map[mi++] = -1;
         }
         for (int j = 0; j < c->nr; j++) {
             xrule *r = &c->r[j];
+            im->ctr_map[mi++] = r->zero ? -1 : r->src_idx;
             memcpy(p, r->b, r->len);
             wr16(p + f->o_next, r->len);
             if (r->jump) wr32s(p + rd16(p + f->o_target) + sizeof(struct xt_entry_target), r->jump->first_off);
             else if (r->fall) wr32s(p + rd16(p + f->o_target) + sizeof(struct xt_entry_target), (int32_t)((p - im->entries) + r->len));
             p += r->len;
         }
-        if (c->hook >= 0) { memcpy(p, c->pol.b, c->pol.len); p += c->pol.len; }
-        else { uint8_t *e = make_std_entry(f, V_RETURN, &l); memcpy(p, e, l); p += l; free(e); }
+        if (c->hook >= 0) { memcpy(p, c->pol.b, c->pol.len); p += c->pol.len; im->ctr_map[mi++] = c->pol.zero ? -1 : c->pol.src_idx; }
+        else { uint8_t *e = make_std_entry(f, V_RETURN, &l); memcpy(p, e, l); p += l; free(e); im->ctr_map[mi++] = -1; }
     }
     uint32_t l; uint8_t *e = make_error_entry(f, XT_ERROR_TARGET, &l);
     memcpy(p, e, l); free(e);
+    im->ctr_map[mi++] = -1;
     free(ord);
     return 0;
 }
@@ -608,6 +632,9 @@ static int build_rule(ipt_tx *t, const ipt_spec *s, xrule *out)
             v = 0;
         }
         rc = add_target(&b, "", 0, &v, sizeof v); break; }
+    case MVT_COUNT: {                                      /* no target: verdict = next entry, patched in serialise() */
+        int32_t v = 0;
+        rc = add_target(&b, "", 0, &v, sizeof v); break; }
     case MVT_MARK: {
         struct xt_mark_tginfo2 d = { s->set_mark, s->set_mask ? s->set_mask : 0xffffffffu };
         rc = add_target(&b, "MARK", 2, &d, sizeof d); break; }
@@ -637,7 +664,8 @@ static int build_rule(ipt_tx *t, const ipt_spec *s, xrule *out)
     if (rc < 0) goto fail;
     wr16(b.p + f->o_target, toff);
     wr16(b.p + f->o_next, b.len);
-    out->b = b.p; out->len = b.len; out->jump = jump; out->fall = false; out->src_off = 0;
+    out->b = b.p; out->len = b.len; out->jump = jump; out->fall = s->target == MVT_COUNT; out->src_off = 0;
+    out->src_idx = -1; out->zero = false;
     return 0;
 fail:
     free(b.p);
@@ -711,6 +739,14 @@ static int do_del(ipt_tx *t, const char *chain, const ipt_spec *s)
     return 0;
 }
 
+static int do_zero(ipt_tx *t, const char *name)
+{
+    xchain *c = find_chain(t, name);
+    if (!c) return -ENOENT;
+    for (int i = 0; i < c->nr; i++) c->r[i].zero = true;
+    return 0;
+}
+
 static void sp_copy(spec_store *d, const ipt_spec *s)
 {
     d->s = *s;
@@ -740,6 +776,7 @@ static int run_op(ipt_tx *t, const struct op *o)
     case OP_APPEND: return do_add(t, o->chain, -1, &o->sp.s);
     case OP_INSERT: return do_add(t, o->chain, o->pos, &o->sp.s);
     case OP_DELETE: return do_del(t, o->chain, &o->sp.s);
+    case OP_ZERO: return do_zero(t, o->chain);
     }
     return -EINVAL;
 }
@@ -772,6 +809,32 @@ int ipt_insert(ipt_tx *t, const char *c, int pos1, const ipt_spec *s) { return a
 int ipt_delete(ipt_tx *t, const char *c, const ipt_spec *s) { return apply(t, OP_DELETE, c, 0, s); }
 int ipt_check(ipt_tx *t, const char *c, const ipt_spec *s)
 { xchain *cc; int i; return do_find(t, c, s, &cc, &i); }
+int ipt_zero_chain(ipt_tx *t, const char *c)   { return apply(t, OP_ZERO, c, 0, NULL); }
+
+int ipt_chain_stats(ipt_tx *t, const char *chain, ipt_rule_stat *out, int max)
+{
+    xchain *c = find_chain(t, chain);
+    if (!c) return -ENOENT;
+    for (int i = 0; i < c->nr && i < max && out; i++) {
+        const xrule *r = &c->r[i]; ipt_rule_stat *s = &out[i];
+        memset(s, 0, sizeof *s);
+        const struct xt_counters *k;
+        if (t->family == AF_INET) {
+            const struct ipt_entry *e = (const void *)r->b;
+            k = &e->counters;
+            s->any = e->ip.smsk.s_addr == 0;
+            if (!s->any) inet_ntop(AF_INET, &e->ip.src, s->src, sizeof s->src);
+        } else {
+            const struct ip6t_entry *e = (const void *)r->b;
+            k = &e->counters;
+            s->any = true;
+            for (int j = 0; j < 16; j++) if (e->ipv6.smsk.s6_addr[j]) s->any = false;
+            if (!s->any) inet_ntop(AF_INET6, &e->ipv6.src, s->src, sizeof s->src);
+        }
+        s->pkts = k->pcnt; s->bytes = k->bcnt;
+    }
+    return c->nr;
+}
 
 /* =============================================================== lifecycle === */
 
@@ -802,7 +865,7 @@ int ipt_tx_commit(ipt_tx *t)
         ipt_image im;
         if ((rc = serialise(t, &im)) < 0) break;
         rc = BE->store(t->family, t->table, &im, t->old_entries);
-        free(im.entries);
+        free(im.entries); free(im.ctr_map);
         if (rc != -EAGAIN) break;
         /* Someone (netd) changed the table under us: reload and replay. */
         free_chains(t);

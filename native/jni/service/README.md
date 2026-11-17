@@ -15,6 +15,7 @@ Only your own helper `bin/xhuskydg_helper` is still used (the `logservice` verbs
 | `src/iface.c`, `ula.c`, `iphunt.c` | active/upstream interface, fwmark rule, IPv6 ULA decoy, IP hunter |
 | `src/exclude.c` | Exclude Apps (inotify instead of `inotifyd`) |
 | `src/latency.c` | latency monitor (built-in SOCKS5 client instead of `curl`) |
+| `src/traffic.c` | Traffic Monitor tab: per-source-IP counters of what enters `xraytun0` (see below) |
 | `src/xray.c` | start/stop/reload, native `openxtun` (open tun, `TUNSETIFF`, `XRAY_TUN_FD`, exec) |
 | `src/control.c`, `main.c` | FIFO command loop (queue + request/reply), boot sequencer |
 | `proxy_control.cpp` | `proxy_control.sh`: client side of the control pipe |
@@ -43,7 +44,7 @@ Monitor threads need no tracking: the service owns them.
 `status` and `latency_heartbeat` are answered by the reader thread at once; every other verb goes through a queue to one
 executor thread, so long jobs (`start`, `restart`) run in order and `status` never waits behind them.
 Verbs: `start stop restart reload status reapply start_monitor stop_monitor start_monitor_latency stop_monitor_latency
-latency_heartbeat reset_mobile_network`. Contract with the WebUI: `status` prints one word (`running` 0 / `stopped` 1 /
+latency_heartbeat reset_mobile_network traffic_poll traffic_readonly traffic_reset traffic_stop`. Contract with the WebUI: `status` prints one word (`running` 0 / `stopped` 1 /
 `crashed` 2); with no service it prints `stopped`. Diagnostics go to `$DATADIR/proxy_control.log`, never to stdout.
 
 ## Stopping and live upgrade
@@ -88,3 +89,22 @@ Without root the app drives `MagicVpnService` instead of this daemon: `VpnServic
 `excludeRoute` (Android 13+). Interface / tethering / apply-on / other-VPN options need iptables and are greyed out.
 
 With *Enable IPv6* off, IPv6 is still routed into the tunnel and dropped by a leading `::/0 -> block` rule (like the root engine's ip6tables drop), so it cannot leak out of the physical interface.
+
+## Traffic Monitor (`traffic.c`)
+Counts what the system pushes **into** `xraytun0`, per source IP. `mangle POSTROUTING -o xraytun0 -j MV2R_TRAFFIC`
+(inserted at position 1) jumps into a chain holding a catch-all rule and one counter-only rule (`-s <ip>`, no target)
+per known source, v4 and v6. mangle POSTROUTING runs before nat POSTROUTING, so forwarded hotspot packets still carry
+the client's own address. Sources are learned on every poll from the neighbour table (`nl_neigh_list`, RTM_GETNEIGH)
+and from the addresses of `xraytun0`; anything else is only visible in the catch-all ("this device / other"). Capped at
+200 rules per family.
+
+* `traffic_poll` creates chain/hook/rules when missing, reads the counters and rewrites `run/traffic` atomically
+  (`T tx rx`, `R <src|*> <pkts> <bytes>`, `S`, `M`, `E`; the control reply buffer is too small for a per-IP list, so
+  the WebUI runs the verb and `cat`s the file). `traffic_readonly` only reads the tun totals from sysfs. With no tun
+  it creates nothing.
+* `traffic_reset` zeroes the chain, `traffic_stop` removes hook + chain. `clear_routing_rules()` calls the same removal
+  when xray stops, `uninstall.sh` has an iptables fallback.
+* **Counters survive table commits.** The kernel zeroes every counter on `IPT_SO_SET_REPLACE` and returns the old ones;
+  `ipt.c` now maps them back onto the surviving entries with `IPT_SO_SET_ADD_COUNTERS` (`ipt_image.ctr_map`, like
+  libiptc), so adding a source - or any other change by this service - no longer resets the other rules' counters.
+  `ipt_zero_chain` drops them on purpose. Tests: `native/tests/test_counters.c`, `test_traffic.c`.

@@ -51,6 +51,11 @@ void root_direct_window(bool on);   /* soft restart: let uid 0 bypass the tun bl
 void latency_monitor_start(void);
 void latency_monitor_stop(void);
 
+/* traffic.c - Traffic Monitor tab: per-source-IP counters of what enters xraytun0 (mangle POSTROUTING -o xraytun0) */
+int  traffic_poll(bool counting);   /* writes TRAFFIC_FILE; counting=false only reads the tun totals. 0 / -errno */
+int  traffic_reset(void);           /* zero the counters */
+void traffic_remove(void);          /* remove hook, chain and rules (v4 + v6) */
+
 /* xray.c */
 int  start_xray(void);
 int  stop_xray(void);

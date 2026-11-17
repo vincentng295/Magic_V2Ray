@@ -9,3 +9,7 @@ gcc -Wno-override-init -fsanitize=address,undefined -o /tmp/test_ipt native/test
 # live test (real kernel, needs root):  gcc -Wno-override-init -o /tmp/live_ipt native/tests/live_ipt.c $S/ipt.c -lpthread && unshare -n /tmp/live_ipt
 gcc -Wno-override-init -D_GNU_SOURCE -fsanitize=address,undefined -o /tmp/test_fallthrough native/tests/test_fallthrough.c $S/ipt.c -lpthread
 /tmp/test_fallthrough
+gcc -Wno-override-init -D_GNU_SOURCE -fsanitize=address,undefined -o /tmp/test_counters native/tests/test_counters.c $S/ipt.c -lpthread
+/tmp/test_counters
+gcc -std=gnu11 -Wno-override-init -D_GNU_SOURCE -DMV_STUB_DIR='"/tmp/mv_traffic_test"' -fsanitize=address,undefined -o /tmp/test_traffic native/tests/test_traffic.c $S/traffic.c $S/ipt.c -lpthread
+/tmp/test_traffic

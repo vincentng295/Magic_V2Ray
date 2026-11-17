@@ -145,6 +145,14 @@ static void do_job(const char *c, out_t *o)
     if (!strcmp(c, "stop_monitor_apps")) { apps_monitor_stop(); log_msg("apps monitor stopped"); return; }
     if (!strcmp(c, "start_monitor_latency")) { latency_monitor_start(); return; }
     if (!strcmp(c, "stop_monitor_latency")) { latency_monitor_stop(); log_msg("latency monitor stopped"); return; }
+    if (!strcmp(c, "traffic_poll") || !strcmp(c, "traffic_readonly")) {
+        /* answer goes into TRAFFIC_FILE (the reply buffer is too small for a per-IP list) */
+        int r = traffic_poll(!strcmp(c, "traffic_poll"));
+        if (r < 0) { o->rc = 1; ERR(o, "traffic: %s", strerror(-r)); } else OUT(o, "ok");
+        return;
+    }
+    if (!strcmp(c, "traffic_reset")) { traffic_reset(); OUT(o, "ok"); return; }
+    if (!strcmp(c, "traffic_stop")) { traffic_remove(); OUT(o, "ok"); return; }
     if (!strcmp(c, "reset_mobile_network")) {
         char ifn[64];
         pthread_mutex_lock(&g_lock);

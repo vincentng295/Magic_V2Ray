@@ -41,6 +41,7 @@
 #define TIME_RES_FILE  RUN_DIR "/time_res"
 #define ADDR_INFO_FILE RUN_DIR "/addr_info"
 #define LATENCY_HB_FILE RUN_DIR "/latency.hb"
+#define TRAFFIC_FILE   RUN_DIR "/traffic"          /* snapshot of the Traffic Monitor tab, see traffic.c */
 #define PIPE_FILE      RUN_DIR "/control.pipe"
 #define EXCLUDE_MAP_DIR RUN_DIR "/exclude_uids"
 #define ULA_FLAG       RUN_DIR "/ula_enabled"

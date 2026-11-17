@@ -8,6 +8,7 @@
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
 #include <linux/fib_rules.h>
+#include <linux/neighbour.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -380,6 +381,49 @@ int nl_addr_list_v6(const char *dev, char *out, size_t cap)
     q.n.nlmsg_type = RTM_GETADDR; q.a.ifa_family = AF_INET6;
     nl_dump(&q.n, v6_cb, &Q);
     return Q.n;
+}
+
+/* ---------------------------------------------------------- neighbour table */
+
+struct neigh_q { int family; nl_neigh *out; int max, n; };
+
+/* the kernel uapi header has no NDA_RTA / NDA_PAYLOAD (those live in iproute2's headers) */
+#define NEIGH_RTA(r)     ((struct rtattr *)(((char *)(r)) + NLMSG_ALIGN(sizeof(struct ndmsg))))
+#define NEIGH_PAYLOAD(n) NLMSG_PAYLOAD((n), sizeof(struct ndmsg))
+
+static int neigh_cb(struct nlmsghdr *h, void *arg)
+{
+    struct neigh_q *Q = arg;
+    if (h->nlmsg_type != RTM_NEWNEIGH) return 0;
+    struct ndmsg *d = NLMSG_DATA(h);
+    if (d->ndm_family != Q->family) return 0;
+    if (Q->n >= Q->max) return 1;                                   /* enough: stop the dump */
+    struct rtattr *tb[NDA_MAX + 1];
+    parse_rta(tb, NDA_MAX, NEIGH_RTA(d), NEIGH_PAYLOAD(h));
+    if (!tb[NDA_DST]) return 0;
+    nl_neigh *e = &Q->out[Q->n];
+    memset(e, 0, sizeof *e);
+    if (!inet_ntop(Q->family, RTA_DATA(tb[NDA_DST]), e->addr, sizeof e->addr)) return 0;
+    e->state = d->ndm_state;
+    e->ifindex = (unsigned)d->ndm_ifindex;
+    if (tb[NDA_LLADDR] && RTA_PAYLOAD(tb[NDA_LLADDR]) == 6) {
+        memcpy(e->mac, RTA_DATA(tb[NDA_LLADDR]), 6);
+        e->has_mac = true;
+    }
+    Q->n++;
+    return 0;
+}
+
+int nl_neigh_list(int family, nl_neigh *out, int max)
+{
+    struct neigh_q Q = { .family = family, .out = out, .max = max };
+    if (!out || max <= 0) return 0;
+    struct { struct nlmsghdr n; struct ndmsg d; } q;
+    memset(&q, 0, sizeof q);
+    q.n.nlmsg_len = NLMSG_LENGTH(sizeof q.d);
+    q.n.nlmsg_type = RTM_GETNEIGH; q.d.ndm_family = family;
+    int rc = nl_dump(&q.n, neigh_cb, &Q);
+    return rc < 0 ? rc : Q.n;
 }
 
 /* ------------------------------------------------- `ip addr show` look-alike */

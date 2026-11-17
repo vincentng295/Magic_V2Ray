@@ -3245,3 +3245,105 @@ html.has-bg .category-group:has(> .nodes-list[style*="display: none"]) > .catego
 }
 .access-badge.ok { background: var(--md-primary-container); color: var(--md-on-primary-container); }
 .access-badge.warn { background: color-mix(in srgb, var(--md-warning) 18%, transparent); color: var(--md-warning); }
+
+/* ===== Traffic monitor tab ===== */
+.traffic-iface {
+    font-family: var(--md-font-mono);
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--md-on-surface);
+}
+.traffic-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.traffic-btn {
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 12px;
+    border-radius: var(--md-shape-sm);
+    border: 1px solid var(--md-outline-variant);
+    background: var(--md-surface-2);
+    color: var(--md-on-surface);
+    cursor: pointer;
+}
+.traffic-btn:active { opacity: .7; }
+.traffic-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.traffic-dot--up { background: var(--md-primary); }
+.traffic-dot--down { background: var(--md-tertiary); }
+.traffic-line {
+    fill: none;
+    stroke-width: 2;
+    stroke-linejoin: round;
+    vector-effect: non-scaling-stroke;
+}
+.traffic-line--up { stroke: var(--md-primary); }
+.traffic-line--down { stroke: var(--md-tertiary); }
+.traffic-ip-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.traffic-ip-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.traffic-ip-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background: var(--md-surface-2);
+    border: 1px solid var(--md-outline-variant);
+    border-radius: var(--md-shape-md);
+    padding: 8px 12px;
+}
+.traffic-ip-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+}
+.traffic-ip-addr {
+    font-family: var(--md-font-mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--md-on-surface);
+    word-break: break-all;
+}
+.traffic-ip-sub {
+    font-size: 11px;
+    color: var(--md-on-surface-variant);
+}
+.traffic-ip-val {
+    font-family: var(--md-font-mono);
+    font-size: 13px;
+    color: var(--md-on-surface);
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+.traffic-ip-bar {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--md-outline-variant);
+    overflow: hidden;
+}
+.traffic-ip-bar > i {
+    display: block;
+    height: 100%;
+    background: var(--md-primary);
+}
+.traffic-empty {
+    font-size: 13px;
+    color: var(--md-on-surface-variant);
+    padding: 10px 2px;
+}
