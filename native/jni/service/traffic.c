@@ -20,6 +20,8 @@
  *                             tunnel, rx = bytes that came back out of it
  *   E <4|6>                   the table of that family could not be loaded / edited
  *   R <src|*> <pkts> <bytes>  one line per rule of the chain; "*" = the catch-all rule (v4 and v6 both give one)
+ *   D <dst|*> <pkts> <bytes>  the same for the way back (download): chain MV2R_TRAFFIC_RX, `-i xraytun0` from
+ *                             mangle FORWARD (clients, already de-NATed) and INPUT (this device), one `-d <ip>` rule per source
  *   S <ip>                    an address of xraytun0 ("this device")
  *   M <ip> <mac>              neighbour with a link-layer address
  *   B <mac>                   device that is blocked
@@ -48,6 +50,7 @@
 #include <unistd.h>
 
 #define TM_CHAIN       "MV2R_TRAFFIC"
+#define RX_CHAIN       "MV2R_TRAFFIC_RX"
 #define CTL_CHAIN      "MV2R_TRAFFIC_CTL"
 #define CTL_STATE_FILE DATADIR "/traffic_ctl"
 #define CTL_MAX        64
@@ -73,6 +76,9 @@ static long long read_stat(const char *name)
 
 /* ipt_spec for "-o xraytun0 -j MV2R_TRAFFIC" */
 #define HOOK_SPEC() IPT_SPEC(.out_if = TUN_NAME, .target = MVT_JUMP, .jump_chain = TM_CHAIN)
+/* ... and for the way back: "-i xraytun0 -j MV2R_TRAFFIC_RX" from FORWARD (hotspot clients) and INPUT (this device) */
+#define RX_HOOK()   IPT_SPEC(.in_if = TUN_NAME, .target = MVT_JUMP, .jump_chain = RX_CHAIN)
+static const char *const RX_HOOKS[] = { "FORWARD", "INPUT" };
 
 /* The addresses of xraytun0 that can be a packet's source (v4: the first one; v6: global / ULA). */
 static int tun_addrs(int fam, char out[][64], int max)
@@ -289,13 +295,13 @@ static void reset_mac_counters(const char *mac)
         for (int k = 0; k < g_nmemo; k++) {
             char m[18]; const uint8_t *a = g_memo[k].mac;
             snprintf(m, 18, "%02x:%02x:%02x:%02x:%02x:%02x", a[0], a[1], a[2], a[3], a[4], a[5]);
-            if (!strcmp(m, mac) && (strchr(g_memo[k].ip, ':') != NULL) == (fam == AF_INET6)) (void)ipt_zero_src(t, TM_CHAIN, g_memo[k].ip);
+            if (!strcmp(m, mac) && (strchr(g_memo[k].ip, ':') != NULL) == (fam == AF_INET6)) { (void)ipt_zero_src(t, TM_CHAIN, g_memo[k].ip); (void)ipt_zero_dst(t, RX_CHAIN, g_memo[k].ip); }
         }
         int cnt = nb ? nl_neigh_list(fam, nb, TM_MAX_NEIGH) : 0;
         for (int j = 0; j < cnt; j++) {
             const uint8_t *a = nb[j].mac; char m[18];
             snprintf(m, 18, "%02x:%02x:%02x:%02x:%02x:%02x", a[0], a[1], a[2], a[3], a[4], a[5]);
-            if (nb[j].has_mac && !strcmp(m, mac)) (void)ipt_zero_src(t, TM_CHAIN, nb[j].addr);
+            if (nb[j].has_mac && !strcmp(m, mac)) { (void)ipt_zero_src(t, TM_CHAIN, nb[j].addr); (void)ipt_zero_dst(t, RX_CHAIN, nb[j].addr); }
         }
         (void)ipt_tx_commit(t);
     }
@@ -370,7 +376,14 @@ static void family_pass(int fam, FILE *f, nl_neigh *nb)
     ipt_spec hook = HOOK_SPEC();
     if (ipt_check(t, "POSTROUTING", &hook) != 0) (void)ipt_insert(t, "POSTROUTING", 1, &hook);
 
+    (void)ipt_new_chain(t, RX_CHAIN);
+    if (ipt_chain_stats(t, RX_CHAIN, NULL, 0) == 0) (void)ipt_append(t, RX_CHAIN, &IPT_SPEC(.target = MVT_COUNT));
+    ipt_spec rxh = RX_HOOK();
+    for (size_t h = 0; h < sizeof RX_HOOKS / sizeof *RX_HOOKS; h++)
+        if (ipt_check(t, RX_HOOKS[h], &rxh) != 0) (void)ipt_insert(t, RX_HOOKS[h], 1, &rxh);
+
     int nrules = ipt_chain_stats(t, TM_CHAIN, NULL, 0);
+    int nrx = ipt_chain_stats(t, RX_CHAIN, NULL, 0);
     char self[8][64];
     int nself = tun_addrs(fam, self, 8);
     int nn = nl_neigh_list(fam, nb, TM_MAX_NEIGH);
@@ -387,9 +400,9 @@ static void family_pass(int fam, FILE *f, nl_neigh *nb)
             ip = e->addr;
         }
         ipt_spec s = IPT_SPEC(.src = ip, .target = MVT_COUNT);
-        if (ipt_check(t, TM_CHAIN, &s) == 0) continue;
-        if (nrules >= TM_MAX_RULES) break;
-        if (ipt_append(t, TM_CHAIN, &s) == 0) nrules++;
+        if (ipt_check(t, TM_CHAIN, &s) != 0 && nrules < TM_MAX_RULES && ipt_append(t, TM_CHAIN, &s) == 0) nrules++;
+        ipt_spec d = IPT_SPEC(.dst = ip, .target = MVT_COUNT);
+        if (ipt_check(t, RX_CHAIN, &d) != 0 && nrx < TM_MAX_RULES && ipt_append(t, RX_CHAIN, &d) == 0) nrx++;
     }
 
     ipt_rule_stat *st = calloc(TM_MAX_RULES + 8, sizeof *st);
@@ -397,6 +410,11 @@ static void family_pass(int fam, FILE *f, nl_neigh *nb)
     if (cnt > TM_MAX_RULES + 8) cnt = TM_MAX_RULES + 8;
     for (int i = 0; i < cnt; i++)
         fprintf(f, "R %s %llu %llu\n", st[i].any ? "*" : st[i].src,
+                (unsigned long long)st[i].pkts, (unsigned long long)st[i].bytes);
+    cnt = st ? ipt_chain_stats(t, RX_CHAIN, st, TM_MAX_RULES + 8) : 0;
+    if (cnt > TM_MAX_RULES + 8) cnt = TM_MAX_RULES + 8;
+    for (int i = 0; i < cnt; i++)
+        fprintf(f, "D %s %llu %llu\n", st[i].any_dst ? "*" : st[i].dst,
                 (unsigned long long)st[i].pkts, (unsigned long long)st[i].bytes);
     free(st);
     for (int i = 0; i < nself; i++) fprintf(f, "S %s\n", self[i]);
@@ -445,6 +463,7 @@ int traffic_reset(void)
         ipt_tx *t = ipt_tx_begin(fam, "mangle");
         if (!t) continue;
         (void)ipt_zero_chain(t, TM_CHAIN);          /* -ENOENT: nothing counted yet, commit is a no-op */
+        (void)ipt_zero_chain(t, RX_CHAIN);
         (void)ipt_tx_commit(t);
     }
     return 0;
@@ -460,6 +479,11 @@ void traffic_remove(void)
         while (ipt_delete(t, "POSTROUTING", &hook) == 0) {}
         (void)ipt_flush_chain(t, TM_CHAIN);
         (void)ipt_delete_chain(t, TM_CHAIN);
+        ipt_spec rxh = RX_HOOK();
+        for (size_t h = 0; h < sizeof RX_HOOKS / sizeof *RX_HOOKS; h++)
+            while (ipt_delete(t, RX_HOOKS[h], &rxh) == 0) {}
+        (void)ipt_flush_chain(t, RX_CHAIN);
+        (void)ipt_delete_chain(t, RX_CHAIN);
         (void)ipt_tx_commit(t);
     }
 }

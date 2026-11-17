@@ -5891,7 +5891,8 @@ function copyLogToClipboard() {
  *                   clients) and from xraytun0's own addresses; everything else lands in
  *                   "this device / other". The kernel can only count per IP (the iptables mac
  *                   match is not valid in POSTROUTING), so the WebUI folds the IPs that share a
- *                   MAC address into one device. Counts are upload only: packets sent INTO the tunnel.
+ *                   MAC address into one device. Upload = packets sent INTO the tunnel (`-s`); download = packets coming OUT of
+ *                   it (`-d`, chain MV2R_TRAFFIC_RX from FORWARD / INPUT).
  *
  * Polling runs only while the Traffic tab is visible (see switchTab / _suspendBackgroundWork).
  * In root mode the rules stay in the kernel until "Stop counting" or uninstall.sh removes them.
@@ -5960,6 +5961,7 @@ function fmtTrafficRate(n) {
 //   T <tx> <rx>               tun byte counters, -1 when the interface is absent
 //   E <4|6>                   the iptables table of that family could not be loaded / edited
 //   R <src|*> <pkts> <bytes>  one line per rule of the chain; "*" = the catch-all rule
+//   D <dst|*> <pkts> <bytes>  the same for download (packets coming out of the tunnel, by destination)
 //   S <ip>                    an address of xraytun0 (this device)
 //   M <ip> <mac>              neighbour with a link-layer address
 //   B <mac>                   blocked device
@@ -5975,7 +5977,7 @@ function _tmonVerb(verb) {
 
 function _tmonParse(out) {
     const r = { tx: NaN, rx: NaN, err: false, all: 0, ips: {}, self: new Set(), mac: {},
-        blocked: new Set(), limit: {}, quota: {} };
+        blocked: new Set(), limit: {}, quota: {}, dips: {}, dall: 0 };
     for (const raw of String(out || '').split('\n')) {
         const p = raw.trim().split(/\s+/);
         switch (p[0]) {
@@ -5986,6 +5988,13 @@ function _tmonParse(out) {
                 if (!p[1] || !Number.isFinite(bytes)) break;
                 if (p[1] === '*') r.all += bytes;
                 else r.ips[p[1]] = (r.ips[p[1]] || 0) + bytes;
+                break;
+            }
+            case 'D': {                                    // the way back (download), same shape as R
+                const bytes = parseInt(p[3], 10);
+                if (!p[1] || !Number.isFinite(bytes)) break;
+                if (p[1] === '*') r.dall += bytes;
+                else r.dips[p[1]] = (r.dips[p[1]] || 0) + bytes;
                 break;
             }
             case 'S': if (p[1]) r.self.add(p[1]); break;
@@ -6184,15 +6193,18 @@ function renderTrafficChart() {
 // then the MAC the IP was last seen with, then the bare IP. A device's rate is the sum of its
 // IPs' rates, each computed from that IP's own delta: an IP that only now got its MAC attached
 // would otherwise add its whole history to the device as one false spike.
-function _tmonGroups(sample, ipRate) {
+function _tmonGroups(sample, ipRate, ipDRate) {
     const groups = new Map();
-    let known = 0;
-    for (const ip of Object.keys(sample.ips)) {
-        const bytes = sample.ips[ip];
+    let known = 0, knownDown = 0;
+    const allIps = new Set([...Object.keys(sample.ips), ...Object.keys(sample.dips)]);
+    for (const ip of allIps) {
+        const bytes = sample.ips[ip] || 0;
+        const down = sample.dips[ip] || 0;
         known += bytes;
+        knownDown += down;
         // Idle sources (gateways, clients that are connected but silent) would only be noise: show
         // the ones that actually sent something into the tunnel.
-        if (!(bytes > 0)) continue;
+        if (!(bytes > 0 || down > 0)) continue;
         let key, mac = '';
         if (sample.self.has(ip)) {
             key = 'self';
@@ -6202,26 +6214,28 @@ function _tmonGroups(sample, ipRate) {
         }
         let g = groups.get(key);
         if (!g) {
-            g = { self: key === 'self', mac, ips: [], bytes: 0, rate: 0 };
+            g = { self: key === 'self', mac, ips: [], bytes: 0, rate: 0, down: 0, drate: 0 };
             groups.set(key, g);
         }
         g.ips.push(ip);
         g.bytes += bytes;
+        g.down += down;
         g.rate += ipRate[ip] || 0;
+        g.drate += ipDRate[ip] || 0;
     }
     // Blocked / limited devices stay in the list even when they sent nothing, or they could never be unblocked.
     const ctlMacs = new Set([...(sample.blocked || []), ...Object.keys(sample.limit || {}).filter(k => k !== '*')]);
     for (const mac of ctlMacs) {
         if (groups.has('mac:' + mac)) continue;
-        groups.set('mac:' + mac, { self: false, mac, ips: [], bytes: 0, rate: 0 });
+        groups.set('mac:' + mac, { self: false, mac, ips: [], bytes: 0, rate: 0, down: 0, drate: 0 });
     }
     const rows = Array.from(groups.values());
     const v4 = (ip) => ip.indexOf(':') < 0;
     for (const g of rows) {
         g.ips.sort((a, b) => (v4(b) - v4(a)) || (a < b ? -1 : (a > b ? 1 : 0)));
     }
-    rows.sort((a, b) => b.bytes - a.bytes);
-    return { rows, known };
+    rows.sort((a, b) => (b.bytes + b.down) - (a.bytes + a.down));
+    return { rows, known, knownDown };
 }
 
 function _tmonApplyIps(sample) {
@@ -6235,6 +6249,8 @@ function _tmonApplyIps(sample) {
         set('traffic-ip-count', '—');
         set('traffic-ip-total', '—');
         set('traffic-ip-rate', '—');
+        set('traffic-ip-down-total', '—');
+        set('traffic-ip-down-rate', '—');
         const l = $('traffic-ip-list');
         l && l.replaceChildren();
         return;
@@ -6243,14 +6259,18 @@ function _tmonApplyIps(sample) {
     const now = Date.now();
     const prev = _tmonIpPrev;
     const dt = prev ? (now - prev.t) / 1000 : 0;
-    const ipRate = {};
+    const ipRate = {}, ipDRate = {};
     if (prev && dt > 0) {
         for (const ip of Object.keys(sample.ips)) {
             const before = prev.ips[ip];
             ipRate[ip] = before === undefined ? 0 : Math.max(0, (sample.ips[ip] - before) / dt);
         }
+        for (const ip of Object.keys(sample.dips)) {
+            const before = (prev.dips || {})[ip];
+            ipDRate[ip] = before === undefined ? 0 : Math.max(0, (sample.dips[ip] - before) / dt);
+        }
     }
-    _tmonIpPrev = { t: now, ips: sample.ips };
+    _tmonIpPrev = { t: now, ips: sample.ips, dips: sample.dips };
     _tmonCtl = { blocked: sample.blocked, limit: sample.limit, quota: sample.quota };
     _tmonSyncLimitAll();
     for (const ip of Object.keys(sample.mac)) _tmonMacMemo[ip] = sample.mac[ip];
@@ -6267,25 +6287,29 @@ function _tmonApplyIps(sample) {
     const tog = $('btn-traffic-toggle');
     if (tog) tog.textContent = t(_tmonCounting ? 'traffic_stop' : 'traffic_start');
 
-    const { rows, known } = _tmonGroups(sample, ipRate);
+    const { rows, known, knownDown } = _tmonGroups(sample, ipRate, ipDRate);
     const other = Math.max(0, sample.all - known);
+    const otherDown = Math.max(0, sample.dall - knownDown);
     const total = Math.max(sample.all, known);
-    let rate = 0;
-    for (const g of rows) rate += g.rate;
+    const totalDown = Math.max(sample.dall, knownDown);
+    let rate = 0, drate = 0;
+    for (const g of rows) { rate += g.rate; drate += g.drate; }
     const live = _tmonCounting && haveTun;
     set('traffic-ip-count', live ? String(rows.length) : '—');
     set('traffic-ip-total', live ? fmtTrafficBytes(total) : '—');
     set('traffic-ip-rate', live && prev && dt > 0 ? fmtTrafficRate(rate) : '—');
-    renderTrafficIpList(rows, other, Math.max(total, 1));
+    set('traffic-ip-down-total', live ? fmtTrafficBytes(totalDown) : '—');
+    set('traffic-ip-down-rate', live && prev && dt > 0 ? fmtTrafficRate(drate) : '—');
+    renderTrafficIpList(rows, other, otherDown, Math.max(total + totalDown, 1));
 }
 
-function renderTrafficIpList(rows, other, total) {
+function renderTrafficIpList(rows, other, otherDown, total) {
     const list = document.getElementById('traffic-ip-list');
     if (!list) return;
     list.replaceChildren();
     if (!_tmonCounting) return;
     const shown = rows.slice(0, TMON_MAX_ROWS);
-    if (other > 0) shown.push({ other: true, bytes: other, rate: 0, ips: [] });
+    if (other > 0 || otherDown > 0) shown.push({ other: true, bytes: other, down: otherDown, rate: 0, drate: 0, ips: [] });
     if (!shown.length) {
         const d = document.createElement('div');
         d.className = 'traffic-empty';
@@ -6334,13 +6358,20 @@ function renderTrafficIpList(rows, other, total) {
         }
         const val = document.createElement('div');
         val.className = 'traffic-ip-val';
-        val.textContent = r.other ? fmtTrafficBytes(r.bytes) : fmtTrafficBytes(r.bytes) + ' · ' + fmtTrafficRate(r.rate);
+        // two lines: what the device sent into the tunnel, and what came back for it
+        const line = (arrow, bytes, rate) => {
+            const d = document.createElement('div');
+            d.textContent = arrow + ' ' + fmtTrafficBytes(bytes) + (r.other ? '' : ' · ' + fmtTrafficRate(rate));
+            val.appendChild(d);
+        };
+        line('↑', r.bytes, r.rate);
+        line('↓', r.down, r.drate);
         head.appendChild(left);
         head.appendChild(val);
         const bar = document.createElement('div');
         bar.className = 'traffic-ip-bar';
         const fill = document.createElement('i');
-        fill.style.width = Math.min(100, (r.bytes / total) * 100).toFixed(1) + '%';
+        fill.style.width = Math.min(100, ((r.bytes + r.down) / total) * 100).toFixed(1) + '%';
         bar.appendChild(fill);
         row.appendChild(head);
         row.appendChild(bar);

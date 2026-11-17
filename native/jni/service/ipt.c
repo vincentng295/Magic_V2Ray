@@ -179,7 +179,7 @@ struct xchain {
 };
 
 typedef struct { ipt_spec s; char in_if[24], out_if[24], src[64], dst[64], jump[32], dnat[48], mac[20]; } spec_store;
-enum { OP_NEW, OP_FLUSH, OP_DEL_CHAIN, OP_APPEND, OP_INSERT, OP_DELETE, OP_ZERO, OP_ZERO_SRC, OP_DEL_MAC };
+enum { OP_NEW, OP_FLUSH, OP_DEL_CHAIN, OP_APPEND, OP_INSERT, OP_DELETE, OP_ZERO, OP_ZERO_SRC, OP_ZERO_DST, OP_DEL_MAC };
 struct op { int kind; char chain[32]; int pos; spec_store sp; };
 
 struct ipt_tx {
@@ -769,19 +769,22 @@ static int do_zero(ipt_tx *t, const char *name)
 }
 
 /* The source address of a rule as text ("" when it has none). */
-static void rule_src(const fam_t *f, int family, const xrule *r, char *out, size_t cap)
+static void rule_addr(int family, const xrule *r, bool dst, char *out, size_t cap)
 {
-    out[0] = 0; (void)f;
+    out[0] = 0;
     if (family == AF_INET) {
         const struct ipt_entry *e = (const void *)r->b;
-        if (e->ip.smsk.s_addr) inet_ntop(AF_INET, &e->ip.src, out, cap);
+        if (!dst && e->ip.smsk.s_addr) inet_ntop(AF_INET, &e->ip.src, out, cap);
+        if (dst && e->ip.dmsk.s_addr) inet_ntop(AF_INET, &e->ip.dst, out, cap);
     } else {
         const struct ip6t_entry *e = (const void *)r->b;
-        for (int j = 0; j < 16; j++) if (e->ipv6.smsk.s6_addr[j]) { inet_ntop(AF_INET6, &e->ipv6.src, out, cap); break; }
+        const struct in6_addr *m = dst ? &e->ipv6.dmsk : &e->ipv6.smsk;
+        for (int j = 0; j < 16; j++)
+            if (m->s6_addr[j]) { inet_ntop(AF_INET6, dst ? &e->ipv6.dst : &e->ipv6.src, out, cap); break; }
     }
 }
 
-static int do_zero_src(ipt_tx *t, const char *name, const char *src)
+static int do_zero_addr(ipt_tx *t, const char *name, const char *src, bool dst)
 {
     xchain *c = find_chain(t, name);
     if (!c) return -ENOENT;
@@ -792,7 +795,7 @@ static int do_zero_src(ipt_tx *t, const char *name, const char *src)
     else return -EINVAL;
     int n = 0;
     for (int i = 0; i < c->nr; i++) {
-        char have[64]; rule_src(t->f, t->family, &c->r[i], have, sizeof have);
+        char have[64]; rule_addr(t->family, &c->r[i], dst, have, sizeof have);
         if (have[0] && !strcmp(have, want)) { c->r[i].zero = true; n++; }
     }
     return n ? 0 : -ENOENT;
@@ -868,7 +871,8 @@ static int run_op(ipt_tx *t, const struct op *o)
     case OP_INSERT: return do_add(t, o->chain, o->pos, &o->sp.s);
     case OP_DELETE: return do_del(t, o->chain, &o->sp.s);
     case OP_ZERO: return do_zero(t, o->chain);
-    case OP_ZERO_SRC: return do_zero_src(t, o->chain, o->sp.s.src);
+    case OP_ZERO_SRC: return do_zero_addr(t, o->chain, o->sp.s.src, false);
+    case OP_ZERO_DST: return do_zero_addr(t, o->chain, o->sp.s.dst, true);
     case OP_DEL_MAC: return do_del_mac(t, o->chain, o->sp.s.mac);
     }
     return -EINVAL;
@@ -905,6 +909,8 @@ int ipt_check(ipt_tx *t, const char *c, const ipt_spec *s)
 int ipt_zero_chain(ipt_tx *t, const char *c)   { return apply(t, OP_ZERO, c, 0, NULL); }
 int ipt_zero_src(ipt_tx *t, const char *c, const char *src)
 { ipt_spec s = IPT_SPEC(.src = src); return apply(t, OP_ZERO_SRC, c, 0, &s); }
+int ipt_zero_dst(ipt_tx *t, const char *c, const char *dst)
+{ ipt_spec s = IPT_SPEC(.dst = dst); return apply(t, OP_ZERO_DST, c, 0, &s); }
 int ipt_delete_mac(ipt_tx *t, const char *c, const char *mac)
 { ipt_spec s = IPT_SPEC(.mac = mac); return apply(t, OP_DEL_MAC, c, 0, &s); }
 
@@ -921,12 +927,17 @@ int ipt_chain_stats(ipt_tx *t, const char *chain, ipt_rule_stat *out, int max)
             k = &e->counters;
             s->any = e->ip.smsk.s_addr == 0;
             if (!s->any) inet_ntop(AF_INET, &e->ip.src, s->src, sizeof s->src);
+            s->any_dst = e->ip.dmsk.s_addr == 0;
+            if (!s->any_dst) inet_ntop(AF_INET, &e->ip.dst, s->dst, sizeof s->dst);
         } else {
             const struct ip6t_entry *e = (const void *)r->b;
             k = &e->counters;
             s->any = true;
             for (int j = 0; j < 16; j++) if (e->ipv6.smsk.s6_addr[j]) s->any = false;
             if (!s->any) inet_ntop(AF_INET6, &e->ipv6.src, s->src, sizeof s->src);
+            s->any_dst = true;
+            for (int j = 0; j < 16; j++) if (e->ipv6.dmsk.s6_addr[j]) s->any_dst = false;
+            if (!s->any_dst) inet_ntop(AF_INET6, &e->ipv6.dst, s->dst, sizeof s->dst);
         }
         s->pkts = k->pcnt; s->bytes = k->bcnt;
     }

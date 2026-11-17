@@ -62,6 +62,8 @@ int ipt_zero_chain(ipt_tx *t, const char *chain);
 
 /* -Z for the rules of one source address only (`src` is an address; v4 / v6 as the transaction's family). */
 int ipt_zero_src(ipt_tx *t, const char *chain, const char *src);
+/* Same for rules matching this destination address. */
+int ipt_zero_dst(ipt_tx *t, const char *chain, const char *dst);
 /* Removes every rule of the chain that matches this source MAC. 0, or -ENOENT when there was none. */
 int ipt_delete_mac(ipt_tx *t, const char *chain, const char *mac);
 /* One entry per distinct MAC found in the chain's rules (rules with a "mac" match). */
@@ -69,7 +71,7 @@ typedef struct { char mac[18]; bool drop; bool quota; uint64_t quota_left; } ipt
 int ipt_chain_macs(ipt_tx *t, const char *chain, ipt_mac_stat *out, int max);
 
 /* Counters as they were when the table was loaded (or 0 for rules added in this transaction). */
-typedef struct { char src[64]; bool any; uint64_t pkts, bytes; } ipt_rule_stat;   /* any: no source match */
+typedef struct { char src[64], dst[64]; bool any, any_dst; uint64_t pkts, bytes; } ipt_rule_stat;   /* any / any_dst: no source / destination match */
 /* Fills up to `max` entries in chain order; returns the number of rules in the chain (may exceed
  * `max`), or -ENOENT. `out` may be NULL with max 0 to just count. */
 int ipt_chain_stats(ipt_tx *t, const char *chain, ipt_rule_stat *out, int max);

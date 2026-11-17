@@ -59,11 +59,13 @@ static int fk_load(int fam, const char *tbl, ipt_image *o)
     if (!have[i]) {
         uint8_t *img = calloc(1, 1024); uint32_t sz = 0;
         uint32_t hdr = fam == AF_INET ? sizeof(struct ipt_entry) : sizeof(struct ip6t_entry);
-        put(img, &sz, fam, NULL, -2);                                   /* FORWARD policy */
+        put(img, &sz, fam, NULL, -2);                                   /* INPUT policy */
+        uint32_t fwd = sz; put(img, &sz, fam, NULL, -2);                /* FORWARD policy */
         uint32_t post = sz; put(img, &sz, fam, NULL, -2);               /* POSTROUTING policy */
         put(img, &sz, fam, "ERROR", 0);
-        o->valid_hooks = 0x14; o->size = sz; o->num_entries = 3; o->entries = img;
-        o->hook_entry[2] = o->underflow[2] = 0; o->hook_entry[4] = o->underflow[4] = post; (void)hdr;
+        o->valid_hooks = 0x16; o->size = sz; o->num_entries = 4; o->entries = img;
+        o->hook_entry[1] = o->underflow[1] = 0; o->hook_entry[2] = o->underflow[2] = fwd;
+        o->hook_entry[4] = o->underflow[4] = post; (void)hdr;
         return 0;
     }
     *o = kern[i]; o->entries = malloc(kern[i].size); memcpy(o->entries, kern[i].entries, kern[i].size); o->ctr_map = NULL;
@@ -92,6 +94,9 @@ int main(void)
     assert(strstr(o, "R fdfe:dcba:9876::1 0 0\nR fd00::5 0 0\n") || strstr(o, "R fd00::5 0 0\n"));
     assert(!strstr(o, "fe80"));
     assert(strstr(o, "S 198.18.0.1\n") && strstr(o, "M 192.168.43.10 aa:bb:cc:dd:ee:01\n"));
+    /* the way back: catch-all + one -d rule per source, v4 and v6 */
+    assert(strstr(o, "D * 0 0\nD 198.18.0.1 0 0\nD 192.168.43.10 0 0\n"));
+    assert(strstr(o, "D fd00::5 0 0\n"));
     assert(!strstr(o, "E 4") && !strstr(o, "E 6"));
     int s4 = stores[0], s6 = stores[1]; assert(s4 == 1 && s6 == 1);
 

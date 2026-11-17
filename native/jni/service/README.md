@@ -109,6 +109,12 @@ and from the addresses of `xraytun0`; anything else is only visible in the catch
   libiptc), so adding a source - or any other change by this service - no longer resets the other rules' counters.
   `ipt_zero_chain` drops them on purpose. Tests: `native/tests/test_counters.c`, `test_traffic.c`.
 
+### Download counters
+`MV2R_TRAFFIC_RX` mirrors the upload chain for the way back: `mangle FORWARD -i xraytun0` (hotspot clients; reverse NAT
+has already restored their own address by then, which PREROUTING has not) and `mangle INPUT -i xraytun0` (this device)
+both jump into it. It holds a catch-all rule and one `-d <ip>` counter rule per known source; `traffic_poll` prints them as
+`D <ip|*> <pkts> <bytes>`. Reset and Stop counting treat both chains alike. Limits still count upload only.
+
 ### Device control (block / limit by MAC)
 The Devices list can block a device, give it a data limit, or reset its counters (`xhuskydg_helper proxy_control`
 verbs `traffic_block|unblock <mac>`, `traffic_limit <mac> <bytes>` (0 = none), `traffic_limit_all <bytes>`,
