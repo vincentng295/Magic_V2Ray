@@ -120,6 +120,28 @@ int main(void)
     assert(traffic_poll(true) == 0);
     o = slurp(TRAFFIC_FILE); assert(!strstr(o, "R ") && strstr(o, "T -1 -1")); assert(stores[0] == before);
     g_tun_up = true;
+    /* ---- duplicates left in the kernel (older build / racing writer) are collapsed by the next poll ---- */
+    {
+        assert(traffic_poll(true) == 0);                                /* chains + hooks exist again */
+        ipt_tx *tt = ipt_tx_begin(AF_INET, "mangle"); assert(tt);
+        for (int k = 0; k < 5; k++) {                                   /* 5 extra copies of a source rule + of the hook */
+            (void)ipt_append(tt, "MV2R_TRAFFIC", &IPT_SPEC(.src = "192.168.43.10", .target = MVT_COUNT));
+            (void)ipt_append(tt, "MV2R_TRAFFIC_RX", &IPT_SPEC(.dst = "192.168.43.10", .target = MVT_COUNT));
+            (void)ipt_insert(tt, "POSTROUTING", 1, &IPT_SPEC(.out_if = "xraytun0", .target = MVT_JUMP, .jump_chain = "MV2R_TRAFFIC"));
+        }
+        assert(ipt_tx_commit(tt) == 0);
+        tt = ipt_tx_begin(AF_INET, "mangle");
+        assert(ipt_chain_stats(tt, "MV2R_TRAFFIC", NULL, 0) == 3 + 5 && ipt_chain_stats(tt, "POSTROUTING", NULL, 0) == 1 + 5);
+        ipt_tx_abort(tt);
+        assert(traffic_poll(true) == 0);
+        tt = ipt_tx_begin(AF_INET, "mangle");
+        assert(ipt_chain_stats(tt, "MV2R_TRAFFIC", NULL, 0) == 3);     /* catch-all, tun address, client: one each */
+        assert(ipt_chain_stats(tt, "MV2R_TRAFFIC_RX", NULL, 0) == 3);
+        assert(ipt_chain_stats(tt, "POSTROUTING", NULL, 0) == 1);      /* our hook, once (the policy is not counted) */
+        ipt_tx_abort(tt);
+        int st = stores[0]; assert(traffic_poll(true) == 0 && stores[0] == st);   /* and then it is quiet again */
+        o = slurp(TRAFFIC_FILE); assert(strstr(o, "R * 0 0\nR 198.18.0.1 0 0\nR 192.168.43.10 0 0\n"));
+    }
     /* ---- device control: block / limit by MAC ---- */
     #define MACS(fam, out, n) do { ipt_tx *tt = ipt_tx_begin(fam, "mangle"); assert(tt); n = ipt_chain_macs(tt, "MV2R_TRAFFIC_CTL", out, 8); ipt_tx_abort(tt); } while (0)
     ipt_mac_stat ms[8]; int nm;

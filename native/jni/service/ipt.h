@@ -60,6 +60,13 @@ int ipt_check(ipt_tx *t, const char *chain, const ipt_spec *s);             /* -
 /* -Z: zero the counters of every rule in the chain (applied by the commit). */
 int ipt_zero_chain(ipt_tx *t, const char *chain);
 
+/* Collapse identical rules: every group of equal rules in the chain becomes ONE (the one with the biggest counter
+ * survives). 0 if something was removed, -ENOENT otherwise. A counter-only rule counts every packet that passes it,
+ * so a duplicate multiplies the number it reports. */
+int ipt_dedup_chain(ipt_tx *t, const char *chain);
+/* Same, for the copies of one rule only (e.g. our jump in a builtin chain that holds foreign rules too). */
+int ipt_dedup_rule(ipt_tx *t, const char *chain, const ipt_spec *s);
+
 /* -Z for the rules of one source address only (`src` is an address; v4 / v6 as the transaction's family). */
 int ipt_zero_src(ipt_tx *t, const char *chain, const char *src);
 /* Same for rules matching this destination address. */

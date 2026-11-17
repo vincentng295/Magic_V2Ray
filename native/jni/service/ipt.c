@@ -191,7 +191,8 @@ struct xchain {
 };
 
 typedef struct { ipt_spec s; char in_if[24], out_if[24], src[64], dst[64], jump[32], dnat[48], mac[20]; } spec_store;
-enum { OP_NEW, OP_FLUSH, OP_DEL_CHAIN, OP_APPEND, OP_INSERT, OP_DELETE, OP_ZERO, OP_ZERO_SRC, OP_ZERO_DST, OP_DEL_MAC };
+enum { OP_NEW, OP_FLUSH, OP_DEL_CHAIN, OP_APPEND, OP_INSERT, OP_DELETE, OP_ZERO, OP_ZERO_SRC, OP_ZERO_DST, OP_DEL_MAC,
+       OP_DEDUP_CHAIN, OP_DEDUP_RULE };
 struct op { int kind; char chain[32]; int pos; spec_store sp; };
 
 struct ipt_tx {
@@ -772,6 +773,53 @@ static int do_del(ipt_tx *t, const char *chain, const ipt_spec *s)
     return 0;
 }
 
+
+/* ---- duplicates ----
+ * A counter-only rule (no target) counts EVERY packet that walks past it, so two identical `-s <ip>` rules in a
+ * chain make that source's counter twice as big, three rules three times, and so on. They must never exist. */
+static uint64_t rule_bytes(const ipt_tx *t, const xrule *r)
+{
+    if (r->zero) return 0;
+    if (t->family == AF_INET) return ((const struct ipt_entry *)(const void *)r->b)->counters.bcnt;
+    return ((const struct ip6t_entry *)(const void *)r->b)->counters.bcnt;
+}
+static void drop_rule_at(xchain *c, int i)
+{
+    free_rule(&c->r[i]);
+    memmove(&c->r[i], &c->r[i + 1], (c->nr - i - 1) * sizeof *c->r); c->nr--;
+}
+/* Every group of identical rules of the chain shrinks to one. The survivor keeps the biggest counter of the group
+ * (the oldest copy has seen the most real traffic) and the position of the first copy. 0 if something was removed. */
+static int do_dedup_chain(ipt_tx *t, const char *name)
+{
+    xchain *c = find_chain(t, name);
+    if (!c) return -ENOENT;
+    int removed = 0;
+    for (int i = 0; i < c->nr; i++)
+        for (int j = i + 1; j < c->nr; ) {
+            if (!rule_eq(t->f, &c->r[i], &c->r[j])) { j++; continue; }
+            if (rule_bytes(t, &c->r[j]) > rule_bytes(t, &c->r[i])) { xrule tmp = c->r[i]; c->r[i] = c->r[j]; c->r[j] = tmp; }
+            drop_rule_at(c, j); removed++;
+        }
+    return removed ? 0 : -ENOENT;
+}
+/* Same for the rules equal to `s` only (a hook in a chain that also holds other people's rules). */
+static int do_dedup_rule(ipt_tx *t, const char *chain, const ipt_spec *s)
+{
+    xchain *c = find_chain(t, chain);
+    if (!c) return -ENOENT;
+    xrule r; int rc = build_rule(t, s, &r);
+    if (rc < 0) return rc;
+    int removed = 0, seen = 0;
+    for (int i = 0; i < c->nr; ) {
+        if (!rule_eq(t->f, &c->r[i], &r)) { i++; continue; }
+        if (seen++ == 0) { i++; continue; }
+        drop_rule_at(c, i); removed++;
+    }
+    free(r.b);
+    return removed ? 0 : -ENOENT;
+}
+
 static int do_zero(ipt_tx *t, const char *name)
 {
     xchain *c = find_chain(t, name);
@@ -879,8 +927,14 @@ static int run_op(ipt_tx *t, const struct op *o)
     case OP_NEW: return do_new(t, o->chain);
     case OP_FLUSH: return do_flush(t, o->chain);
     case OP_DEL_CHAIN: return do_delchain(t, o->chain);
-    case OP_APPEND: return do_add(t, o->chain, -1, &o->sp.s);
-    case OP_INSERT: return do_add(t, o->chain, o->pos, &o->sp.s);
+    case OP_APPEND:
+    case OP_INSERT: {
+        /* Replaying after EAGAIN: the table was reloaded, and whoever changed it meanwhile may have added this very
+         * rule already. Adding it again would leave two copies - and every copy counts every packet. */
+        if (t->replaying) { xchain *cc; int ii; if (do_find(t, o->chain, &o->sp.s, &cc, &ii) == 0) return 0; }
+        return do_add(t, o->chain, o->kind == OP_APPEND ? -1 : o->pos, &o->sp.s); }
+    case OP_DEDUP_CHAIN: return do_dedup_chain(t, o->chain);
+    case OP_DEDUP_RULE: return do_dedup_rule(t, o->chain, &o->sp.s);
     case OP_DELETE: return do_del(t, o->chain, &o->sp.s);
     case OP_ZERO: return do_zero(t, o->chain);
     case OP_ZERO_SRC: return do_zero_addr(t, o->chain, o->sp.s.src, false);
@@ -919,6 +973,8 @@ int ipt_delete(ipt_tx *t, const char *c, const ipt_spec *s) { return apply(t, OP
 int ipt_check(ipt_tx *t, const char *c, const ipt_spec *s)
 { xchain *cc; int i; return do_find(t, c, s, &cc, &i); }
 int ipt_zero_chain(ipt_tx *t, const char *c)   { return apply(t, OP_ZERO, c, 0, NULL); }
+int ipt_dedup_chain(ipt_tx *t, const char *c)  { return apply(t, OP_DEDUP_CHAIN, c, 0, NULL); }
+int ipt_dedup_rule(ipt_tx *t, const char *c, const ipt_spec *s) { return apply(t, OP_DEDUP_RULE, c, 0, s); }
 int ipt_zero_src(ipt_tx *t, const char *c, const char *src)
 { ipt_spec s = IPT_SPEC(.src = src); return apply(t, OP_ZERO_SRC, c, 0, &s); }
 int ipt_zero_dst(ipt_tx *t, const char *c, const char *dst)
@@ -1013,7 +1069,9 @@ int ipt_tx_commit(ipt_tx *t)
         /* Someone (netd) changed the table under us: reload and replay. */
         free_chains(t);
         if ((rc = load_table(t)) < 0) break;
+        t->replaying = true;
         for (int i = 0; i < t->nlog; i++) run_op(t, &t->log[i]);
+        t->replaying = false;
     }
     tx_free(t);
     return rc;

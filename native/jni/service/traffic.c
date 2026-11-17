@@ -188,6 +188,7 @@ static void ctl_family(int fam, const ctl_state *s, const char *refresh, bool re
     (void)ipt_new_chain(t, CTL_CHAIN);
     ipt_spec hook = CTL_HOOK();
     if (ipt_check(t, "FORWARD", &hook) != 0) (void)ipt_insert(t, "FORWARD", 1, &hook);
+    (void)ipt_dedup_rule(t, "FORWARD", &hook);
 
     if (refresh) (void)ipt_delete_mac(t, CTL_CHAIN, refresh);
     ipt_mac_stat have[CTL_MAX * 2];
@@ -381,6 +382,14 @@ static void family_pass(int fam, FILE *f, nl_neigh *nb)
     ipt_spec rxh = RX_HOOK();
     for (size_t h = 0; h < sizeof RX_HOOKS / sizeof *RX_HOOKS; h++)
         if (ipt_check(t, RX_HOOKS[h], &rxh) != 0) (void)ipt_insert(t, RX_HOOKS[h], 1, &rxh);
+
+    /* Self-heal: a copy of a counter-only rule counts every packet again, so duplicates (left by an older build, or
+     * by a table edit that raced with another writer) inflate the numbers by the number of copies. Collapse them
+     * first; the survivor keeps the biggest counter, which is what one rule would have counted. */
+    (void)ipt_dedup_rule(t, "POSTROUTING", &hook);
+    for (size_t h = 0; h < sizeof RX_HOOKS / sizeof *RX_HOOKS; h++) (void)ipt_dedup_rule(t, RX_HOOKS[h], &rxh);
+    (void)ipt_dedup_chain(t, TM_CHAIN);
+    (void)ipt_dedup_chain(t, RX_CHAIN);
 
     int nrules = ipt_chain_stats(t, TM_CHAIN, NULL, 0);
     int nrx = ipt_chain_stats(t, RX_CHAIN, NULL, 0);
