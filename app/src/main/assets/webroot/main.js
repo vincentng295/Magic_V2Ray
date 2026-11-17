@@ -6111,7 +6111,7 @@ function _tmonApplyTun(sample, meta) {
     if (MV_NONROOT) {
         if (meta.unsupported || !meta.iface) note = t('traffic_vpn_off');
         else if (!haveTun) note = t('traffic_unsupported', { iface: meta.iface });
-        else note = t('traffic_note_nonroot', { src: meta.src || 'TrafficStats' });
+        else note = t('traffic_note_nonroot', { iface: meta.iface });
     } else if (!haveTun) {
         note = t('traffic_iface_missing', { iface: ifaceName });
     } else {
