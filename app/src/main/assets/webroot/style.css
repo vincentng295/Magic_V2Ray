@@ -3380,3 +3380,41 @@ html.has-bg .category-group:has(> .nodes-list[style*="display: none"]) > .catego
     color: var(--md-on-surface-variant);
     padding: 10px 2px;
 }
+
+/* Traffic: per-device control (block / limit / reset) */
+.traffic-dev-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.traffic-tag {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-family: inherit;
+    font-size: 10px;
+    font-weight: 700;
+    vertical-align: middle;
+}
+.traffic-tag--block {
+    background: var(--md-error-container, #f9dedc);
+    color: var(--md-on-error-container, #410e0b);
+}
+.traffic-limit-fields {
+    display: flex;
+    gap: 8px;
+    margin: 12px 0 6px;
+}
+.traffic-limit-input {
+    font: inherit;
+    font-size: 15px;
+    padding: 8px 10px;
+    border-radius: var(--md-shape-sm);
+    border: 1px solid var(--md-outline-variant);
+    background: var(--md-surface-2);
+    color: var(--md-on-surface);
+    min-width: 0;
+}
+input.traffic-limit-input { flex: 1; }
+.traffic-limit-error { display: block; color: var(--md-error, #b3261e); min-height: 1em; }

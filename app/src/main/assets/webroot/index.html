@@ -952,6 +952,7 @@
                             <span class="ip-hunter-title" data-i18n="traffic_ip_title">Sent into the tunnel, by device</span>
                         </div>
                         <div class="traffic-actions" id="traffic-root-actions">
+                            <button type="button" class="traffic-btn" id="btn-traffic-limit-all" onclick="trafficSetLimitAll()" data-i18n="traffic_limit_all">Limit all devices</button>
                             <button type="button" class="traffic-btn" onclick="resetTrafficCounters()" data-i18n="traffic_reset">Reset counters</button>
                             <button type="button" class="traffic-btn" id="btn-traffic-toggle" onclick="toggleTrafficCounting()">Stop counting</button>
                         </div>
@@ -1002,6 +1003,27 @@
             <div class="confirm-actions">
                 <button id="confirm-modal-cancel" class="btn btn-confirm-cancel" data-i18n="confirm_cancel">Cancel</button>
                 <button id="confirm-modal-ok" class="btn btn-confirm-ok" data-i18n="confirm_ok">OK</button>
+            </div>
+        </div>
+    </div>
+    <!-- Traffic limit input (KSU webui does not support window.prompt()) -->
+    <div id="traffic-limit-overlay" class="modal-overlay confirm-overlay" style="display: none;">
+        <div class="modal-window confirm-window">
+            <div class="modal-body confirm-body">
+                <p id="traffic-limit-title"></p>
+                <div class="traffic-limit-fields">
+                    <input id="traffic-limit-value" type="text" inputmode="decimal" autocomplete="off" class="traffic-limit-input">
+                    <select id="traffic-limit-unit" class="traffic-limit-input">
+                        <option value="1048576">MB</option>
+                        <option value="1073741824">GB</option>
+                    </select>
+                </div>
+                <small class="ip-hunter-hint" data-i18n="traffic_limit_hint">Counts what the device sends. Empty or 0 removes the limit.</small>
+                <small class="traffic-limit-error" id="traffic-limit-error"></small>
+            </div>
+            <div class="confirm-actions">
+                <button id="traffic-limit-cancel" class="btn btn-confirm-cancel" data-i18n="confirm_cancel">Cancel</button>
+                <button id="traffic-limit-ok" class="btn btn-confirm-ok" data-i18n="confirm_ok">OK</button>
             </div>
         </div>
     </div>

@@ -108,3 +108,20 @@ and from the addresses of `xraytun0`; anything else is only visible in the catch
   `ipt.c` now maps them back onto the surviving entries with `IPT_SO_SET_ADD_COUNTERS` (`ipt_image.ctr_map`, like
   libiptc), so adding a source - or any other change by this service - no longer resets the other rules' counters.
   `ipt_zero_chain` drops them on purpose. Tests: `native/tests/test_counters.c`, `test_traffic.c`.
+
+### Device control (block / limit by MAC)
+The Devices list can block a device, give it a data limit, or reset its counters (`xhuskydg_helper proxy_control`
+verbs `traffic_block|unblock <mac>`, `traffic_limit <mac> <bytes>` (0 = none), `traffic_limit_all <bytes>`,
+`traffic_reset_mac <mac>`). The `mac` match is not valid in POSTROUTING, so a second chain `MV2R_TRAFFIC_CTL` hangs
+off `mangle FORWARD` (position 1, any interface):
+
+* blocked: `-m mac --mac-source X -j DROP`
+* limited: `-m mac --mac-source X -m quota --quota N -j RETURN`, then `-m mac --mac-source X -j DROP`
+* `limit_all` gives every device on the neighbour table its own quota of that size (devices that appear later are
+  picked up on the next `traffic_poll`); a per-device limit overrides it.
+
+Details worth knowing: the quota counts what the device **sends** (the direction the list shows), and IPv4 / IPv6 have a
+quota each. Settings are saved in `DATADIR/traffic_ctl` and re-applied at service start; the chain is removed on
+`stop_svc` (and by `uninstall.sh`), and a quota starts full again after a service restart. `traffic_reset_mac` zeroes the
+counters of every address seen for that MAC and rebuilds its quota. Block / limit survive "Stop counting".
+New engine pieces in `ipt.c`: `mac` and `quota` matches, `ipt_zero_src`, `ipt_delete_mac`, `ipt_chain_macs`.

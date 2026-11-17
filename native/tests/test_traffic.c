@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <unistd.h>
 #include <linux/netfilter/x_tables.h>
 #include <linux/netfilter_ipv4/ip_tables.h>
 #include <linux/netfilter_ipv6/ip6_tables.h>
@@ -57,8 +58,12 @@ static int fk_load(int fam, const char *tbl, ipt_image *o)
     (void)tbl; int i = fam == AF_INET ? 0 : 1; memset(o, 0, sizeof *o);
     if (!have[i]) {
         uint8_t *img = calloc(1, 1024); uint32_t sz = 0;
-        put(img, &sz, fam, NULL, -2); put(img, &sz, fam, "ERROR", 0);
-        o->valid_hooks = 0x10; o->size = sz; o->num_entries = 2; o->entries = img;
+        uint32_t hdr = fam == AF_INET ? sizeof(struct ipt_entry) : sizeof(struct ip6t_entry);
+        put(img, &sz, fam, NULL, -2);                                   /* FORWARD policy */
+        uint32_t post = sz; put(img, &sz, fam, NULL, -2);               /* POSTROUTING policy */
+        put(img, &sz, fam, "ERROR", 0);
+        o->valid_hooks = 0x14; o->size = sz; o->num_entries = 3; o->entries = img;
+        o->hook_entry[2] = o->underflow[2] = 0; o->hook_entry[4] = o->underflow[4] = post; (void)hdr;
         return 0;
     }
     *o = kern[i]; o->entries = malloc(kern[i].size); memcpy(o->entries, kern[i].entries, kern[i].size); o->ctr_map = NULL;
@@ -77,7 +82,7 @@ static char *slurp(const char *p) { static char b[8192]; FILE *f = fopen(p, "r")
 int main(void)
 {
     static const ipt_backend be = { fk_load, fk_store }; ipt_set_backend(&be);
-    char cmd[200]; snprintf(cmd, sizeof cmd, "mkdir -p %s", RUN_DIR); assert(system(cmd) == 0);
+    char cmd[200]; snprintf(cmd, sizeof cmd, "mkdir -p %s %s", RUN_DIR, DATADIR); assert(system(cmd) == 0);
 
     assert(traffic_poll(true) == 0);
     char *o = slurp(TRAFFIC_FILE); puts(o);
@@ -109,6 +114,56 @@ int main(void)
     traffic_remove(); g_tun_up = false; int before = stores[0];
     assert(traffic_poll(true) == 0);
     o = slurp(TRAFFIC_FILE); assert(!strstr(o, "R ") && strstr(o, "T -1 -1")); assert(stores[0] == before);
+    g_tun_up = true;
+    /* ---- device control: block / limit by MAC ---- */
+    #define MACS(fam, out, n) do { ipt_tx *tt = ipt_tx_begin(fam, "mangle"); assert(tt); n = ipt_chain_macs(tt, "MV2R_TRAFFIC_CTL", out, 8); ipt_tx_abort(tt); } while (0)
+    ipt_mac_stat ms[8]; int nm;
+    unlink(MV_STUB_DIR "/../ctl_state_unused");
+    assert(traffic_ctl_cmd("block AA:BB:CC:DD:EE:01") == 0);                    /* upper case is normalised */
+    MACS(AF_INET, ms, nm); assert(nm == 1 && !strcmp(ms[0].mac, "aa:bb:cc:dd:ee:01") && ms[0].drop && !ms[0].quota);
+    MACS(AF_INET6, ms, nm); assert(nm == 1 && ms[0].drop);                      /* v6 too */
+    assert(traffic_ctl_cmd("block aa:bb:cc:dd:ee:01") == 0);                    /* idempotent */
+    MACS(AF_INET, ms, nm); assert(nm == 1);
+    assert(traffic_ctl_cmd("limit aa:bb:cc:dd:ee:02 1048576") == 0);
+    MACS(AF_INET, ms, nm); assert(nm == 2);
+    for (int i = 0; i < nm; i++) if (!strcmp(ms[i].mac, "aa:bb:cc:dd:ee:02")) assert(ms[i].quota && ms[i].drop && ms[i].quota_left == 1048576);
+    /* blocking a limited device turns it into a plain DROP, unblocking brings the quota back */
+    assert(traffic_ctl_cmd("block aa:bb:cc:dd:ee:02") == 0);
+    MACS(AF_INET, ms, nm); for (int i = 0; i < nm; i++) assert(!ms[i].quota);
+    assert(traffic_ctl_cmd("unblock aa:bb:cc:dd:ee:02") == 0);
+    MACS(AF_INET, ms, nm); assert(nm == 2);
+    for (int i = 0; i < nm; i++) if (!strcmp(ms[i].mac, "aa:bb:cc:dd:ee:02")) assert(ms[i].quota);
+    assert(traffic_ctl_cmd("unblock aa:bb:cc:dd:ee:01") == 0);
+    MACS(AF_INET, ms, nm); assert(nm == 1 && !strcmp(ms[0].mac, "aa:bb:cc:dd:ee:02"));
+    /* the poll reports state + quota */
+    assert(traffic_poll(true) == 0);
+    o = slurp(TRAFFIC_FILE);
+    assert(strstr(o, "L aa:bb:cc:dd:ee:02 1048576\n") && strstr(o, "Q 4 aa:bb:cc:dd:ee:02 1048576\n") && !strstr(o, "B "));
+    /* limit for everybody: the known device (aa:..:01 on the neighbour table) gets its own quota; a poll keeps it */
+    assert(traffic_ctl_cmd("limit_all 2048") == 0);
+    MACS(AF_INET, ms, nm); assert(nm == 3);
+    assert(traffic_poll(true) == 0); MACS(AF_INET, ms, nm); assert(nm == 3);
+    assert(strstr(slurp(TRAFFIC_FILE), "L * 2048\n"));
+    /* reset one device: its counters and its quota start over; the explicit limit is not the default */
+    assert(traffic_ctl_cmd("reset_mac aa:bb:cc:dd:ee:02") == 0);
+    MACS(AF_INET, ms, nm); for (int i = 0; i < nm; i++) if (!strcmp(ms[i].mac, "aa:bb:cc:dd:ee:02")) assert(ms[i].quota_left == 1048576);
+    assert(traffic_ctl_cmd("reset_mac aa:bb:cc:dd:ee:01") == 0);
+    /* removing limits */
+    assert(traffic_ctl_cmd("limit_all 0") == 0);
+    MACS(AF_INET, ms, nm); assert(nm == 1);
+    assert(traffic_ctl_cmd("limit aa:bb:cc:dd:ee:02 0") == 0);
+    MACS(AF_INET, ms, nm); assert(nm == 0);
+    /* bad input is refused and changes nothing */
+    assert(traffic_ctl_cmd("block aa:bb:cc") < 0);
+    assert(traffic_ctl_cmd("block 01:00:5e:00:00:01") < 0);                     /* multicast */
+    assert(traffic_ctl_cmd("limit aa:bb:cc:dd:ee:02 12x") < 0);
+    assert(traffic_ctl_cmd("frobnicate aa:bb:cc:dd:ee:02") < 0);
+    MACS(AF_INET, ms, nm); assert(nm == 0);
+    /* settings survive the chain being removed (service restart) */
+    assert(traffic_ctl_cmd("block aa:bb:cc:dd:ee:09") == 0);
+    traffic_ctl_remove(); MACS(AF_INET, ms, nm); assert(nm < 0 || nm == 0);
+    traffic_ctl_apply(); MACS(AF_INET, ms, nm); assert(nm == 1 && ms[0].drop);
+    assert(traffic_ctl_cmd("unblock aa:bb:cc:dd:ee:09") == 0);
     puts("PASS");
     return 0;
 }

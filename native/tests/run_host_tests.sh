@@ -11,5 +11,5 @@ gcc -Wno-override-init -D_GNU_SOURCE -fsanitize=address,undefined -o /tmp/test_f
 /tmp/test_fallthrough
 gcc -Wno-override-init -D_GNU_SOURCE -fsanitize=address,undefined -o /tmp/test_counters native/tests/test_counters.c $S/ipt.c -lpthread
 /tmp/test_counters
-gcc -std=gnu11 -Wno-override-init -D_GNU_SOURCE -DMV_STUB_DIR='"/tmp/mv_traffic_test"' -fsanitize=address,undefined -o /tmp/test_traffic native/tests/test_traffic.c $S/traffic.c $S/ipt.c -lpthread
+gcc -std=gnu11 -Wno-override-init -D_GNU_SOURCE -DMV_STUB_DIR='"/tmp/mv_traffic_test"' -DMV_DATADIR='"/tmp/mv_traffic_test/data"' -fsanitize=address,undefined -o /tmp/test_traffic native/tests/test_traffic.c $S/traffic.c $S/ipt.c -lpthread
 /tmp/test_traffic

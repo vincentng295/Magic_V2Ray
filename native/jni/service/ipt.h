@@ -23,6 +23,8 @@ typedef struct ipt_spec {
     int tcp_flags_mask, tcp_flags_cmp;   /* -1 = none ("--tcp-flags MASK CMP") */
     bool mark_match, mark_inv; uint32_t mark_val, mark_mask;   /* -m mark */
     bool owner, owner_inv; uint32_t uid_lo, uid_hi;            /* -m owner --uid-owner lo[-hi] */
+    const char *mac; bool mac_inv;       /* -m mac --mac-source aa:bb:cc:dd:ee:ff (PREROUTING / FORWARD / INPUT only) */
+    bool quota_on; uint64_t quota;       /* -m quota --quota N: matches while bytes are left, then stops matching */
     mv_target_t target;
     const char *jump_chain;              /* MVT_JUMP */
     uint32_t set_mark, set_mask;         /* MVT_MARK: --set-xmark value[/mask] (mask 0 => 0xffffffff) */
@@ -57,6 +59,14 @@ int ipt_delete(ipt_tx *t, const char *chain, const ipt_spec *s);            /* -
 int ipt_check(ipt_tx *t, const char *chain, const ipt_spec *s);             /* -C: 0 if present */
 /* -Z: zero the counters of every rule in the chain (applied by the commit). */
 int ipt_zero_chain(ipt_tx *t, const char *chain);
+
+/* -Z for the rules of one source address only (`src` is an address; v4 / v6 as the transaction's family). */
+int ipt_zero_src(ipt_tx *t, const char *chain, const char *src);
+/* Removes every rule of the chain that matches this source MAC. 0, or -ENOENT when there was none. */
+int ipt_delete_mac(ipt_tx *t, const char *chain, const char *mac);
+/* One entry per distinct MAC found in the chain's rules (rules with a "mac" match). */
+typedef struct { char mac[18]; bool drop; bool quota; uint64_t quota_left; } ipt_mac_stat;
+int ipt_chain_macs(ipt_tx *t, const char *chain, ipt_mac_stat *out, int max);
 
 /* Counters as they were when the table was loaded (or 0 for rules added in this transaction). */
 typedef struct { char src[64]; bool any; uint64_t pkts, bytes; } ipt_rule_stat;   /* any: no source match */

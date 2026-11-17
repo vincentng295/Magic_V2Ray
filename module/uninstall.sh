@@ -76,6 +76,10 @@ for bin in "$iptables" "$ip6tables"; do
     drop_rule "$bin" -t mangle -D POSTROUTING -o "$TUN_NAME" -j MV2R_TRAFFIC
     $bin -t mangle -F MV2R_TRAFFIC 2>/dev/null
     $bin -t mangle -X MV2R_TRAFFIC 2>/dev/null
+    # device block / limit chain (traffic.c)
+    drop_rule "$bin" -t mangle -D FORWARD -j MV2R_TRAFFIC_CTL
+    $bin -t mangle -F MV2R_TRAFFIC_CTL 2>/dev/null
+    $bin -t mangle -X MV2R_TRAFFIC_CTL 2>/dev/null
 done
 
 # Standalone rules that were inserted directly into built-in chains.

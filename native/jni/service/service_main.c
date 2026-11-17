@@ -117,6 +117,7 @@ static void *boot_thread(void *arg)
     if (!u_exists(RT_TABLES_PATH)) log_msg("rt_tables never appeared after %ds; continuing anyway", waited);
 
     ensure_exclude_app_chain();
+    traffic_ctl_apply();                     /* blocked / limited devices stay that way across restarts */
     release_traffic();                       /* clear a stale gate if the loop died mid hard_restart */
     control_submit("start_monitor");
 
@@ -184,6 +185,7 @@ void service_shutdown(void)
     stop_xray();                                     /* kills xray, drops iptables chains, ip rules, ULA, tun */
     remove_mark_rule();                              /* fwmark rule is kept by stop_xray; not ours any more */
     release_traffic();                               /* a hard_restart gate must never outlive us */
+    traffic_ctl_remove();                            /* device block / limit rules; the saved settings stay */
     pthread_mutex_unlock(&g_lock);
 
     if (was_enabled) u_write(ENABLED_FLAG, "");      /* the next service resumes xray on its own */

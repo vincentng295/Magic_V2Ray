@@ -5962,6 +5962,11 @@ function fmtTrafficRate(n) {
 //   R <src|*> <pkts> <bytes>  one line per rule of the chain; "*" = the catch-all rule
 //   S <ip>                    an address of xraytun0 (this device)
 //   M <ip> <mac>              neighbour with a link-layer address
+//   B <mac>                   blocked device
+//   L <mac|*> <bytes>         traffic limit ("*" = every device without its own)
+//   Q <4|6> <mac> <bytes>     quota the kernel has left for that device and family
+const _TMON_MAC_RE = /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/;
+let _tmonCtl = { blocked: new Set(), limit: {}, quota: {} };   // latest B / L / Q lines
 const TMON_FILE = `${STUB_DIR}/run/traffic`;
 
 function _tmonVerb(verb) {
@@ -5969,7 +5974,8 @@ function _tmonVerb(verb) {
 }
 
 function _tmonParse(out) {
-    const r = { tx: NaN, rx: NaN, err: false, all: 0, ips: {}, self: new Set(), mac: {} };
+    const r = { tx: NaN, rx: NaN, err: false, all: 0, ips: {}, self: new Set(), mac: {},
+        blocked: new Set(), limit: {}, quota: {} };
     for (const raw of String(out || '').split('\n')) {
         const p = raw.trim().split(/\s+/);
         switch (p[0]) {
@@ -5984,6 +5990,19 @@ function _tmonParse(out) {
             }
             case 'S': if (p[1]) r.self.add(p[1]); break;
             case 'M': if (p[1] && p[2]) r.mac[p[1]] = p[2]; break;
+            case 'B': if (_TMON_MAC_RE.test(p[1] || '')) r.blocked.add(p[1]); break;
+            case 'L': {
+                const v = Number(p[2]);
+                if ((p[1] === '*' || _TMON_MAC_RE.test(p[1] || '')) && Number.isFinite(v) && v > 0) r.limit[p[1]] = v;
+                break;
+            }
+            case 'Q': {                                    // Q <4|6> <mac> <bytes the kernel still allows>
+                const left = Number(p[3]);
+                if ((p[1] === '4' || p[1] === '6') && _TMON_MAC_RE.test(p[2] || '') && Number.isFinite(left)) {
+                    (r.quota[p[2]] = r.quota[p[2]] || {})[p[1]] = left;
+                }
+                break;
+            }
         }
     }
     return r;
@@ -6190,6 +6209,12 @@ function _tmonGroups(sample, ipRate) {
         g.bytes += bytes;
         g.rate += ipRate[ip] || 0;
     }
+    // Blocked / limited devices stay in the list even when they sent nothing, or they could never be unblocked.
+    const ctlMacs = new Set([...(sample.blocked || []), ...Object.keys(sample.limit || {}).filter(k => k !== '*')]);
+    for (const mac of ctlMacs) {
+        if (groups.has('mac:' + mac)) continue;
+        groups.set('mac:' + mac, { self: false, mac, ips: [], bytes: 0, rate: 0 });
+    }
     const rows = Array.from(groups.values());
     const v4 = (ip) => ip.indexOf(':') < 0;
     for (const g of rows) {
@@ -6226,6 +6251,8 @@ function _tmonApplyIps(sample) {
         }
     }
     _tmonIpPrev = { t: now, ips: sample.ips };
+    _tmonCtl = { blocked: sample.blocked, limit: sample.limit, quota: sample.quota };
+    _tmonSyncLimitAll();
     for (const ip of Object.keys(sample.mac)) _tmonMacMemo[ip] = sample.mac[ip];
 
     const haveTun = Number.isFinite(sample.tx) && sample.tx >= 0;
@@ -6293,6 +6320,18 @@ function renderTrafficIpList(rows, other, total) {
             sub.textContent = subTxt;
             left.appendChild(sub);
         }
+        const st = (!r.other && !r.self && r.mac) ? _tmonDevState(r.mac) : null;
+        if (st && st.blocked) {
+            const tag = document.createElement('span');
+            tag.className = 'traffic-tag traffic-tag--block';
+            tag.textContent = t('traffic_blocked');
+            addr.appendChild(tag);
+        } else if (st && st.limit && st.left <= 0) {
+            const tag = document.createElement('span');
+            tag.className = 'traffic-tag traffic-tag--block';
+            tag.textContent = t('traffic_limit_reached');
+            addr.appendChild(tag);
+        }
         const val = document.createElement('div');
         val.className = 'traffic-ip-val';
         val.textContent = r.other ? fmtTrafficBytes(r.bytes) : fmtTrafficBytes(r.bytes) + ' · ' + fmtTrafficRate(r.rate);
@@ -6305,8 +6344,133 @@ function renderTrafficIpList(rows, other, total) {
         bar.appendChild(fill);
         row.appendChild(head);
         row.appendChild(bar);
+        if (st) {
+            if (st.limit) {
+                const lim = document.createElement('div');
+                lim.className = 'traffic-ip-sub';
+                lim.textContent = t('traffic_limit_used', {
+                    used: fmtTrafficBytes(st.limit - Math.max(0, st.left)), limit: fmtTrafficBytes(st.limit)
+                }) + (st.byDefault ? ' · ' + t('traffic_limit_default') : '');
+                row.appendChild(lim);
+            }
+            row.appendChild(_tmonDevActions(r.mac, st));
+        }
         list.appendChild(row);
     }
+}
+
+// Block / limit state of one device from the latest snapshot. `left` is what its quota still allows:
+// IPv4 and IPv6 are metered separately, so what has been used is the sum over the families that exist.
+function _tmonDevState(mac) {
+    const c = _tmonCtl;
+    const own = c.limit[mac];
+    const limit = own || c.limit['*'] || 0;
+    let used = 0;
+    const q = c.quota[mac];
+    if (limit && q) for (const f of Object.keys(q)) used += Math.max(0, limit - q[f]);
+    return { blocked: c.blocked.has(mac), limit, byDefault: !own && !!limit, left: limit - used };
+}
+
+function _tmonDevActions(mac, st) {
+    const box = document.createElement('div');
+    box.className = 'traffic-dev-actions';
+    const add = (key, fn) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'traffic-btn';
+        b.textContent = t(key);
+        b.onclick = fn;
+        box.appendChild(b);
+    };
+    add(st.blocked ? 'traffic_unblock' : 'traffic_block', () => trafficBlockToggle(mac, st.blocked));
+    add('traffic_limit', () => trafficSetLimit(mac));
+    add('traffic_reset_one', () => trafficResetDevice(mac));
+    return box;
+}
+
+// One control verb; the service re-validates the MAC and the number. Refreshes the list when done.
+function _tmonCtlRun(verbWithArgs, okKey) {
+    if (MV_NONROOT || _tmonBusy) return;
+    if (!/^[a-z_]+( [0-9a-f:]+){1,2}$/.test(verbWithArgs)) return;
+    _tmonBusy = true;
+    execShell(`${_tmonVerb(verbWithArgs)} >/dev/null 2>&1; echo $?`, (out) => {
+        _tmonBusy = false;
+        if (String(out || '').trim() === '0') {
+            showToast(t(okKey), 'success');
+            _tmonIpPrev = null;
+        } else {
+            showToast(t('traffic_ctl_failed'), 'error');
+        }
+        if (_activeTrafficTab() === 'ip') pollTraffic();
+    });
+}
+
+async function trafficBlockToggle(mac, blocked) {
+    if (!_TMON_MAC_RE.test(mac)) return;
+    if (!blocked) {
+        const ok = await showConfirm(t('confirm_traffic_block', { mac }));
+        if (!ok) return;
+    }
+    _tmonCtlRun((blocked ? 'traffic_unblock ' : 'traffic_block ') + mac,
+        blocked ? 'toast_traffic_unblocked' : 'toast_traffic_blocked');
+}
+
+async function trafficSetLimit(mac) {
+    if (!_TMON_MAC_RE.test(mac)) return;
+    const bytes = await promptTrafficLimit(t('traffic_limit_title_dev', { mac }), _tmonCtl.limit[mac] || 0);
+    if (bytes === null) return;
+    _tmonCtlRun(`traffic_limit ${mac} ${bytes}`, bytes ? 'toast_traffic_limit_set' : 'toast_traffic_limit_cleared');
+}
+
+async function trafficSetLimitAll() {
+    const bytes = await promptTrafficLimit(t('traffic_limit_title_all'), _tmonCtl.limit['*'] || 0);
+    if (bytes === null) return;
+    _tmonCtlRun(`traffic_limit_all ${bytes}`, bytes ? 'toast_traffic_limit_set' : 'toast_traffic_limit_cleared');
+}
+
+function trafficResetDevice(mac) {
+    if (!_TMON_MAC_RE.test(mac)) return;
+    _tmonCtlRun('traffic_reset_mac ' + mac, 'toast_traffic_dev_reset');
+}
+
+// Shows what "Limit all" is currently set to on its button.
+function _tmonSyncLimitAll() {
+    const b = document.getElementById('btn-traffic-limit-all');
+    if (!b) return;
+    const v = _tmonCtl.limit['*'];
+    b.textContent = v ? t('traffic_limit_all_on', { limit: fmtTrafficBytes(v) }) : t('traffic_limit_all');
+}
+
+// Asks for a data limit. Resolves with bytes (0 = remove the limit) or null when cancelled.
+// The KSU webui has no window.prompt(), so this is a small modal like showConfirm's.
+function promptTrafficLimit(title, currentBytes) {
+    return new Promise(resolve => {
+        const overlay = document.getElementById('traffic-limit-overlay');
+        const num = document.getElementById('traffic-limit-value');
+        const unit = document.getElementById('traffic-limit-unit');
+        const ok = document.getElementById('traffic-limit-ok');
+        const cancel = document.getElementById('traffic-limit-cancel');
+        const err = document.getElementById('traffic-limit-error');
+        if (!overlay || !num || !unit || !ok || !cancel) { resolve(null); return; }
+        document.getElementById('traffic-limit-title').textContent = title;
+        const GB = 1024 * 1024 * 1024, MB = 1024 * 1024;
+        if (currentBytes >= GB && currentBytes % (GB / 10) === 0) { unit.value = String(GB); num.value = String(currentBytes / GB); }
+        else if (currentBytes > 0) { unit.value = String(MB); num.value = String(Math.max(1, Math.round(currentBytes / MB))); }
+        else { unit.value = String(GB); num.value = ''; }
+        err.textContent = '';
+        overlay.style.display = 'flex';
+        const done = (v) => { overlay.style.display = 'none'; ok.onclick = cancel.onclick = null; resolve(v); };
+        cancel.onclick = () => done(null);
+        ok.onclick = () => {
+            const raw = num.value.trim().replace(',', '.');
+            if (raw === '') { done(0); return; }
+            const n = Number(raw);
+            const bytes = Math.round(n * Number(unit.value));
+            if (!Number.isFinite(n) || n < 0 || bytes > 1e15) { err.textContent = t('traffic_limit_invalid'); return; }
+            done(bytes);
+        };
+        num.focus();
+    });
 }
 
 function resetTrafficCounters() {

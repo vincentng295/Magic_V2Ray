@@ -151,6 +151,11 @@ static void do_job(const char *c, out_t *o)
         if (r < 0) { o->rc = 1; ERR(o, "traffic: %s", strerror(-r)); } else OUT(o, "ok");
         return;
     }
+    if (!strncmp(c, "traffic_", 8) && strchr(c, ' ')) {          /* block / unblock / limit / limit_all / reset_mac */
+        int r = traffic_ctl_cmd(c + 8);
+        if (r < 0) { o->rc = 1; ERR(o, "traffic: %s", strerror(-r)); } else OUT(o, "ok");
+        return;
+    }
     if (!strcmp(c, "traffic_reset")) { traffic_reset(); OUT(o, "ok"); return; }
     if (!strcmp(c, "traffic_stop")) { traffic_remove(); OUT(o, "ok"); return; }
     if (!strcmp(c, "reset_mobile_network")) {
@@ -166,7 +171,7 @@ static void do_job(const char *c, out_t *o)
 
 /* -------------------------------------------------------------- queue --- */
 
-typedef struct { char verb[48]; char reply[200]; } job_t;
+typedef struct { char verb[64]; char reply[200]; } job_t;
 enum { QCAP = 64 };
 static job_t g_q[QCAP];
 static int g_qhead, g_qlen;

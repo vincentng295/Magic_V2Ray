@@ -37,6 +37,14 @@ const char* const kVerbs[] = {
     "traffic_poll", "traffic_readonly", "traffic_reset", "traffic_stop",
 };
 
+// Verbs that take arguments: traffic_block <mac>, traffic_unblock <mac>, traffic_limit <mac> <bytes>,
+// traffic_limit_all <bytes>, traffic_reset_mac <mac>. The service validates them again.
+struct ArgVerb { const char* name; int args; };
+const ArgVerb kArgVerbs[] = {
+    {"traffic_block", 1}, {"traffic_unblock", 1}, {"traffic_limit", 2},
+    {"traffic_limit_all", 1}, {"traffic_reset_mac", 1},
+};
+
 constexpr const char* kRunDir = MV_STUB_DIR MV_RUN_SUBDIR;
 constexpr const char* kLogFile = MV_DATADIR "/proxy_control.log";
 constexpr off_t kLogMax = 256 * 1024;
@@ -93,9 +101,32 @@ bool known_verb(const std::string& v) {
     return false;
 }
 
+// Builds "<verb> <arg>..." for an argument verb; false when the verb or its arguments are not acceptable
+// (only hex digits, ':' and digits may travel through the control pipe).
+bool build_arg_verb(int argc, char* argv[], std::string* out) {
+    for (const ArgVerb& k : kArgVerbs) {
+        if (strcmp(argv[1], k.name) != 0) continue;
+        if (argc != 2 + k.args) return false;
+        std::string v = k.name;
+        for (int i = 2; i < argc; i++) {
+            const std::string a = argv[i];
+            if (a.empty() || a.size() > 17) return false;
+            for (char ch : a)
+                if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F') || ch == ':'))
+                    return false;
+            v += ' ';
+            v += a;
+        }
+        *out = v;
+        return true;
+    }
+    return false;
+}
+
 void usage(const char* prog) {
     std::string list;
     for (const char* k : kVerbs) { if (!list.empty()) list += '|'; list += k; }
+    list += "|traffic_block <mac>|traffic_unblock <mac>|traffic_limit <mac> <bytes>|traffic_limit_all <bytes>|traffic_reset_mac <mac>";
     fprintf(stderr, "Usage: %s {%s}\n", prog, list.c_str());
 }
 
@@ -193,6 +224,8 @@ int run_proxy_control(int argc, char* argv[]) {
     const char* prog = argc > 0 ? argv[0] : "proxy_control";
     open_log();
     g_debug = read_debug();
+    std::string argverb;
+    if (argc >= 2 && build_arg_verb(argc, argv, &argverb)) return talk(argverb);
     if (argc < 2 || !known_verb(argv[1])) {
         usage(prog);
         plog("bad usage: %s", argc >= 2 ? argv[1] : "(no verb)");

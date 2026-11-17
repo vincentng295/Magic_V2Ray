@@ -55,6 +55,10 @@ void latency_monitor_stop(void);
 int  traffic_poll(bool counting);   /* writes TRAFFIC_FILE; counting=false only reads the tun totals. 0 / -errno */
 int  traffic_reset(void);           /* zero the counters */
 void traffic_remove(void);          /* remove hook, chain and rules (v4 + v6) */
+/* device control (block / limit by MAC), see traffic.c */
+int  traffic_ctl_cmd(const char *cmd);   /* "block <mac>" | "unblock <mac>" | "limit <mac> <bytes>" | "limit_all <bytes>" | "reset_mac <mac>" */
+void traffic_ctl_apply(void);            /* re-install what the user set (service start) */
+void traffic_ctl_remove(void);           /* remove hook + chain (service shutdown); the saved settings stay */
 
 /* xray.c */
 int  start_xray(void);

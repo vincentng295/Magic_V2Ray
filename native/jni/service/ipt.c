@@ -14,6 +14,8 @@
 #include <linux/netfilter/xt_tcpudp.h>
 #include <linux/netfilter/xt_mark.h>
 #include <linux/netfilter/xt_owner.h>
+#include <linux/netfilter/xt_mac.h>
+#include <linux/netfilter/xt_quota.h>
 /* NDK's kernel headers omit xt_TCPMSS.h (it collides with xt_tcpmss.h on
  * case-insensitive filesystems). The target payload is just this (stable ABI): */
 struct xt_tcpmss_info { uint16_t mss; };
@@ -176,8 +178,8 @@ struct xchain {
     uint32_t first_off;
 };
 
-typedef struct { ipt_spec s; char in_if[24], out_if[24], src[64], dst[64], jump[32], dnat[48]; } spec_store;
-enum { OP_NEW, OP_FLUSH, OP_DEL_CHAIN, OP_APPEND, OP_INSERT, OP_DELETE, OP_ZERO };
+typedef struct { ipt_spec s; char in_if[24], out_if[24], src[64], dst[64], jump[32], dnat[48], mac[20]; } spec_store;
+enum { OP_NEW, OP_FLUSH, OP_DEL_CHAIN, OP_APPEND, OP_INSERT, OP_DELETE, OP_ZERO, OP_ZERO_SRC, OP_DEL_MAC };
 struct op { int kind; char chain[32]; int pos; spec_store sp; };
 
 struct ipt_tx {
@@ -588,6 +590,14 @@ static int add_target(buf_t *b, const char *name, uint8_t rev, const void *data,
     return 0;
 }
 
+static int parse_mac(const char *s, uint8_t out[6])
+{
+    unsigned v[6]; char tail;
+    if (!s || sscanf(s, "%2x:%2x:%2x:%2x:%2x:%2x%c", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &tail) != 6 || strlen(s) != 17) return -1;
+    for (int i = 0; i < 6; i++) out[i] = (uint8_t)v[i];
+    return 0;
+}
+
 static int build_rule(ipt_tx *t, const ipt_spec *s, xrule *out)
 {
     const fam_t *f = t->f;
@@ -620,6 +630,17 @@ static int build_rule(ipt_tx *t, const ipt_spec *s, xrule *out)
         struct xt_owner_match_info d; memset(&d, 0, sizeof d);
         d.uid_min = s->uid_lo; d.uid_max = s->uid_hi; d.match = XT_OWNER_UID; d.invert = s->owner_inv ? XT_OWNER_UID : 0;
         if ((rc = add_match(&b, "owner", 1, &d, sizeof d)) < 0) goto fail;
+    }
+    if (s->mac) {
+        struct xt_mac_info d; memset(&d, 0, sizeof d);
+        if (parse_mac(s->mac, d.srcaddr) < 0) { rc = -EINVAL; goto fail; }
+        d.invert = s->mac_inv ? 1 : 0;
+        if ((rc = add_match(&b, "mac", 0, &d, sizeof d)) < 0) goto fail;
+    }
+    if (s->quota_on) {
+        struct xt_quota_info d; memset(&d, 0, sizeof d);
+        d.quota = s->quota;                                /* flags 0: match while quota is left; master is the kernel's */
+        if ((rc = add_match(&b, "quota", 0, &d, sizeof d)) < 0) goto fail;
     }
     size_t toff = b.len;
     switch (s->target) {
@@ -747,11 +768,80 @@ static int do_zero(ipt_tx *t, const char *name)
     return 0;
 }
 
+/* The source address of a rule as text ("" when it has none). */
+static void rule_src(const fam_t *f, int family, const xrule *r, char *out, size_t cap)
+{
+    out[0] = 0; (void)f;
+    if (family == AF_INET) {
+        const struct ipt_entry *e = (const void *)r->b;
+        if (e->ip.smsk.s_addr) inet_ntop(AF_INET, &e->ip.src, out, cap);
+    } else {
+        const struct ip6t_entry *e = (const void *)r->b;
+        for (int j = 0; j < 16; j++) if (e->ipv6.smsk.s6_addr[j]) { inet_ntop(AF_INET6, &e->ipv6.src, out, cap); break; }
+    }
+}
+
+static int do_zero_src(ipt_tx *t, const char *name, const char *src)
+{
+    xchain *c = find_chain(t, name);
+    if (!c) return -ENOENT;
+    char want[64] = "";
+    struct in6_addr a6; struct in_addr a4;
+    if (t->family == AF_INET && inet_pton(AF_INET, src, &a4) == 1) inet_ntop(AF_INET, &a4, want, sizeof want);
+    else if (t->family == AF_INET6 && inet_pton(AF_INET6, src, &a6) == 1) inet_ntop(AF_INET6, &a6, want, sizeof want);
+    else return -EINVAL;
+    int n = 0;
+    for (int i = 0; i < c->nr; i++) {
+        char have[64]; rule_src(t->f, t->family, &c->r[i], have, sizeof have);
+        if (have[0] && !strcmp(have, want)) { c->r[i].zero = true; n++; }
+    }
+    return n ? 0 : -ENOENT;
+}
+
+/* Walks the matches of an entry; returns the data of the first match called `name` (NULL when absent). */
+static const uint8_t *rule_match(const fam_t *f, const xrule *r, const char *name)
+{
+    size_t off = f->hdr, end = rd16(r->b + f->o_target);
+    while (off + sizeof(struct xt_entry_match) <= end) {
+        const struct xt_entry_match *m = (const void *)(r->b + off);
+        if (m->u.match_size < sizeof *m) break;
+        if (!strcmp(m->u.user.name, name)) return m->data;
+        off += m->u.match_size;
+    }
+    return NULL;
+}
+static bool rule_is_drop(const fam_t *f, const xrule *r)
+{
+    const struct xt_entry_target *tg = tgt_of(f, r->b);
+    return tg->u.user.name[0] == 0 && !r->fall && !r->jump && rd32s((const uint8_t *)tg + sizeof *tg) == V_DROP;
+}
+static void mac_str(const uint8_t *m, char *out)
+{
+    snprintf(out, 18, "%02x:%02x:%02x:%02x:%02x:%02x", m[0], m[1], m[2], m[3], m[4], m[5]);
+}
+
+static int do_del_mac(ipt_tx *t, const char *name, const char *mac)
+{
+    xchain *c = find_chain(t, name);
+    uint8_t want[6];
+    if (!c) return -ENOENT;
+    if (parse_mac(mac, want) < 0) return -EINVAL;
+    int n = 0;
+    for (int i = 0; i < c->nr;) {
+        const struct xt_mac_info *mi = (const void *)rule_match(t->f, &c->r[i], "mac");
+        if (mi && !memcmp(mi->srcaddr, want, 6)) {
+            free_rule(&c->r[i]);
+            memmove(&c->r[i], &c->r[i + 1], (c->nr - i - 1) * sizeof *c->r); c->nr--; n++;
+        } else i++;
+    }
+    return n ? 0 : -ENOENT;
+}
+
 static void sp_copy(spec_store *d, const ipt_spec *s)
 {
     d->s = *s;
 #define CP(field, buf) do { if (s->field) { snprintf(d->buf, sizeof d->buf, "%s", s->field); d->s.field = d->buf; } } while (0)
-    CP(in_if, in_if); CP(out_if, out_if); CP(src, src); CP(dst, dst); CP(jump_chain, jump); CP(dnat_to, dnat);
+    CP(in_if, in_if); CP(out_if, out_if); CP(src, src); CP(dst, dst); CP(jump_chain, jump); CP(dnat_to, dnat); CP(mac, mac);
 #undef CP
 }
 
@@ -765,6 +855,7 @@ static void sp_fix(spec_store *d)
     if (d->s.dst) d->s.dst = d->dst;
     if (d->s.jump_chain) d->s.jump_chain = d->jump;
     if (d->s.dnat_to) d->s.dnat_to = d->dnat;
+    if (d->s.mac) d->s.mac = d->mac;
 }
 
 static int run_op(ipt_tx *t, const struct op *o)
@@ -777,6 +868,8 @@ static int run_op(ipt_tx *t, const struct op *o)
     case OP_INSERT: return do_add(t, o->chain, o->pos, &o->sp.s);
     case OP_DELETE: return do_del(t, o->chain, &o->sp.s);
     case OP_ZERO: return do_zero(t, o->chain);
+    case OP_ZERO_SRC: return do_zero_src(t, o->chain, o->sp.s.src);
+    case OP_DEL_MAC: return do_del_mac(t, o->chain, o->sp.s.mac);
     }
     return -EINVAL;
 }
@@ -810,6 +903,10 @@ int ipt_delete(ipt_tx *t, const char *c, const ipt_spec *s) { return apply(t, OP
 int ipt_check(ipt_tx *t, const char *c, const ipt_spec *s)
 { xchain *cc; int i; return do_find(t, c, s, &cc, &i); }
 int ipt_zero_chain(ipt_tx *t, const char *c)   { return apply(t, OP_ZERO, c, 0, NULL); }
+int ipt_zero_src(ipt_tx *t, const char *c, const char *src)
+{ ipt_spec s = IPT_SPEC(.src = src); return apply(t, OP_ZERO_SRC, c, 0, &s); }
+int ipt_delete_mac(ipt_tx *t, const char *c, const char *mac)
+{ ipt_spec s = IPT_SPEC(.mac = mac); return apply(t, OP_DEL_MAC, c, 0, &s); }
 
 int ipt_chain_stats(ipt_tx *t, const char *chain, ipt_rule_stat *out, int max)
 {
@@ -834,6 +931,29 @@ int ipt_chain_stats(ipt_tx *t, const char *chain, ipt_rule_stat *out, int max)
         s->pkts = k->pcnt; s->bytes = k->bcnt;
     }
     return c->nr;
+}
+
+int ipt_chain_macs(ipt_tx *t, const char *chain, ipt_mac_stat *out, int max)
+{
+    xchain *c = find_chain(t, chain);
+    if (!c) return -ENOENT;
+    int n = 0;
+    for (int i = 0; i < c->nr; i++) {
+        const xrule *r = &c->r[i];
+        const struct xt_mac_info *mi = (const void *)rule_match(t->f, r, "mac");
+        if (!mi) continue;
+        char m[18]; mac_str(mi->srcaddr, m);
+        int k = 0;
+        while (k < n && strcmp(out[k].mac, m)) k++;
+        if (k == n) {
+            if (n >= max) continue;
+            memset(&out[n], 0, sizeof out[n]); memcpy(out[n].mac, m, 18); n++;
+        }
+        const struct xt_quota_info *q = (const void *)rule_match(t->f, r, "quota");
+        if (q) { out[k].quota = true; out[k].quota_left = q->quota; }
+        else if (rule_is_drop(t->f, r)) out[k].drop = true;
+    }
+    return n;
 }
 
 /* =============================================================== lifecycle === */
