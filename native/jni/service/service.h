@@ -37,6 +37,7 @@ void ensure_exclude_app_chain(void);
 void sync_exclude_apps(void);
 void apps_monitor_start(void);
 void apps_monitor_stop(void);
+long self_app_uid(int tries);          /* uid of the Magic V2Ray app, -1 if unknown */
 
 /* routing.c */
 int  apply_routing_rules(void);
@@ -45,6 +46,7 @@ int  configure_tun_iface(void);
 void install_tun_blackhole(void);
 void hold_traffic(void);
 void release_traffic(void);
+void proxy_allow_self(bool remove); /* let the app itself reach the proxy inbound (see routing.c) */
 void root_direct_window(bool on);   /* soft restart: let uid 0 bypass the tun blackhole */
 
 /* latency.c */

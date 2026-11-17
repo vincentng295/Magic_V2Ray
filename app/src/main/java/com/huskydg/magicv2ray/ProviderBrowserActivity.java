@@ -31,6 +31,10 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.webkit.ProxyConfig;
+import androidx.webkit.ProxyController;
+import androidx.webkit.WebViewFeature;
+
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -53,7 +57,13 @@ public class ProviderBrowserActivity extends Activity {
     private static volatile String nodesJson = "[]";
     private static volatile String nodesCategory;
 
+    /** The engine's SOCKS inbound (socks-test-in). Non-root mode moves it by NONROOT_PORT_OFFSET (see NonRootEnv). */
+    private static final String PROXY_HOST = "127.17.1.3";
+    private static final int PROXY_PORT = 808;
+    private static final int NONROOT_PORT_OFFSET = 50000;
+
     private WebView web;
+    private boolean proxyApplied;
     private ProgressBar bar;
     private TextView titleView;
     private TextView hostView;
@@ -195,8 +205,60 @@ public class ProviderBrowserActivity extends Activity {
         root.addView(web, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         setContentView(root);
 
-        if (b != null) web.restoreState(b);
-        else web.loadUrl(startUrl);
+        startLoading(b);
+    }
+
+    /**
+     * While the core runs, the page is loaded through its SOCKS5 inbound (socks5h: the proxy resolves the
+     * names). The app itself can be kept out of the tunnel (Exclude apps), so this is what lets the site
+     * open through the proxy anyway; without a running core the page loads directly, as before.
+     */
+    private void startLoading(Bundle saved) {
+        final int port = PROXY_PORT + (RunMode.isNonRoot(this) ? NONROOT_PORT_OFFSET : 0);
+        new Thread(() -> {
+            boolean up = proxyReachable(port);
+            runOnUiThread(() -> {
+                if (isDestroyed() || web == null) return;
+                Runnable go = () -> {
+                    if (web == null) return;
+                    if (saved != null) web.restoreState(saved); else web.loadUrl(startUrl);
+                };
+                if (up && applyProxy(port, go)) return;
+                go.run();
+            });
+        }, "provider-proxy-probe").start();
+    }
+
+    private static boolean proxyReachable(int port) {
+        try (java.net.Socket s = new java.net.Socket()) {
+            s.connect(new java.net.InetSocketAddress(PROXY_HOST, port), 500);
+            return true;
+        } catch (java.io.IOException e) {
+            return false;
+        }
+    }
+
+    /** @return true when the override was requested; {@code then} runs once it is in effect. */
+    private boolean applyProxy(int port, Runnable then) {
+        try {
+            if (!WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) return false;
+            ProxyConfig cfg = new ProxyConfig.Builder().addProxyRule("socks5://" + PROXY_HOST + ":" + port).build();
+            proxyApplied = true;
+            ProxyController.getInstance().setProxyOverride(cfg, Runnable::run, then);
+            return true;
+        } catch (RuntimeException e) {          // old WebView / bad rule: just load directly
+            proxyApplied = false;
+            return false;
+        }
+    }
+
+    private void clearProxy() {
+        if (!proxyApplied) return;
+        proxyApplied = false;
+        try {
+            ProxyController.getInstance().clearProxyOverride(Runnable::run, () -> { });
+        } catch (RuntimeException ignored) {
+        }
     }
 
     private void configure(WebView w) {
@@ -458,6 +520,7 @@ public class ProviderBrowserActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        clearProxy();            // the override is process-wide: do not leave it on the WebUI's WebView
         if (web != null) {
             if (web.getParent() instanceof ViewGroup) ((ViewGroup) web.getParent()).removeView(web);
             web.destroy();

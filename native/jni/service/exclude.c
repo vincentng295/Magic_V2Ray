@@ -101,6 +101,8 @@ static long app_uid(const char *pkg, int tries)
     }
 }
 
+long self_app_uid(int tries) { return app_uid(SELF_PKG, tries); }
+
 static long record_get(const char *pkg)
 {
     char p[300], b[32];
@@ -218,7 +220,8 @@ static void monitor_main(int stop_fd)
         return;
     }
     if (worker_wait(stop_fd, 300)) { close(in); return; }
-    pthread_mutex_lock(&g_ex); reconcile(NULL, NULL); pthread_mutex_unlock(&g_ex);  /* anything missed meanwhile */
+    if (exclude_on()) { pthread_mutex_lock(&g_ex); reconcile(NULL, NULL); pthread_mutex_unlock(&g_ex); }  /* anything missed meanwhile */
+    proxy_allow_self(false);           /* the app's own uid may have changed (reinstall) while we were not watching */
     log_msg("apps monitor: watching %s", APP_DATA_DIR);
     for (;;) {
         struct pollfd p[2] = { { in, POLLIN, 0 }, { stop_fd, POLLIN, 0 } };
@@ -230,9 +233,12 @@ static void monitor_main(int stop_fd)
             struct inotify_event *ev = (struct inotify_event *)q;
             q += sizeof *ev + ev->len;
             if (!ev->len || !valid_pkg(ev->name)) continue;
+            /* always: the app's own uid decides who may reach the proxy, exclusion or not */
+            if (!strcmp(ev->name, SELF_PKG)) proxy_allow_self((ev->mask & IN_DELETE) != 0);
             pthread_mutex_lock(&g_ex);
             if (ev->mask & IN_CREATE) {
-                if (list_has(ev->name) && app_add(ev->name, 15, NULL, NULL) < 0)
+                /* the exclusion rules only exist while Exclude apps is on (read_list always adds SELF_PKG) */
+                if (exclude_on() && list_has(ev->name) && app_add(ev->name, 15, NULL, NULL) < 0)
                     log_msg("apps monitor: could not read uid of %s", ev->name);
             } else if (ev->mask & IN_DELETE) app_remove(ev->name, NULL, NULL);
             pthread_mutex_unlock(&g_ex);
@@ -244,10 +250,10 @@ static void monitor_main(int stop_fd)
 
 void apps_monitor_stop(void) { worker_stop(&g_mon); }
 
-/* Only while Exclude apps is on; changing that setting restarts the engine. */
+/* Always runs while the engine does: besides keeping the Exclude apps rules current (only when that is on) it
+ * has to notice the Magic V2Ray app's uid, which gets access to the proxy inbound. */
 void apps_monitor_start(void)
 {
     apps_monitor_stop();
-    if (!exclude_on()) { log_msg("apps monitor: Exclude apps is off, not started"); return; }
     if (worker_start(&g_mon, "monitor_apps", monitor_main) == 0) log_msg("apps monitor running");
 }

@@ -13,7 +13,7 @@ Only your own helper `bin/xhuskydg_helper` is still used (the `logservice` verbs
 | `src/netlink.c` | every `ip rule/route/addr/link`, `ip monitor`, `ip rule show \| grep` |
 | `src/routing.c` | section 7: `apply_routing_rules`, `clear_routing_rules`, tun config, blackhole, hold/release |
 | `src/iface.c`, `ula.c`, `iphunt.c` | active/upstream interface, fwmark rule, IPv6 ULA decoy, IP hunter |
-| `src/exclude.c` | Exclude Apps (inotify instead of `inotifyd`) |
+| `src/exclude.c` | Exclude Apps + apps monitor (inotify instead of `inotifyd`); the monitor always runs and tracks the app uid that may reach the proxy inbound |
 | `src/latency.c` | latency monitor (built-in SOCKS5 client instead of `curl`) |
 | `src/traffic.c` | Traffic Monitor tab: per-source-IP counters of what enters `xraytun0` (see below) |
 | `src/xray.c` | start/stop/reload, native `openxtun` (open tun, `TUNSETIFF`, `XRAY_TUN_FD`, exec) |

@@ -88,9 +88,10 @@ android {
 dependencies {
     // Persistent root shells instead of one `su` process per command.
     implementation 'com.github.topjohnwu.libsu:core:6.0.0'
+    // ProxyController: route the provider mini browser through the engine's SOCKS inbound.
+    implementation 'androidx.webkit:webkit:1.12.1'
     // Share proxy via Shizuku (non-root hotspot sharing)
-    // androidx.annotation is annotations only (nothing at runtime) and would require
-    // android.useAndroidX=true, so it is excluded to keep that switched off.
+    // androidx.annotation is annotations only (nothing at runtime): excluded, androidx.webkit brings what it needs.
     implementation('dev.rikka.shizuku:api:13.1.5') { exclude group: 'androidx.annotation' }
     implementation('dev.rikka.shizuku:provider:13.1.5') { exclude group: 'androidx.annotation' }
 }

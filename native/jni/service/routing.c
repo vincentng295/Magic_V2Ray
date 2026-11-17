@@ -19,6 +19,39 @@
 #define SPEC IPT_SPEC
 #define NOP(x) ((void)(x))
 
+/* The Magic V2Ray app itself may reach the proxy inbound (TUN_ADDR:TUN_PORT) that every other app is
+ * rejected from (its mini browser goes through socks5h://TUN_ADDR:TUN_PORT). The ACCEPT is inserted
+ * above the REJECT in filter/OUTPUT; the uid it was installed for is remembered so the rule can always
+ * be removed, even if the app came back under another uid meanwhile. */
+static void commit(ipt_tx *t, const char *what);
+static long g_allowed_uid = -1;
+static pthread_mutex_t g_allow_mu = PTHREAD_MUTEX_INITIALIZER;
+#define PROXY_ALLOW_SPEC(uid) SPEC(.proto = IPPROTO_TCP, .dport_lo = TUN_PORT, .dst = TUN_ADDR, .owner = true, \
+    .uid_lo = (uint32_t)(uid), .uid_hi = (uint32_t)(uid), .target = MVT_ACCEPT)
+
+/* t: the open filter/OUTPUT transaction, or NULL to run our own. Caller holds g_allow_mu. */
+static void proxy_allow_locked(ipt_tx *t, long uid)
+{
+    if (uid == g_allowed_uid) return;
+    bool own = !t;
+    if (own && !(t = ipt_tx_begin(AF_INET, "filter"))) return;
+    if (g_allowed_uid >= 0) NOP(ipt_delete(t, "OUTPUT", &PROXY_ALLOW_SPEC(g_allowed_uid)));
+    if (uid >= 0) NOP(ipt_insert(t, "OUTPUT", 1, &PROXY_ALLOW_SPEC(uid)));
+    if (own) commit(t, "v4 filter proxy allow");
+    g_allowed_uid = uid;
+}
+
+/* Re-reads the app's uid and re-pins its access rule (called by the apps monitor). remove=true drops it. */
+void proxy_allow_self(bool remove)
+{
+    long uid = remove ? -1 : self_app_uid(15);
+    if (!remove && uid < 0) { log_msg("proxy access: could not read uid of the app"); return; }
+    pthread_mutex_lock(&g_allow_mu);
+    if (uid != g_allowed_uid) log_msg("proxy access: app uid %ld %s", remove ? g_allowed_uid : uid, remove ? "removed" : "allowed");
+    proxy_allow_locked(NULL, uid);
+    pthread_mutex_unlock(&g_allow_mu);
+}
+
 /* ------------------------------------------------------------------ data */
 
 /* Single source of truth for "LAN bypass" (see the long comment in service.sh). */
@@ -316,6 +349,11 @@ int apply_routing_rules(void)
         /* hide the proxy ports from ordinary apps (uid >= 9999) */
         NOP(ipt_insert(t, "OUTPUT", 1, &SPEC(.proto = IPPROTO_TCP, .dport_lo = TUN_PORT, .dst = TUN_ADDR, .owner = true, .uid_lo = 9999, .uid_hi = 2147483647u, .target = MVT_REJECT, .reject_with = MVR_TCP_RESET)));
         NOP(ipt_insert(t, "OUTPUT", 1, &SPEC(.proto = IPPROTO_TCP, .dport_lo = PLAIN_POOL_PORT, .dst = PLAIN_POOL_NET, .owner = true, .uid_lo = 9999, .uid_hi = 2147483647u, .target = MVT_REJECT, .reject_with = MVR_TCP_RESET)));
+        /* the app's own uid is let through to the proxy: must sit above the REJECT */
+        pthread_mutex_lock(&g_allow_mu);
+        g_allowed_uid = -1;                    /* the clear below / a fresh chain dropped any old rule */
+        proxy_allow_locked(t, self_app_uid(1));
+        pthread_mutex_unlock(&g_allow_mu);
         commit(t, "v4 filter");
     }
     if (c.tether && (t = begin(AF_INET, "nat"))) {   /* force tethered DNS to 1.1.1.1 */
@@ -456,6 +494,9 @@ void clear_routing_rules(void)
     }
     { nl_rule r = NL_RULE(AF_INET); r.has_mark = true; r.mark = 1; r.table = 100; r.pref = 1010; NOP(nl_rule_del(&r)); }
     if ((t = ipt_tx_begin(AF_INET, "filter"))) {
+        pthread_mutex_lock(&g_allow_mu);
+        proxy_allow_locked(t, -1);             /* the app's ACCEPT, with the uid it was installed for */
+        pthread_mutex_unlock(&g_allow_mu);
         NOP(ipt_delete(t, "OUTPUT", &SPEC(.proto = IPPROTO_TCP, .dport_lo = TUN_PORT, .dst = TUN_ADDR, .owner = true, .uid_lo = 9999, .uid_hi = 2147483647u, .target = MVT_REJECT, .reject_with = MVR_TCP_RESET)));
         NOP(ipt_delete(t, "OUTPUT", &SPEC(.proto = IPPROTO_TCP, .dport_lo = PLAIN_POOL_PORT, .dst = PLAIN_POOL_NET, .owner = true, .uid_lo = 9999, .uid_hi = 2147483647u, .target = MVT_REJECT, .reject_with = MVR_TCP_RESET)));
         forward_rules(t, false);
