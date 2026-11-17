@@ -140,6 +140,7 @@ public class MagicVpnService extends VpnService {
                     refreshNotification();
                 }
                 VpnController.setRunning();
+                ProxyNotifier.syncTraffic(this);      // opt-in speed in the notification
                 watchNetwork();
                 ShizukuHotspot.onEngineUp(this);
             } catch (Exception e) {
@@ -524,6 +525,7 @@ public class MagicVpnService extends VpnService {
             tun = null;
         }
         standby = false;
+        TrafficMeter.stop();
         stopForeground(true);
         stopNetWatch();
     }
@@ -538,12 +540,18 @@ public class MagicVpnService extends VpnService {
         } else {
             startForeground(ProxyNotifier.NOTIF_ID, n);
         }
+        ProxyNotifier.syncTraffic(this);
     }
 
     /** Swaps the notification text when the proxy pauses / resumes with the network. */
     private void refreshNotification() {
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (nm != null) nm.notify(ProxyNotifier.NOTIF_ID, ProxyNotifier.build(this, standby));
+    }
+
+    /** New speed numbers from {@link TrafficMeter}: re-post the notification (only while the engine is up). */
+    void refreshTraffic() {
+        if (VpnController.svc == this && !closing && engineUp()) refreshNotification();
     }
 
     /** The WebUI selected another node: show its name (only while the engine is up). */

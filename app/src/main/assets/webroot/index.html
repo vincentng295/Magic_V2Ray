@@ -697,6 +697,15 @@
                     </div>
                 </div>
 
+                <!-- Only shown inside the APK (window.ksu.setNotifTraffic); applies at once, no engine restart -->
+                <div class="settings-group-box" id="notif-box" style="display:none;">
+                    <h4 data-i18n="grp_notification">Notification</h4>
+                    <div class="setting-item-row toggle-row">
+                        <label for="app-notif-traffic"><span data-i18n="lbl_notif_traffic">Show traffic in notification</span><small data-i18n="desc_notif_traffic">Live upload / download speed and the session total of the tunnel in the &ldquo;proxy is active&rdquo; notification. Works in root and VpnService mode.</small></label>
+                        <input type="checkbox" id="app-notif-traffic">
+                    </div>
+                </div>
+
                 <div class="settings-group-box">
                     <h4 data-i18n="grp_background">Background image</h4>
                     <div class="setting-item-row">

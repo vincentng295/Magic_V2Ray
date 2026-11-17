@@ -358,46 +358,26 @@ final class KsuBridge {
 
     /** Interface name of the VPN network (normally "tun0"), or null when no VPN network exists. */
     private String vpnInterfaceName() {
-        try {
-            ConnectivityManager cm = (ConnectivityManager) activity.getSystemService(Context.CONNECTIVITY_SERVICE);
-            if (cm == null) return null;
-            for (Network n : cm.getAllNetworks()) {
-                NetworkCapabilities nc = cm.getNetworkCapabilities(n);
-                if (nc == null || !nc.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue;
-                LinkProperties lp = cm.getLinkProperties(n);
-                String name = lp == null ? null : lp.getInterfaceName();
-                if (name != null && IFACE_RE.matcher(name).matches()) return name;
-            }
-        } catch (RuntimeException ignored) {
-        }
-        return null;
+        return TrafficMeter.vpnInterfaceName(activity);
     }
 
-    /**
-     * TrafficStats.getTxBytes/getRxBytes(iface), through reflection so the build does not depend on
-     * the method being in the SDK stubs and a hidden-API refusal degrades to the sysfs fallback.
-     * Returns -1 when unavailable.
-     */
     private static long ifaceStat(String iface, boolean tx) {
-        try {
-            java.lang.reflect.Method m = TrafficStats.class.getMethod(tx ? "getTxBytes" : "getRxBytes", String.class);
-            Object r = m.invoke(null, iface);
-            if (r instanceof Long && (Long) r >= 0) return (Long) r;
-        } catch (Throwable ignored) {
-        }
-        return -1;
+        return TrafficMeter.ifaceStat(iface, tx);
     }
 
-    /** /sys/class/net/<iface>/statistics/<name>; readable by apps on some devices only. -1 on failure. */
     private static long sysfsStat(String iface, String name) {
-        if (!IFACE_RE.matcher(iface).matches()) return -1;
-        try (java.io.BufferedReader br = new java.io.BufferedReader(
-                new java.io.FileReader("/sys/class/net/" + iface + "/statistics/" + name))) {
-            String line = br.readLine();
-            return line == null ? -1 : Long.parseLong(line.trim());
-        } catch (Exception e) {
-            return -1;
-        }
+        return TrafficMeter.sysfsStat(iface, name);
+    }
+
+    /** App Settings toggle: show live tunnel speed / totals in the "proxy is active" notification. */
+    @JavascriptInterface
+    public boolean getNotifTraffic() {
+        return ProxyNotifier.trafficEnabled(activity.getApplicationContext());
+    }
+
+    @JavascriptInterface
+    public void setNotifTraffic(boolean on) {
+        ProxyNotifier.setTrafficEnabled(activity.getApplicationContext(), on);
     }
 
     /** "root" or "nonroot": decides which base paths and engine the WebUI uses. */

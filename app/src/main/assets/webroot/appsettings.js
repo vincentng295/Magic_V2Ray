@@ -164,5 +164,15 @@
     $('app-bg-theme').addEventListener('change', function () { T.set({ bgTheme: this.checked }); });
     $('app-bg-dim').addEventListener('input', function () { T.set({ bgDim: +this.value }); });
     syncBg();
+
+    // ---- notification: live tunnel speed (state lives in the host, see ProxyNotifier)
+    var nt = $('app-notif-traffic'), k = window.ksu;
+    if (nt && k && typeof k.setNotifTraffic === 'function' && typeof k.getNotifTraffic === 'function') {
+        $('notif-box').style.display = '';
+        try { nt.checked = !!k.getNotifTraffic(); } catch (e) { nt.checked = false; }
+        nt.addEventListener('change', function () {
+            try { k.setNotifTraffic(nt.checked); } catch (e) { /* host without the option */ }
+        });
+    }
     }
 })();

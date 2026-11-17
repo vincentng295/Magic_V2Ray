@@ -28,6 +28,10 @@ final class ProxyNotifier {
     private static final String PREFS = "proxy_state";
     private static final int REQ_NOTIF = 3;
     private static final int MAX_NAME = 120;
+    private static final String K_TRAFFIC = "notif_traffic";
+
+    /** Root mode: the proxy is up and its notification is posted (the meter and repost() need it). */
+    private static volatile boolean rootShown;
 
     private ProxyNotifier() {
     }
@@ -43,6 +47,48 @@ final class ProxyNotifier {
         String n = name == null ? "" : name.replaceAll("[\\r\\n]+", " ").trim();
         if (n.length() > MAX_NAME) n = n.substring(0, MAX_NAME) + "…";
         c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("node", n).apply();
+    }
+
+    // -------------------------------------------------- speed in the notification
+
+    /** Opt-in (default off): show the tunnel's live speed and totals in the notification. */
+    static boolean trafficEnabled(Context c) {
+        return c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(K_TRAFFIC, false);
+    }
+
+    static void setTrafficEnabled(Context c, boolean on) {
+        Context app = c.getApplicationContext() != null ? c.getApplicationContext() : c;
+        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(K_TRAFFIC, on).apply();
+        syncTraffic(app);
+        repost(app);                // drop / add the speed lines at once
+    }
+
+    /** Starts or stops the sampler to match: option on AND the proxy up (root or VpnService mode). */
+    static void syncTraffic(Context c) {
+        Context app = c.getApplicationContext() != null ? c.getApplicationContext() : c;
+        boolean up;
+        if (RunMode.isNonRoot(app)) {
+            MagicVpnService s = VpnController.svc;
+            up = s != null && s.engineUp();
+        } else {
+            up = rootShown;
+        }
+        if (up && trafficEnabled(app)) TrafficMeter.start(app);
+        else TrafficMeter.stop();
+    }
+
+    /** Re-posts the notification with the latest numbers; no-op while the proxy is down. */
+    static void repost(Context c) {
+        try {
+            if (RunMode.isNonRoot(c)) {
+                MagicVpnService s = VpnController.svc;
+                if (s != null) s.refreshTraffic();
+            } else if (rootShown) {
+                NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
+                if (nm != null) nm.notify(NOTIF_ID, build(c, false));
+            }
+        } catch (RuntimeException ignored) {    // notifications blocked
+        }
     }
 
     // --------------------------------------------------------- notification
@@ -74,6 +120,16 @@ final class ProxyNotifier {
             if (standby) text += "\n" + c.getString(R.string.vpn_notif_paused);
         }
 
+        // Opt-in speed lines: the collapsed text gains the speed, the expanded one speed + totals.
+        String collapsed = text.replace('\n', ' ');
+        if (trafficEnabled(c) && TrafficMeter.running()) {
+            String speed = TrafficMeter.line();
+            if (!speed.isEmpty()) {
+                collapsed = speed + "  ·  " + collapsed;
+                text = speed + "\n" + TrafficMeter.totals() + "\n" + text;
+            }
+        }
+
         PendingIntent open = PendingIntent.getActivity(c, 0,
                 new Intent(c, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
@@ -86,7 +142,7 @@ final class ProxyNotifier {
         final String title = external ? c.getString(R.string.ext_notif_title, ext)
                 : c.getString(standby ? R.string.notif_title_paused : R.string.notif_title_on);
         return nb.setContentTitle(title)
-                .setContentText(text.replace('\n', ' '))
+                .setContentText(collapsed)
                 .setStyle(new Notification.BigTextStyle().bigText(text))
                 .setSmallIcon(R.drawable.ic_tile)
                 .setContentIntent(open)
@@ -106,6 +162,8 @@ final class ProxyNotifier {
         if (nm == null) return;
         OomGuard.start(c);          // root mode: keep this process (and its notification) alive
         ExternalApi.observe(c, running, running ? null : ExternalApi.REASON_STOPPED);
+        rootShown = running;
+        syncTraffic(c);
         try {
             if (running) {
                 ensureChannel(c);
