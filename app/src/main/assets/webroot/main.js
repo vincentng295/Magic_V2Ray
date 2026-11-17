@@ -1247,7 +1247,12 @@ function parseAndAppendNodes(category, xrayConfigs, url = null, isReload = false
         return false;
     }
 
+    // Flags already looked up survive a reload: node ids are stable hashes.
+    const _oldFlags = new Map();
     if (isReload && profiles[category]) {
+        profiles[category].nodes.forEach(n => {
+            if (n.loc || n.locFail) _oldFlags.set(n.id, { loc: n.loc, locFail: n.locFail });
+        });
         // Policy groups are user-made nodes that merely live in this category.
         profiles[category].nodes = profiles[category].nodes.filter(_isGroupNode);
     }
@@ -1273,6 +1278,8 @@ function parseAndAppendNodes(category, xrayConfigs, url = null, isReload = false
                 // so a pinned (selected) node survives a subscription refresh.
                 parsedNode.id = _hashNodeId(parsedNode, takenIds);
                 takenIds.add(parsedNode.id);
+                const _f = _oldFlags.get(parsedNode.id);
+                if (_f) { if (_f.loc) parsedNode.loc = _f.loc; if (_f.locFail) parsedNode.locFail = _f.locFail; }
                 profiles[category].nodes.push(parsedNode);
                 if (shouldDedup) existingKeys.add(buildNodeKey(parsedNode));
                 importedCount++;
@@ -1302,6 +1309,7 @@ function parseAndAppendNodes(category, xrayConfigs, url = null, isReload = false
         saveProfiles();
         renderProfiles();
         _refreshIfPolicyGroupsUsed();
+        autoFetchFlags(category);
     }
     return true;
 }
@@ -1781,6 +1789,7 @@ function renderProfiles() {
     for (const category of categories) {
         const group = document.createElement('div');
         group.className = "category-group";
+        group.dataset.category = category;
         const catData = profiles[category] || { nodes: [] };
         const fetching = _subFetching.has(category);
         const hasUrl = !!catData.url;
@@ -1861,6 +1870,8 @@ function renderProfiles() {
             (e) => runCategoryTest(e, category, 'http')));
         dropdown.appendChild(_mkButton(t('menu_check_ip'), 'btn-ping-category',
             (e) => runCategoryTest(e, category, 'ip')));
+        dropdown.appendChild(_mkButton(t('menu_get_flag'), 'btn-ping-category',
+            (e) => runCategoryFlags(e, category)));
         dropdown.appendChild(_mkButton(t('menu_delete'), 'btn-delete-item',
             () => { removeCategory(category); closeAllMenus(); }));
         menuWrap.appendChild(dropdown);
@@ -1914,6 +1925,11 @@ function renderProfiles() {
             info.appendChild(nameEl);
             info.appendChild(metaEl);
             info.addEventListener('click', () => selectNode(category, node.id));
+            if (!isGroup) {
+                const flagImg = _mkFlagImg(node);
+                flagImg.addEventListener('click', () => selectNode(category, node.id));
+                item.appendChild(flagImg);          // left of the name
+            }
             item.appendChild(info);
 
             const actions = document.createElement('div');
@@ -1968,6 +1984,8 @@ function renderProfiles() {
                 (e) => runNodeTest(e, category, node.id, 'http')));
             nodeDropdown.appendChild(_mkButton(t('menu_check_ip'), 'btn-ping-category',
                 (e) => runNodeTest(e, category, node.id, 'ip')));
+            nodeDropdown.appendChild(_mkButton(t('menu_get_flag'), 'btn-ping-category',
+                (e) => runNodeFlag(e, category, node.id)));
             nodeDropdown.appendChild(_mkButton(t('menu_delete'), 'btn-delete-item',
                 (e) => deleteNode(e, category, node.id)));
             nodeMenuWrap.appendChild(nodeDropdown);
@@ -3272,6 +3290,14 @@ function saveEditedNode() {
         rawUri: newUri
     };
 
+    // Same server as before -> same country, keep the flag; a new or moved server needs a new lookup.
+    if (!isNew) {
+        const prev = profiles[currentEditingCategory]?.nodes?.find(n => n.id === currentEditingNodeId);
+        if (prev && prev.loc && prev.address === nodeEntry.address && String(prev.port) === String(nodeEntry.port)) {
+            nodeEntry.loc = prev.loc;
+        }
+    }
+
     const destCat = document.getElementById('edit-node-category').value || currentEditingCategory;
     let wasActive = !isNew && activeConfig === `${currentEditingCategory}:${currentEditingNodeId}`;
 
@@ -3304,6 +3330,7 @@ function saveEditedNode() {
     saveProfiles();
     closeEditNodeModal();
     renderProfiles();
+    autoFetchFlags(destCat);
 
     if (wasActive) applyActiveConfig();
 }
@@ -3610,6 +3637,7 @@ function saveProxyChain() {
     closeProxyChainModal();
     renderProfiles();
     showToast(t('toast_chain_saved'), 'success');
+    autoFetchFlags(editingId && editingCat ? editingCat : 'Manual');
 }
 
 function openProxyChainEditModal(event, category, id) {
@@ -5600,6 +5628,167 @@ async function runNodeTest(event, category, nodeId, mode) {
     const node = profiles[category]?.nodes?.find(n => n.id === nodeId);
     if (!node || _isGroupNode(node)) return;
     await _execNodeProbe(node, category, mode, { fallback: true });
+}
+
+// ---------------------------------------------------------------------------
+// Country flags. The exit country of a node comes from Cloudflare's trace
+// (https://cloudflare.com/cdn-cgi/trace, field "loc") fetched THROUGH the node with curl, the
+// same way "Check IP" does. The flag is stored on the node (node.loc = lowercase ISO code) and
+// drawn to the left of its name from flag/flags_w40/<code>.png; unknown.png is the fallback for
+// failures and for codes without an image.
+// - "Auto get flags" (App settings, on by default) fetches the missing ones after an import.
+// - The category / node menu entry "Get flag" works whatever that switch says.
+// ---------------------------------------------------------------------------
+const FLAG_DIR = 'flag/flags_w40/';
+const FLAG_UNKNOWN = 'unknown';
+const FLAG_TRACE_URL = 'https://cloudflare.com/cdn-cgi/trace';
+const FLAG_RETRY_AFTER_MS = 6 * 60 * 60 * 1000;    // auto mode: a node whose lookup failed waits this long
+const FLAG_AUTO_KEY = 'mv_auto_flag';
+const _flagRunning = new Set();                      // "<category>\0<nodeId>" currently being looked up
+
+function isAutoFlagEnabled() {
+    try { return localStorage.getItem(FLAG_AUTO_KEY) !== '0'; } catch (e) { return true; }
+}
+
+function _flagCode(loc) {
+    const c = String(loc || '').trim().toLowerCase();
+    return /^[a-z]{2}$/.test(c) ? c : '';
+}
+
+function _flagSrc(loc) { return FLAG_DIR + (_flagCode(loc) || FLAG_UNKNOWN) + '.png'; }
+
+// The <img> shown left of a node name. A missing image (a code with no file) falls back once.
+function _mkFlagImg(node) {
+    const img = document.createElement('img');
+    img.className = 'node-flag';
+    img.alt = '';
+    img.draggable = false;
+    img.loading = 'lazy';
+    img.dataset.nodeId = node.id;
+    img.src = _flagSrc(node.loc);
+    img.addEventListener('error', () => {
+        const fb = FLAG_DIR + FLAG_UNKNOWN + '.png';
+        if (!img.src.endsWith(fb)) img.src = fb;
+    }, { once: true });
+    return img;
+}
+
+// Redraws the flag of one node in place (the list may have been re-rendered meanwhile).
+function _refreshFlagImg(category, node) {
+    const group = Array.from(document.querySelectorAll('.category-group'))
+        .find(g => g.dataset.category === category);
+    const img = group && Array.from(group.querySelectorAll('img.node-flag'))
+        .find(i => i.dataset.nodeId === node.id);
+    if (img) img.src = _flagSrc(node.loc);
+}
+
+// Pulls the country out of the trace text ("loc=VN"). Returns '' when absent / not a country.
+function _parseTraceLoc(text) {
+    const m = /^loc=([A-Za-z]{2})\s*$/m.exec(String(text || ''));
+    if (!m) return '';
+    const c = m[1].toLowerCase();
+    return (c === 'xx' || c === 't1') ? '' : c;      // XX = unknown, T1 = Tor
+}
+
+// Fetches the exit country of a node. Returns the lowercase code, or '' on any failure.
+async function _fetchNodeLoc(node) {
+    let baseCfgStr, target;
+    try {
+        baseCfgStr = _resolveNodeConfigStr(node);
+        target = _nodeProbeTarget(JSON.parse(baseCfgStr));
+    } catch (e) { return ''; }
+
+    // A dead server fails fast instead of starting xray and waiting out curl.
+    if (target && !target.udp) {
+        const host = await _resolveDialHosts(baseCfgStr, target);
+        if (await _tcpPing(host, target.port, TCPING_TIMEOUT_MS * 2) < 0) return '';
+    }
+
+    const slot = await _acquireTestSlot();
+    try {
+        let built;
+        try { built = _buildXrayTestInbound(baseCfgStr, slot, 'socks'); } catch (e) { return ''; }
+        const { testIp, testPort, tmpFile, configStr } = built;
+        const finalConfig = await resolveOutboundViaSystemDns(configStr, {
+            cache: true,
+            timeoutMs: SYSDNS_PROBE_TIMEOUT_MS
+        });
+        const configB64 = utoa(finalConfig);
+        // xray needs a moment to open its inbound, so the request is retried a few times.
+        const innerCmd = `RES=""
+        for i in 1 2 3 4; do
+            RES=$(${MODDIR}/bin/curl --socks5-hostname ${testIp}:${testPort} -s -L --max-redirs 2 ` +
+            `--max-time 4 ${shQuote(FLAG_TRACE_URL)} 2>/dev/null)
+            case "$RES" in *loc=*) break;; esac
+            sleep 1
+        done`;
+        const output = await execShellAsync(
+            `timeout 22 sh -c ${shQuote(_buildProbeScript(tmpFile, configB64, innerCmd, 0))}`
+        );
+        return _parseTraceLoc(output);
+    } catch (e) {
+        console.warn('[flag] lookup failed', e);
+        return '';
+    } finally {
+        _releaseTestSlot(slot);
+    }
+}
+
+// Looks up one node and stores the result. manual = from the menu (always runs).
+async function _runFlagLookup(category, node) {
+    if (!node || _isGroupNode(node)) return;
+    const key = _pingKey(category, node.id);
+    if (_flagRunning.has(key)) return;
+    _flagRunning.add(key);
+    try {
+        const loc = await _fetchNodeLoc(node);
+        // The node may have been deleted / replaced while the probe ran.
+        const live = profiles[category]?.nodes?.find(n => n.id === node.id);
+        if (!live) return;
+        if (loc) { live.loc = loc; delete live.locFail; }
+        else { delete live.loc; live.locFail = Date.now(); }
+        saveProfiles();
+        _refreshFlagImg(category, live);
+    } finally {
+        _flagRunning.delete(key);
+    }
+}
+
+function _needsFlag(node, force) {
+    if (!node || _isGroupNode(node)) return false;
+    if (force) return true;
+    if (_flagCode(node.loc)) return false;
+    return !(node.locFail && Date.now() - node.locFail < FLAG_RETRY_AFTER_MS);
+}
+
+// Fetches the flags of a whole category. force = from the menu (redo all, ignore the switch).
+async function fetchCategoryFlags(category, force) {
+    if (!force && !isAutoFlagEnabled()) return;
+    const nodes = (profiles[category]?.nodes || []).filter(n => _needsFlag(n, force));
+    if (nodes.length === 0) return;
+    await parallelWithLimit(nodes, NODE_TEST_CONCURRENCY, (n) => _runFlagLookup(category, n));
+}
+
+// Called after nodes were added / replaced. Does nothing when auto flags are switched off.
+function autoFetchFlags(categories) {
+    if (!isAutoFlagEnabled()) return;
+    (Array.isArray(categories) ? categories : [categories]).forEach(c => {
+        if (c && profiles[c]) fetchCategoryFlags(c, false).catch(e => console.warn('[flag]', e));
+    });
+}
+
+async function runCategoryFlags(event, category) {
+    closeAllMenus();
+    if (!profiles[category]) return;
+    showToast(`${t('toast_get_flag')}${category}...`, 'info');
+    await fetchCategoryFlags(category, true);
+}
+
+async function runNodeFlag(event, category, nodeId) {
+    closeAllMenus();
+    const node = profiles[category]?.nodes?.find(n => n.id === nodeId);
+    if (!node || _isGroupNode(node)) return;
+    await _runFlagLookup(category, node);
 }
 
 async function parallelWithLimit(items, limit, fn) {
@@ -7809,6 +7998,7 @@ function importPendingSublist() {
                 renderProfiles();
                 _refreshIfPolicyGroupsUsed();
                 showToast(t('toast_sublist_updated', { cats: updated.join(', ') }), 'success');
+                autoFetchFlags(updated);
             }
             execShell(`rm -f ${w}`, () => {});
         } catch (e) {

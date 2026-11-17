@@ -165,6 +165,15 @@
     $('app-bg-dim').addEventListener('input', function () { T.set({ bgDim: +this.value }); });
     syncBg();
 
+    // ---- country flags: auto lookup after an import (read by main.js through localStorage)
+    var af = $('app-auto-flag');
+    if (af) {
+        try { af.checked = localStorage.getItem('mv_auto_flag') !== '0'; } catch (e) { af.checked = true; }
+        af.addEventListener('change', function () {
+            try { localStorage.setItem('mv_auto_flag', af.checked ? '1' : '0'); } catch (e) { /* storage unavailable */ }
+        });
+    }
+
     // ---- notification: live tunnel speed (state lives in the host, see ProxyNotifier)
     var nt = $('app-notif-traffic'), k = window.ksu;
     if (nt && k && typeof k.setNotifTraffic === 'function' && typeof k.getNotifTraffic === 'function') {

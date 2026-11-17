@@ -714,6 +714,19 @@ textarea::placeholder { color: var(--md-outline); }
 
 .config-info { flex: 1; min-width: 0; }
 
+/* Country flag left of a node name (flag/flags_w40/<iso>.png, 40px wide source) */
+.node-flag {
+    flex: none;
+    width: 24px;
+    height: 18px;
+    margin-right: 12px;
+    object-fit: contain;
+    border-radius: 2px;
+    box-shadow: 0 0 0 1px rgba(128, 128, 128, 0.3);
+    -webkit-user-drag: none;
+    user-select: none;
+}
+
 .config-name {
     font-weight: 500;
     font-size: 14px;
