@@ -772,14 +772,17 @@ function _extractFinalMaskFromUri(uri) {
             const json = tryDecodeBase64(payload);
             if (!json) return null;
             const c = JSON.parse(json);
-            if (!c || !c.finalmask) return null;
-            return typeof c.finalmask === 'string' ? JSON.parse(c.finalmask) : c.finalmask;
+            const fmv = c && (c.fm || c.finalmask);
+            if (!fmv) return null;
+            return typeof fmv === 'string' ? JSON.parse(fmv) : fmv;
         }
         const qIdx = uri.indexOf('?');
         if (qIdx === -1) return null;
         const hashIdx = uri.indexOf('#');
         const qEnd = (hashIdx !== -1 && hashIdx > qIdx) ? hashIdx : uri.length;
-        const raw = new URLSearchParams(uri.substring(qIdx + 1, qEnd)).get('finalmask');
+        const sp = new URLSearchParams(uri.substring(qIdx + 1, qEnd));
+        // v2rayNG uses "fm"; "finalmask" kept as fallback.
+        const raw = sp.get('fm') || sp.get('finalmask');
         if (!raw) return null;
         return JSON.parse(raw);
     } catch (e) {
@@ -2106,7 +2109,7 @@ function convert_outbound_to_uri(outbound) {
             }
 
             const fmStr = _serializeFinalMaskForUri(ss);
-            if (fmStr) { try { obj.finalmask = JSON.parse(fmStr); } catch (e) {} }
+            if (fmStr) { try { obj.fm = JSON.parse(fmStr); } catch (e) {} }
 
             return 'vmess://' + btoa(JSON.stringify(obj));
         }
@@ -2192,7 +2195,7 @@ function convert_outbound_to_uri(outbound) {
             }
 
             const fmStr = _serializeFinalMaskForUri(ss);
-            if (fmStr) q.finalmask = fmStr;
+            if (fmStr) q.fm = fmStr;
 
             const queryStr = buildQuery(q);
             const nodeTag = (proto === 'vless' ? 'VLESS Node' : 'Trojan Node');
@@ -2285,7 +2288,7 @@ function convert_outbound_to_uri(outbound) {
             }
 
             const fmStr = _serializeFinalMaskForUri(ss);
-            if (fmStr) q.finalmask = fmStr;
+            if (fmStr) q.fm = fmStr;
 
             const queryStr = buildQuery(q);
             const suffix = queryStr ? `?${queryStr}` : '';
@@ -2367,7 +2370,7 @@ function convert_outbound_to_uri(outbound) {
                 q['obfs-password'] = salamander.settings.password;
             }
             const fmStr = _serializeFinalMaskForUri(ss, { dropUdpSalamander: !!salamander });
-            if (fmStr) q.finalmask = fmStr;
+            if (fmStr) q.fm = fmStr;
 
             const queryStr = buildQuery(q);
             const nodeTag  = 'Hysteria2 Node';
@@ -2396,7 +2399,7 @@ function convert_outbound_to_uri(outbound) {
             if (tls.verifyPeerCertByName) q.vcn = tls.verifyPeerCertByName;
             if (cfg.remoteDNS?.length) q.dns = cfg.remoteDNS.join(',');
             const fmStr = _serializeFinalMaskForUri(ss);
-            if (fmStr) q.finalmask = fmStr;
+            if (fmStr) q.fm = fmStr;
 
             let auth = '';
             if (!mq.warp && (mq.user || mq.pass)) {

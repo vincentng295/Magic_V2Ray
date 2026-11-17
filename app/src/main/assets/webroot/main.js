@@ -2187,7 +2187,7 @@ function getFullNodeDetails(node) {
             d.alterId = c.aid !== undefined ? String(c.aid) : "0";
             d.headerType = c.type || "none";
             // Per-network fields
-            d.finalMask = _normalizeFinalMask(c.finalmask);
+            d.finalMask = _normalizeFinalMask(c.fm || c.finalmask);
 
             if (c.net === 'tcp') {
                 d.tcpHeaderType = c.type || "none";
@@ -2254,7 +2254,7 @@ function getFullNodeDetails(node) {
             d.pcs = p.get('pcs') || '';
             d.ech = p.get('ech') || '';
             d.vcn = p.get('vcn') || '';
-            d.finalMask = _normalizeFinalMask(p.get('finalmask'));
+            d.finalMask = _normalizeFinalMask(p.get('fm') || p.get('finalmask'));
             d.vlessEncryption = p.get('encryption') || 'none';
 
             // Per-network fields
@@ -2346,7 +2346,7 @@ function getFullNodeDetails(node) {
                     d.pcs = p.get('pcs') || '';
                     d.ech = p.get('ech') || '';
             d.vcn = p.get('vcn') || '';
-                    d.finalMask = _normalizeFinalMask(p.get('finalmask'));
+                    d.finalMask = _normalizeFinalMask(p.get('fm') || p.get('finalmask'));
 
                     if (d.network === 'tcp') {
                         d.tcpHeaderType = p.get('headerType') || 'none';
@@ -2440,7 +2440,7 @@ function getFullNodeDetails(node) {
             d.hy2PortHopping = p.get('mport') || "";
             d.hy2HopInterval = p.get('hopInterval') || "";
             d.ech = p.get('ech') || "";
-            d.finalMask = _normalizeFinalMask(p.get('finalmask'));
+            d.finalMask = _normalizeFinalMask(p.get('fm') || p.get('finalmask'));
         } catch(e) {}
     }
 
@@ -2466,7 +2466,7 @@ function getFullNodeDetails(node) {
             d.pcs = p.get('pcs') || "";
             d.vcn = p.get('vcn') || "";
             d.ech = "";
-            d.finalMask = _normalizeFinalMask(p.get('finalmask'));
+            d.finalMask = _normalizeFinalMask(p.get('fm') || p.get('finalmask'));
         } catch(e) {}
     }
 
@@ -2550,7 +2550,7 @@ function serializeNodeDetailsToUri(d, protocol) {
             if (d.spiderX) params.set('spx', d.spiderX);
             if (d.pqv) params.set('pqv', d.pqv);
         }
-        if (d.finalMask) params.set('finalmask', d.finalMask);
+        if (d.finalMask) params.set('fm', d.finalMask);
         let pStr = params.toString();
         if (pStr) urlStr += "?" + pStr;
 
@@ -2584,7 +2584,7 @@ function serializeNodeDetailsToUri(d, protocol) {
         if (d.hy2PortHopping) params.set('mport', d.hy2PortHopping);
         if (d.hy2HopInterval) params.set('hopInterval', d.hy2HopInterval);
         if (d.ech) params.set('ech', d.ech);
-        if (d.finalMask) params.set('finalmask', d.finalMask);
+        if (d.finalMask) params.set('fm', d.finalMask);
         const user = d.uuid ? encodeURIComponent(d.uuid) : "";
         let urlStr = `hysteria2://${user}@${bracketIPv6(d.address)}:${d.port}`;
         const pStr = params.toString();
@@ -2610,7 +2610,7 @@ function serializeNodeDetailsToUri(d, protocol) {
         if (d.fingerprint && d.fingerprint !== 'chrome') params.set('fp', d.fingerprint);
         if (d.pcs) params.set('pcs', d.pcs);
         if (d.vcn) params.set('vcn', d.vcn);
-        if (d.finalMask) params.set('finalmask', d.finalMask);
+        if (d.finalMask) params.set('fm', d.finalMask);
         // user/pass cannot be combined with a WARP device.
         let auth = "";
         if (!d.masqueWarpPrivateKey && (d.proxyUsername || d.proxyPassword)) {
@@ -2688,7 +2688,7 @@ function serializeNodeDetailsToUri(d, protocol) {
             c.mode = d.grpcMode || "gun";
             c.authority = d.grpcAuth || "";
         }
-        if (d.finalMask) { try { c.finalmask = JSON.parse(d.finalMask); } catch(e) {} }
+        if (d.finalMask) { try { c.fm = JSON.parse(d.finalMask); } catch(e) {} }
         return "vmess://" + utoa(JSON.stringify(c));
     } else {
         let urlStr = `${protocol}://${encodeURIComponent(d.uuid)}@${bracketIPv6(d.address)}:${d.port}`;
@@ -2746,7 +2746,7 @@ function serializeNodeDetailsToUri(d, protocol) {
         if (protocol === 'vless' && d.vlessEncryption && d.vlessEncryption !== 'none') {
             params.set('encryption', d.vlessEncryption);
         }
-        if (d.finalMask) params.set('finalmask', d.finalMask);
+        if (d.finalMask) params.set('fm', d.finalMask);
         let pStr = params.toString();
         if (pStr) urlStr += "?" + pStr;
         if (d.name) urlStr += "#" + encodeURIComponent(d.name);
