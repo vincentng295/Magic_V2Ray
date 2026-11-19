@@ -234,20 +234,30 @@ jobs:
             module/bin/*/xhuskydg_helper.version
           key: bins-xray-${{ hashFiles('core/xray-core/**') }}-helper-${{ hashFiles('native/**') }}
 
-      # GitHub secrets only hold text, so the keystore is stored base64-encoded
-      # in MV_KEYSTORE_BASE64 and decoded to a temp file for build.sh.
-      - name: Decode keystore
+      # Secret MV2R_KEYSTORE_ENV = the whole content of MV2R_KEYSTORE.env
+      # (MV_KEYSTORE_BASE64, MV_KEYSTORE_PASSWORD, MV_KEY_ALIAS, MV_KEY_PASSWORD);
+      # build.sh reads it and decodes the keystore itself. Falls back to the
+      # old separate secrets when MV2R_KEYSTORE_ENV is not set.
+      - name: Prepare keystore config
         env:
+          MV2R_KEYSTORE_ENV: ${{ secrets.MV2R_KEYSTORE_ENV }}
           MV_KEYSTORE_BASE64: ${{ secrets.MV_KEYSTORE_BASE64 }}
         run: |
           set -e
-          [ -n "$MV_KEYSTORE_BASE64" ] || { echo "::error::secret MV_KEYSTORE_BASE64 is not set"; exit 1; }
-          echo "$MV_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          if [ -n "$MV2R_KEYSTORE_ENV" ]; then
+            printf '%s\n' "$MV2R_KEYSTORE_ENV" > MV2R_KEYSTORE.env
+            chmod 600 MV2R_KEYSTORE.env
+          elif [ -n "$MV_KEYSTORE_BASE64" ]; then
+            echo "$MV_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "MV_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          else
+            echo "::error::neither secret MV2R_KEYSTORE_ENV nor MV_KEYSTORE_BASE64 is set"
+            exit 1
+          fi
 
       # APKs only (build.sh checks each one doubles as a flashable module zip).
       - name: Run release packager
         env:
-          MV_KEYSTORE: ${{ runner.temp }}/release.jks
           MV_KEYSTORE_PASSWORD: ${{ secrets.MV_KEYSTORE_PASSWORD }}
           MV_KEY_ALIAS: ${{ secrets.MV_KEY_ALIAS }}
           MV_KEY_PASSWORD: ${{ secrets.MV_KEY_PASSWORD }}
@@ -257,7 +267,7 @@ jobs:
 
       - name: Remove keystore
         if: always()
-        run: rm -f "$RUNNER_TEMP/release.jks"
+        run: rm -f MV2R_KEYSTORE.env "$RUNNER_TEMP/release.jks"
 
       - name: Upload arm64-v8a artifact
         uses: actions/upload-artifact@v4

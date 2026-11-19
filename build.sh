@@ -27,7 +27,8 @@
 # APK: build_apk stages xray/helper/curl as app/src/main/jniLibs/<abi>/lib*.so and runs
 # `gradle assembleRelease` (or ./gradlew if present). Output: dist/<id>-<version>-<abi>.apk.
 # Set MV_KEYSTORE, MV_KEYSTORE_PASSWORD, MV_KEY_ALIAS, MV_KEY_PASSWORD to sign with your
-# own key; otherwise the debug key is used.
+# own key, or put them (plus MV_KEYSTORE_BASE64) in MV2R_KEYSTORE.env (see
+# MV2R_KEYSTORE_env.example); otherwise the debug key is used.
 # NDK: $ANDROID_NDK_HOME (or ANDROID_NDK_LATEST_HOME / ANDROID_NDK_ROOT),
 # else ./android-ndk-r23b. Override the netd xtables lock with MV_XTABLES_LOCK.
 #
@@ -36,6 +37,46 @@ set -euo pipefail
 cd "$(dirname "$0")"
 OUT="dist"
 mkdir -p "$OUT"
+
+# ---------------------------------------------------------------------------
+# Optional signing config: MV2R_KEYSTORE.env (see MV2R_KEYSTORE_env.example).
+# Only the four MV_* signing variables are read (the file is NOT sourced, so it
+# cannot run code). Variables already set in the environment win over the file.
+# ---------------------------------------------------------------------------
+KEYSTORE_ENV_FILE="${MV2R_KEYSTORE_ENV_FILE:-MV2R_KEYSTORE.env}"
+TMP_KEYSTORE=""
+trap '[[ -n "$TMP_KEYSTORE" ]] && rm -f "$TMP_KEYSTORE"; true' EXIT
+
+load_keystore_env() {
+    [[ -f "$KEYSTORE_ENV_FILE" ]] || return 0
+    echo "==> loading signing config from $KEYSTORE_ENV_FILE"
+    local line key val
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line=${line%$'\r'}
+        if [[ -z "$line" || "$line" == \#* || "$line" != *=* ]]; then continue; fi
+        line=${line#export }
+        key=${line%%=*}
+        val=${line#*=}
+        if [[ ${#val} -ge 2 && ( "$val" == \"*\" || "$val" == \'*\' ) ]]; then
+            val=${val:1:${#val}-2}
+        fi
+        case "$key" in
+            MV_KEYSTORE_BASE64|MV_KEYSTORE_PASSWORD|MV_KEY_ALIAS|MV_KEY_PASSWORD)
+                if [[ -n "$val" && -z "${!key:-}" ]]; then export "$key=$val"; fi ;;
+        esac
+    done < "$KEYSTORE_ENV_FILE"
+
+    # Base64 keystore given but no path: decode it to a temp file.
+    if [[ -z "${MV_KEYSTORE:-}" && -n "${MV_KEYSTORE_BASE64:-}" ]]; then
+        TMP_KEYSTORE=$(mktemp)
+        if ! printf '%s' "$MV_KEYSTORE_BASE64" | base64 -d > "$TMP_KEYSTORE" 2>/dev/null; then
+            echo "MV_KEYSTORE_BASE64 in $KEYSTORE_ENV_FILE is not valid base64" >&2
+            exit 1
+        fi
+        export MV_KEYSTORE="$TMP_KEYSTORE"
+    fi
+}
+load_keystore_env
 
 VERSION=$(sed -n 's/^version=//p' module/module.prop | head -n 1 | tr ' /&' '_' | tr -d '\r')
 MODID=$(sed -n 's/^id=//p' module/module.prop | head -n 1 | tr -d '\r')
