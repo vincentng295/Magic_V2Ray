@@ -540,6 +540,7 @@
                             <button class="btn-menu-trigger" onclick="toggleCategoryMenu(event, this)">⋮</button>
                             <div class="category-dropdown-menu">
                                 <button onclick="geoImport(); closeAllMenus();" data-i18n="geo_menu_import">Import geo database (.dat)</button>
+                                <button onclick="geoOpenDownload(); closeAllMenus();" data-i18n="geo_menu_download">Download geo database from URL</button>
                                 <button onclick="openImportRoutingModal(); closeAllMenus();" data-i18n="menu_import_presets">Import presets from JSON</button>
                                 <button onclick="exportRoutingRulesToClipboard(); closeAllMenus();" data-i18n="menu_export_presets">Export presets JSON to clipboard</button>
                                 <button onclick="resetRoutingRulesToDefault(); closeAllMenus();" data-i18n="menu_reset_rules">Reset to default rules</button>
@@ -562,10 +563,6 @@
                     <h4 data-i18n="geo_title">Geo databases</h4>
                     <p class="routing-strategy-hint" data-i18n="geo_desc">geoip.dat / geosite.dat used by geoip: and geosite: rules. Files you import or download are kept apart from the app's own copies and are never overwritten by app updates. Restart the engine to load a change.</p>
                     <div id="geo-assets-list"></div>
-                    <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; align-items:center;">
-                        <input type="text" id="geo-dl-url" data-i18n-placeholder="geo_url_placeholder" placeholder="https://example.com/geoip.dat" style="flex:1; min-width:160px;" autocapitalize="off" autocomplete="off" spellcheck="false">
-                        <button type="button" class="btn btn-primary" id="geo-dl-btn" onclick="geoDownload()" data-i18n="geo_btn_download">Download</button>
-                    </div>
                 </div>
                 <div id="routing-rules-container"></div>
                 <div id="routing-empty-state" class="routing-empty-state" style="display:none;">
@@ -1620,6 +1617,25 @@ extras  uri, name, exclude</pre>
                     </div>
                 </div>
                 <textarea id="import-routing-textarea" data-i18n-placeholder="import_rules_placeholder" placeholder='[{"remarks":"...","domain":["geosite:google"],"outboundTag":"proxy"}]' style="height: 240px;"></textarea>
+            </div>
+        </div>
+    </div>
+
+    <!-- Geo database download modal -->
+    <div id="geo-download-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-window">
+            <header class="modal-header">
+                <button class="modal-icon-btn" onclick="geoCloseDownload()">←</button>
+                <h2 data-i18n="geo_menu_download">Download geo database from URL</h2>
+                <button class="modal-icon-btn check-btn" id="geo-dl-btn" onclick="geoDownload()">✓</button>
+            </header>
+            <div class="modal-body" style="padding: 16px; display: flex; flex-direction: column; gap: 14px;">
+                <div class="chain-info-box" data-i18n="geo_dl_desc">
+                    Direct link to a .dat file. It is saved under the file name in the link, replacing a custom file of the same name.
+                </div>
+                <div class="edit-item-field">
+                    <input type="text" id="geo-dl-url" data-i18n-placeholder="geo_url_placeholder" placeholder="https://example.com/geoip.dat" autocapitalize="off" autocomplete="off" spellcheck="false">
+                </div>
             </div>
         </div>
     </div>

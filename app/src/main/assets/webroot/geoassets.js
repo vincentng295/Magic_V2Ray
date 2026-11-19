@@ -1,4 +1,4 @@
-// Routing settings > "Geo databases": import (from the routing menu) / download / rename / remove geoip.dat, geosite.dat and any extra
+// Routing settings > "Geo databases": import / download (both from the routing menu) / rename / remove geoip.dat, geosite.dat and any extra
 // *.dat that rules reach through "ext:file.dat:tag".
 //
 // The files live in GEO_ASSETS_DIR (<DATADIR>/location_assets), which the engine reads through
@@ -177,6 +177,12 @@
         inp.select();
     }
 
+    function openDownload() {
+        $('geo-dl-url').value = '';
+        $('geo-download-modal').style.display = 'block';
+    }
+    function closeDownload() { $('geo-download-modal').style.display = 'none'; }
+
     async function download() {
         if (busy) return;
         var url = ($('geo-dl-url').value || '').trim();
@@ -184,6 +190,7 @@
         // stored under the file name in the URL (query / fragment dropped)
         var target = url.replace(/[?#].*$/, '').split('/').pop();
         if (!NAME_RE.test(target)) { showToast(t('geo_err_name'), 'error'); return; }
+        closeDownload();
         busy = true;
         var btn = $('geo-dl-btn');
         if (btn) btn.disabled = true;
@@ -213,6 +220,8 @@
 
     window.geoImport = importFile;
     window.geoDownload = download;
+    window.geoOpenDownload = openDownload;
+    window.geoCloseDownload = closeDownload;
     window.geoRefresh = refresh;
 
     // refresh the list whenever the Routing tab is opened
