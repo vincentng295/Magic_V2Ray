@@ -45,7 +45,16 @@ import java.util.concurrent.TimeUnit;
  */
 final class UpdateChecker {
 
-    static final String UPDATE_URL = "https://vincentng295.github.io/magic-v2ray-site/update.json";
+    static final String UPDATE_URL = "https://raw.githubusercontent.com/vincentng295/magic-v2ray-site/refs/heads/main/update.json";
+
+    /**
+     * Tried in order until one answers. raw.githubusercontent.com is blocked in some countries (China), so
+     * the rest are mirrors. Add or reorder mirrors here; each must serve the same update.json over https.
+     */
+    private static final String[] UPDATE_URLS = {
+            UPDATE_URL,
+            "https://gh-proxy.com/" + UPDATE_URL,
+    };
 
     /** Auto check is on until the user turns it off in App settings. */
     private static final boolean DEFAULT_AUTO = true;
@@ -120,7 +129,7 @@ final class UpdateChecker {
         JSONObject cur = current(c);
         JSONObject res = new JSONObject();
         try {
-            String body = fetch(UPDATE_URL, MAX_BYTES);
+            String body = fetchFirst(UPDATE_URLS, MAX_BYTES);
             JSONObject j = new JSONObject(body);
             int code = j.optInt("versionCode", 0);
             String version = j.optString("version", "").trim();
@@ -194,7 +203,7 @@ final class UpdateChecker {
         String n = j.optString("notes", "").trim();
         if (n.isEmpty() && !changelogUrl.isEmpty()) {
             try {
-                n = fetch(changelogUrl, MAX_NOTES_BYTES).trim();
+                n = fetchFirst(mirrors(changelogUrl), MAX_NOTES_BYTES).trim();
             } catch (IOException e) {
                 n = "";
             }
@@ -202,9 +211,39 @@ final class UpdateChecker {
         return n.length() > MAX_NOTES_CHARS ? n.substring(0, MAX_NOTES_CHARS) : n;
     }
 
+    /** The URL itself, then the same file through the proxy mirror when it is a raw.githubusercontent.com link. */
+    private static String[] mirrors(String u) {
+        if (u.startsWith("https://raw.githubusercontent.com/")) {
+            return new String[]{u, "https://gh-proxy.com/" + u};
+        }
+        return new String[]{u};
+    }
+
     private static String httpsOrEmpty(String u) {
         u = u == null ? "" : u.trim();
         return u.matches("(?i)^https://[^\\s'\"]+$") ? u : "";
+    }
+
+    /** Returns the first successful answer; if all fail, the error lists each address and why. */
+    private static String fetchFirst(String[] addresses, int maxBytes) throws IOException {
+        StringBuilder errors = new StringBuilder();
+        for (String a : addresses) {
+            try {
+                return fetch(a, maxBytes);
+            } catch (IOException e) {
+                if (errors.length() > 0) errors.append("; ");
+                errors.append(hostOf(a)).append(": ").append(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+            }
+        }
+        throw new IOException(errors.toString());
+    }
+
+    private static String hostOf(String a) {
+        try {
+            return new URL(a).getHost();
+        } catch (IOException e) {
+            return a;
+        }
     }
 
     private static String fetch(String address, int maxBytes) throws IOException {
