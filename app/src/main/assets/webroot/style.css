@@ -3431,3 +3431,9 @@ html.has-bg .category-group:has(> .nodes-list[style*="display: none"]) > .catego
 }
 input.traffic-limit-input { flex: 1; }
 .traffic-limit-error { display: block; color: var(--md-error, #b3261e); min-height: 1em; }
+
+/* ===== App update check (App settings -> Updates, Dashboard banner) ===== */
+.update-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+.update-banner { flex-wrap: wrap; }
+.update-banner .ext-banner-text { flex: 1 1 140px; }
+#app-update-status { white-space: normal; }

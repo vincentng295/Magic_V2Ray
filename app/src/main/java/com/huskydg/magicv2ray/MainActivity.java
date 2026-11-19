@@ -175,6 +175,15 @@ public class MainActivity extends Activity {
         return true;
     }
 
+    /** An update check finished (maybe in the background): let the WebUI refresh its banner. */
+    static void updateChanged() {
+        final MainActivity a = current;
+        if (a == null) return;
+        a.runOnUiThread(() -> {
+            if (a.web != null) a.web.evaluateJavascript("window.onUpdateInfo&&window.onUpdateInfo()", null);
+        });
+    }
+
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
@@ -196,6 +205,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         ExternalSession.sweepStale(this);       // leftover of a session that did not survive a reboot / crash
+        UpdateChecker.maybeAutoCheck(this);     // background, at most every 12 h; no-op when switched off
         current = this;
         // not on recreate() / process-death restore: the same intent must not ask again
         if (savedInstanceState == null) handleExternal(getIntent());
@@ -748,6 +758,7 @@ public class MainActivity extends Activity {
         super.onResume();
         resumed = true;
         ExternalSession.clearPendingNotification(this);
+        UpdateChecker.clearNotification(this);
         // Back from the provider mini browser with a sync request: let the WebUI import it.
         if (pendingProviderConnect != null && web != null) {
             web.post(() -> web.evaluateJavascript("window.checkProviderConnect&&window.checkProviderConnect()", null));

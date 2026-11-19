@@ -13,6 +13,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Asks the user to exempt the app from battery optimisation (Doze). -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Lets the daily update-check job survive a reboot (JobInfo.setPersisted). -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:allowBackup="false"
@@ -102,6 +104,12 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="vpn" />
         </service>
+
+        <!-- Daily background update check (App settings -> Auto update check). -->
+        <service
+            android:name=".UpdateJobService"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
 
         <!-- sendBroadcast entry of the external control API (see ExternalControlReceiver). -->
         <receiver

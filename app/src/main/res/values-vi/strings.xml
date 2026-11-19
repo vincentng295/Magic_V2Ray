@@ -82,4 +82,7 @@
     <string name="ext_ov_hosts">Hosts tùy chỉnh</string>
     <string name="ext_ov_item">%1$s: %2$d</string>
     <string name="ext_ov_selected_node">Giữ nguyên node bạn đang chọn</string>
+    <string name="update_channel">Cập nhật ứng dụng</string>
+    <string name="update_notif_title">Có bản cập nhật mới</string>
+    <string name="update_notif_text">Magic V2Ray %1$s đã có. Nhấn để xem.</string>
 </resources>

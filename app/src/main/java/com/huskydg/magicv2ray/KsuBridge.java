@@ -603,6 +603,37 @@ final class KsuBridge {
         if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("Magic V2Ray", text));
     }
 
+    // ------------------------------------------------ App update check (see UpdateChecker)
+
+    /** App Settings toggle: check for a new version in the background and notify. */
+    @JavascriptInterface
+    public boolean getAutoUpdateCheck() {
+        return UpdateChecker.autoEnabled(activity.getApplicationContext());
+    }
+
+    @JavascriptInterface
+    public void setAutoUpdateCheck(boolean on) {
+        UpdateChecker.setAutoEnabled(activity.getApplicationContext(), on);
+    }
+
+    /** JSON: {"current":{"name","code"},"last":{...last good check...}}; no network. */
+    @JavascriptInterface
+    public String getUpdateInfo() {
+        return UpdateChecker.info(activity.getApplicationContext());
+    }
+
+    /** ksu.checkUpdate(callbackName) -> window[callbackName](resultJson); the WebUI JSON.parse()s it. */
+    @JavascriptInterface
+    public void checkUpdate(final String callback) {
+        if (callback == null || !CB_RE.matcher(callback).matches()) return;
+        final Context app = activity.getApplicationContext();
+        POOL.execute(() -> {
+            final JSONObject r = UpdateChecker.check(app);
+            final String js = "window['" + callback + "']&&window['" + callback + "'](" + JSONObject.quote(r.toString()) + ")";
+            web.post(() -> web.evaluateJavascript(js, null));
+        });
+    }
+
     /** Opens an http(s) URL in the browser. */
     @JavascriptInterface
     public void openUrl(String url) {

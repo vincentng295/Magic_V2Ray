@@ -72,4 +72,7 @@
     <string name="ext_prompt_warn_vless">⚠ Этот узел использует VLESS без TLS и шифрования: трафик передаётся открытым текстом.</string>
     <string name="ext_prompt_warn_trojan">⚠ Этот узел использует Trojan без TLS: трафик передаётся открытым текстом.</string>
     <string name="ext_prompt_warn_loop">⚠ Этот сервер находится на этом устройстве. Приложение, которое его обслуживает, нужно исключить из VPN, иначе его собственный трафик зациклится.</string>
+    <string name="update_channel">Обновления приложения</string>
+    <string name="update_notif_title">Доступно обновление</string>
+    <string name="update_notif_text">Доступна версия Magic V2Ray %1$s. Нажмите, чтобы посмотреть.</string>
 </resources>

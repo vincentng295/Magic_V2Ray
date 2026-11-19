@@ -63,6 +63,16 @@
         </header>
 
         <div id="tab-dashboard" class="tab-content active">
+            <div id="update-banner" class="ext-banner update-banner" style="display:none;">
+                <div class="ext-banner-text">
+                    <strong id="update-banner-title"></strong>
+                    <small id="update-banner-sub"></small>
+                </div>
+                <div class="update-actions">
+                    <button type="button" class="btn btn-secondary" id="update-banner-later" data-i18n="btn_update_later">Later</button>
+                    <button type="button" class="btn btn-primary" id="update-banner-dl" data-i18n="btn_update_download">Download</button>
+                </div>
+            </div>
             <div id="ext-banner" class="ext-banner" style="display:none;">
                 <div class="ext-banner-text">
                     <strong id="ext-banner-name"></strong>
@@ -713,6 +723,26 @@
                     </div>
                 </div>
 
+                <!-- Only shown inside the APK (window.ksu.checkUpdate); see updatecheck.js -->
+                <div class="settings-group-box" id="update-box" style="display:none;">
+                    <h4 data-i18n="grp_updates">Updates</h4>
+                    <div class="setting-item-row toggle-row">
+                        <label for="app-auto-update"><span data-i18n="lbl_auto_update">Auto update check</span><small data-i18n="desc_auto_update">Check for a new version about once a day and show a notification when one is available.</small></label>
+                        <input type="checkbox" id="app-auto-update" checked>
+                    </div>
+                    <div class="setting-item-row">
+                        <label for="btn-update-check"><span data-i18n="lbl_check_update">Manually check update</span><small id="app-update-status"></small></label>
+                        <button type="button" class="btn btn-secondary" id="btn-update-check" data-i18n="btn_check_update">Check now</button>
+                    </div>
+                    <div class="setting-item-row" id="app-update-actions" style="display:none;">
+                        <label><span id="app-update-new"></span></label>
+                        <div class="update-actions">
+                            <button type="button" class="btn btn-secondary" id="app-update-changelog" data-i18n="btn_update_changelog">Changelog</button>
+                            <button type="button" class="btn btn-primary" id="app-update-dl" data-i18n="btn_update_download">Download</button>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="settings-group-box">
                     <h4 data-i18n="grp_node_flags">Country flags</h4>
                     <div class="setting-item-row toggle-row">
@@ -1022,6 +1052,7 @@
     <script src="excludeapps.js"></script>
     <script src="external.js"></script>
     <script src="appsettings.js"></script>
+    <script src="updatecheck.js"></script>
     <script src="exportlogs.js"></script>
     <script src="settingsio.js"></script>
     <script src="geoassets.js"></script>

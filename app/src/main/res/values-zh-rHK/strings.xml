@@ -72,4 +72,7 @@
     <string name="ext_prompt_warn_vless">⚠ 此節點使用未啟用 TLS 或加密的 VLESS：流量以明文傳輸。</string>
     <string name="ext_prompt_warn_trojan">⚠ 此節點使用未啟用 TLS 的 Trojan：流量以明文傳輸。</string>
     <string name="ext_prompt_warn_loop">⚠ 此伺服器位於本裝置上。提供它的應用程式必須排除在 VPN 之外，否則它自己的流量會繞回自己。</string>
+    <string name="update_channel">應用程式更新</string>
+    <string name="update_notif_title">發現新版本</string>
+    <string name="update_notif_text">Magic V2Ray %1$s 已發佈，輕按查看。</string>
 </resources>

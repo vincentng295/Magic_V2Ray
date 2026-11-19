@@ -82,4 +82,7 @@
     <string name="ext_ov_hosts">Custom hosts</string>
     <string name="ext_ov_item">%1$s: %2$d</string>
     <string name="ext_ov_selected_node">Your selected node is kept</string>
+    <string name="update_channel">App updates</string>
+    <string name="update_notif_title">Update available</string>
+    <string name="update_notif_text">Magic V2Ray %1$s is available. Tap to view.</string>
 </resources>
