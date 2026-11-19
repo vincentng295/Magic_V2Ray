@@ -19,8 +19,6 @@
 #define LOG_DIR        STUB_DIR "/logs"
 #define CONFIG_NAME    "config.v2.json"
 
-#define LOG_CTRL       LOG_DIR "/control.pipe"
-#define XRAY_LOG       LOG_DIR "/input.pipe"
 #define XRAY_LOG_FILE  DATADIR "/xray.log"
 #define SERVICE_LOG    DATADIR "/service.log"
 #define IP_HUNT_FILE   DATADIR "/ip_hunt.list"
@@ -73,7 +71,7 @@ extern pthread_mutex_t g_lock;   /* serialises network/xray state changes */
 
 /* log.c */
 void log_open(void);                       /* service.log + rotation */
-void log_attach_pipe(const char *fifo);    /* tee into the xray log pipe */
+void log_attach_fd(int fd);                /* tee into the xray log pipe (xlog_init) */
 void log_msg(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 #define LOGD(...) do { if (g_debug) log_msg(__VA_ARGS__); } while (0)
 int  log_fd(void);                         /* fd to give child stdout/err */

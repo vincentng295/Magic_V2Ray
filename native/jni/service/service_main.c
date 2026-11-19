@@ -195,7 +195,6 @@ void service_shutdown(void)
     kill_sub_loop();
 
     log_msg("stop_svc: bye");
-    xray_helper_logservice("stop", NULL, NULL);      /* log daemon is a separate process */
     cleanup_stub_dirs();
 }
 
@@ -332,12 +331,11 @@ int run_service(int argc, char **argv)
     u_mkdir_p(DATADIR, 0700);
     prepare_stub_dir();
     u_clear_dir(OVERRIDE_DIR);                       /* a temporary override session never outlives the service */
-    char *a[] = { g_self, "logservice", "create", "-c", LOG_CTRL, "-i", XRAY_LOG, "--daemonize", NULL };
-    u_run(a);                                        /* create the log pipe first so we can write to it */
+    int logfd = xlog_init();                         /* xray's output pipe + ring buffer: create it first so we can write to it */
 
     g_debug = prop_debug();
     log_open();
-    log_attach_pipe(XRAY_LOG);
+    if (logfd >= 0) log_attach_fd(logfd);
     log_msg("=== magic_v2ray service starting (debug=%d, moddir=%s) ===", g_debug, g_moddir);
 
     pthread_t bt;

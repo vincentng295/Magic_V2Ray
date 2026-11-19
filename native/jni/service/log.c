@@ -17,13 +17,7 @@ void log_open(void)
     g_logfd = open(SERVICE_LOG, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
 }
 
-void log_attach_pipe(const char *fifo)
-{
-    struct stat st;
-    /* O_RDWR on a FIFO never blocks, even with no reader yet. */
-    if (stat(fifo, &st) == 0 && S_ISFIFO(st.st_mode))
-        g_pipefd = open(fifo, O_RDWR | O_CLOEXEC);
-}
+void log_attach_fd(int fd) { g_pipefd = fd; }
 
 int log_fd(void) { return g_pipefd >= 0 ? g_pipefd : g_logfd; }
 

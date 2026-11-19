@@ -4,7 +4,7 @@ One static-ish binary replaces `service.sh` and every external tool it called
 (`ip`, `iptables`, `ip6tables`, `busybox`/`toybox`: `sed grep tr base64 stat mount umount
 mkfifo date kill inotifyd getprop sleep`, and `curl`), and the control front-end `proxy_control.sh`
 (now the `proxy_control` applet).
-Only your own helper `bin/xhuskydg_helper` is still used (the `logservice` verbs).
+Only your own helper `bin/xhuskydg_helper` is still used.
 
 ## Layout
 | file | replaces in service.sh |
@@ -38,7 +38,7 @@ Monitor threads need no tracking: the service owns them.
 ## Control pipe protocol
 `run/control.pipe` takes one line per command:
 * plain `<verb>` - fire and forget (boot sequencer, older callers, `service --stop` writes `stop_svc`).
-* `REQ <reply-fifo> <verb>` - what `xhuskydg_helper proxy_control <verb>` sends, the same scheme as `logservice read`: the
+* `REQ <reply-fifo> <verb>` - what `xhuskydg_helper proxy_control <verb>` sends, the same scheme as the log reads: the
   client creates `<pipe>.r<pid>`, the service answers `<exit code>\n` then lines `o <stdout>` / `e <stderr>` and closes it.
 
 `status` and `latency_heartbeat` are answered by the reader thread at once; every other verb goes through a queue to one

@@ -3,7 +3,7 @@
  *
  *   plain   "<verb>\n"                      fire and forget (boot sequencer, older callers, `service --stop`)
  *   request "REQ <reply-fifo> <verb>\n"     `xhuskydg_helper proxy_control <verb>`: the answer comes back through
- *                                           a FIFO the client created, same scheme as `logservice read`.
+ *                                           a FIFO the client created, same scheme as `proxy_control log_read`.
  *                                           Reply = "<exit code>\n" then output lines "o <stdout>" / "e <stderr>".
  *
  * The reader thread only parses. `status` and `latency_heartbeat` are answered right there (they never wait for a
@@ -96,11 +96,24 @@ static void verb_status(out_t *o)
     else { o->rc = 1; OUT(o, "stopped"); }
 }
 
-static bool is_fast(const char *v) { return !strcmp(v, "status") || !strcmp(v, "latency_heartbeat"); }
+/* log_dump / log_flush are answered by the reader thread too: reading the log must work while a long start / restart job runs */
+static bool is_fast(const char *v)
+{
+    return !strcmp(v, "status") || !strcmp(v, "latency_heartbeat") || !strcmp(v, "log_flush") || !strncmp(v, "log_dump ", 9);
+}
 
 static void do_fast(const char *c, out_t *o)
 {
     if (!strcmp(c, "status")) { verb_status(o); return; }
+    if (!strcmp(c, "log_flush")) { xlog_flush(); OUT(o, "ok"); return; }
+    if (!strncmp(c, "log_dump ", 9)) {               /* log_dump <lines> <client pid>: the dump lands in RUN_DIR/xlog.<pid> */
+        unsigned long n; int pid;
+        if (sscanf(c + 9, "%lu %d", &n, &pid) != 2 || n > 100000 || pid <= 0) { o->rc = 1; ERR(o, "bad log_dump"); return; }
+        char p[96]; snprintf(p, sizeof p, RUN_DIR "/xlog.%d", pid);
+        int r = xlog_dump(p, n);
+        if (r < 0) { o->rc = 1; ERR(o, "log_dump: %s", strerror(-r)); } else OUT(o, "ok");
+        return;
+    }
     /* refreshed by the UI while its Latency tab is open */
     if (u_exists(LATENCY_HB_FILE)) u_writef(LATENCY_HB_FILE, "%ld\n", u_now_s());
 }

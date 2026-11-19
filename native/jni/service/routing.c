@@ -64,7 +64,12 @@ static const char *LAN_V6[] = { "::1/128", "::ffff:0:0/96", "64:ff9b::/96", "100
 #define ALWAYS_V6 "::1/128"
 
 static const struct { uint32_t lo, hi; } UID_LIST[] = { { 0, 2147483647u } };
-static const uint32_t UID_EXCLUDE[] = { 1001 };
+/* never sent into the tun: 1001 (radio) and xray itself (MV_XRAY_UID; its sockets also carry FWMARK) */
+static const uint32_t UID_EXCLUDE[] = { 1001, MV_XRAY_UID };
+/* apps start at 10000 (AID_APP_START); 9999 (AID_NOBODY) is xray, it must reach its own local ports */
+#define HIDE_UID_LO 10000u
+/* what older builds used (>= 9999): removed too, so an upgrade without reboot leaves no stale REJECT */
+#define LEGACY_HIDE_UID_LO 9999u
 static const char *MOBILE_IF[] = { "rmnet+", "ccmni+", "pdp+", "wwan+" };
 
 typedef struct {
@@ -346,9 +351,9 @@ int apply_routing_rules(void)
     }
     if ((t = begin(AF_INET, "filter"))) {
         forward_rules(t, true);
-        /* hide the proxy ports from ordinary apps (uid >= 9999) */
-        NOP(ipt_insert(t, "OUTPUT", 1, &SPEC(.proto = IPPROTO_TCP, .dport_lo = TUN_PORT, .dst = TUN_ADDR, .owner = true, .uid_lo = 9999, .uid_hi = 2147483647u, .target = MVT_REJECT, .reject_with = MVR_TCP_RESET)));
-        NOP(ipt_insert(t, "OUTPUT", 1, &SPEC(.proto = IPPROTO_TCP, .dport_lo = PLAIN_POOL_PORT, .dst = PLAIN_POOL_NET, .owner = true, .uid_lo = 9999, .uid_hi = 2147483647u, .target = MVT_REJECT, .reject_with = MVR_TCP_RESET)));
+        /* hide the proxy ports from ordinary apps (uid >= HIDE_UID_LO) */
+        NOP(ipt_insert(t, "OUTPUT", 1, &SPEC(.proto = IPPROTO_TCP, .dport_lo = TUN_PORT, .dst = TUN_ADDR, .owner = true, .uid_lo = HIDE_UID_LO, .uid_hi = 2147483647u, .target = MVT_REJECT, .reject_with = MVR_TCP_RESET)));
+        NOP(ipt_insert(t, "OUTPUT", 1, &SPEC(.proto = IPPROTO_TCP, .dport_lo = PLAIN_POOL_PORT, .dst = PLAIN_POOL_NET, .owner = true, .uid_lo = HIDE_UID_LO, .uid_hi = 2147483647u, .target = MVT_REJECT, .reject_with = MVR_TCP_RESET)));
         /* the app's own uid is let through to the proxy: must sit above the REJECT */
         pthread_mutex_lock(&g_allow_mu);
         g_allowed_uid = -1;                    /* the clear below / a fresh chain dropped any old rule */
@@ -497,8 +502,10 @@ void clear_routing_rules(void)
         pthread_mutex_lock(&g_allow_mu);
         proxy_allow_locked(t, -1);             /* the app's ACCEPT, with the uid it was installed for */
         pthread_mutex_unlock(&g_allow_mu);
-        NOP(ipt_delete(t, "OUTPUT", &SPEC(.proto = IPPROTO_TCP, .dport_lo = TUN_PORT, .dst = TUN_ADDR, .owner = true, .uid_lo = 9999, .uid_hi = 2147483647u, .target = MVT_REJECT, .reject_with = MVR_TCP_RESET)));
-        NOP(ipt_delete(t, "OUTPUT", &SPEC(.proto = IPPROTO_TCP, .dport_lo = PLAIN_POOL_PORT, .dst = PLAIN_POOL_NET, .owner = true, .uid_lo = 9999, .uid_hi = 2147483647u, .target = MVT_REJECT, .reject_with = MVR_TCP_RESET)));
+        NOP(ipt_delete(t, "OUTPUT", &SPEC(.proto = IPPROTO_TCP, .dport_lo = TUN_PORT, .dst = TUN_ADDR, .owner = true, .uid_lo = HIDE_UID_LO, .uid_hi = 2147483647u, .target = MVT_REJECT, .reject_with = MVR_TCP_RESET)));
+        NOP(ipt_delete(t, "OUTPUT", &SPEC(.proto = IPPROTO_TCP, .dport_lo = PLAIN_POOL_PORT, .dst = PLAIN_POOL_NET, .owner = true, .uid_lo = HIDE_UID_LO, .uid_hi = 2147483647u, .target = MVT_REJECT, .reject_with = MVR_TCP_RESET)));
+        NOP(ipt_delete(t, "OUTPUT", &SPEC(.proto = IPPROTO_TCP, .dport_lo = TUN_PORT, .dst = TUN_ADDR, .owner = true, .uid_lo = LEGACY_HIDE_UID_LO, .uid_hi = 2147483647u, .target = MVT_REJECT, .reject_with = MVR_TCP_RESET)));
+        NOP(ipt_delete(t, "OUTPUT", &SPEC(.proto = IPPROTO_TCP, .dport_lo = PLAIN_POOL_PORT, .dst = PLAIN_POOL_NET, .owner = true, .uid_lo = LEGACY_HIDE_UID_LO, .uid_hi = 2147483647u, .target = MVT_REJECT, .reject_with = MVR_TCP_RESET)));
         forward_rules(t, false);
         commit(t, "v4 filter clear");
     }

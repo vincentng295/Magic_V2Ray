@@ -10,6 +10,8 @@
 #include <cstring>
 #include <cstdlib>
 
+#include "service/privdrop.h"
+
 // Delete the interface if it still exists (e.g. left over from a killed xray,
 // or still held by an orphaned child process). `ip link delete` works on tun
 // devices even while a fd is attached, which releases the EBUSY state.
@@ -76,15 +78,39 @@ static int open_tun(const char* name, struct ifreq& ifr) {
     return -1;
 }
 
-// argv[0] here is expected to be "openxtun" (the subcommand name),
-// argv[1] = tun_name, argv[2..] = command to exec.
+// argv[0] here is expected to be "openxtun" (the subcommand name), then
+//   [--uid N] [--gid N] <tun_name> <xray_cmd> [args...]
+// The tun is opened as root, then the process drops to uid:gid while KEEPING every Linux capability
+// (ambient caps, see service/privdrop.h) and execs <xray_cmd>. Without --uid it stays root.
+// With --uid and no --gid, gid defaults to 0.
 int run_openxtun(int argc, char* argv[]) {
-    if (argc < 3) {
-        std::cerr << "Usage: " << argv[0] << " <tun_name> <xray_cmd> [args...]\n";
+    long uid = -1, gid = -1;
+    int i = 1;
+    while (i < argc && argv[i][0] == '-' && argv[i][1] == '-') {
+        std::string a = argv[i];
+        if ((a == "--uid" || a == "--gid") && i + 1 < argc) {
+            char* end = nullptr;
+            long v = std::strtol(argv[i + 1], &end, 10);
+            if (!end || *end != '\0' || v < 0 || v > 2147483647L) {
+                std::cerr << "[opentun] invalid value for " << a << ": " << argv[i + 1] << "\n";
+                return 1;
+            }
+            (a == "--uid" ? uid : gid) = v;
+            i += 2;
+        } else {
+            std::cerr << "[opentun] unknown option: " << a << "\n";
+            return 1;
+        }
+    }
+    if (argc - i < 2) {
+        std::cerr << "Usage: " << argv[0] << " [--uid N] [--gid N] <tun_name> <xray_cmd> [args...]\n";
         return 1;
     }
+    if (uid >= 0 && gid < 0) gid = 0;
 
-    const char* tun_name = argv[1];
+    const char* tun_name = argv[i];
+    char** cmd = argv + i + 1;
+    int cmd_argc = argc - i - 1;
 
     // Make sure no stale interface is left over before opening.
     ensure_iface_closed(tun_name);
@@ -103,13 +129,25 @@ int run_openxtun(int argc, char* argv[]) {
         return 1;
     }
 
-    int exec_argc = argc - 2;
-    char** exec_args = new char*[exec_argc + 1];
-
-    for (int i = 0; i < exec_argc; ++i) {
-        exec_args[i] = argv[i + 2];
+    if (uid >= 0) {
+        mv_priv pv;
+        if (mv_priv_prepare(&pv, (uid_t)uid, (gid_t)gid) != 0) {
+            perror("[opentun] ambient capabilities are not supported by this kernel");
+            close(tun_fd);
+            return 1;
+        }
+        int step = mv_priv_drop(&pv);
+        if (step != MV_PRIV_OK) {
+            std::cerr << "[opentun] " << mv_priv_step_name(step) << " failed: " << std::strerror(errno) << "\n";
+            close(tun_fd);
+            return 1;
+        }
+        std::cout << "[opentun] Running as uid " << uid << " gid " << gid << " with all capabilities kept\n";
     }
-    exec_args[exec_argc] = nullptr;
+
+    char** exec_args = new char*[cmd_argc + 1];
+    for (int k = 0; k < cmd_argc; ++k) exec_args[k] = cmd[k];
+    exec_args[cmd_argc] = nullptr;
 
     execvp(exec_args[0], exec_args);
 

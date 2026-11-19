@@ -49,7 +49,7 @@ int main(void)
         IPT_SPEC(.in_if = "xraytun0", .target = MVT_ACCEPT), IPT_SPEC(.out_if = "xraytun0", .target = MVT_ACCEPT) };
     run(AF_INET, "filter", "FORWARD", ffwd, 2, "v4 filter FORWARD (accept tun)");
     ipt_spec out[] = {
-        IPT_SPEC(.proto = IPPROTO_TCP, .dport_lo = 808, .dst = "127.17.1.3", .owner = true, .uid_lo = 9999, .uid_hi = 2147483647, .target = MVT_REJECT, .reject_with = MVR_TCP_RESET),
+        IPT_SPEC(.proto = IPPROTO_TCP, .dport_lo = 808, .dst = "127.17.1.3", .owner = true, .uid_lo = 10000, .uid_hi = 2147483647, .target = MVT_REJECT, .reject_with = MVR_TCP_RESET),
         IPT_SPEC(.out_if = "lo", .target = MVT_RETURN), IPT_SPEC(.target = MVT_REJECT) };
     run(AF_INET, "filter", "OUTPUT", out, 3, "v4 filter OUTPUT (REJECT tcp-reset, hold)");
     ipt_spec nat[] = {

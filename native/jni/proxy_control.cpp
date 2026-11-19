@@ -2,7 +2,10 @@
 //
 //   xhuskydg_helper proxy_control <verb>
 //
-// A thin client of the service's control FIFO, the same scheme as `logservice read`: it creates a private reply
+//   xhuskydg_helper proxy_control log_read <lines> [-o <file>]   newest <lines> of xray's output (stdout or file)
+//   xhuskydg_helper proxy_control log_flush                      clear it
+//
+// A thin client of the service's control FIFO: it creates a private reply
 // FIFO next to the control pipe, writes   REQ <reply-fifo> <verb>   into the control pipe and prints the answer.
 // The service runs the verb and replies   "<exit code>\n" + lines "o <stdout>" / "e <stderr>".
 //
@@ -33,7 +36,7 @@ namespace {
 const char* const kVerbs[] = {
     "start", "stop", "restart", "reload", "status", "reapply",
     "start_monitor", "stop_monitor", "start_monitor_latency", "stop_monitor_latency",
-    "latency_heartbeat", "reset_mobile_network",
+    "latency_heartbeat", "reset_mobile_network", "log_flush",
     "traffic_poll", "traffic_readonly", "traffic_reset", "traffic_stop", "traffic_start",
 };
 
@@ -126,7 +129,7 @@ bool build_arg_verb(int argc, char* argv[], std::string* out) {
 void usage(const char* prog) {
     std::string list;
     for (const char* k : kVerbs) { if (!list.empty()) list += '|'; list += k; }
-    list += "|traffic_block <mac>|traffic_unblock <mac>|traffic_limit <mac> <bytes>|traffic_limit_all <bytes>|traffic_reset_mac <mac>";
+    list += "|log_read <lines> [-o <file>]|traffic_block <mac>|traffic_unblock <mac>|traffic_limit <mac> <bytes>|traffic_limit_all <bytes>|traffic_reset_mac <mac>";
     fprintf(stderr, "Usage: %s {%s}\n", prog, list.c_str());
 }
 
@@ -218,12 +221,47 @@ int talk(const std::string& verb) {
     return rc;
 }
 
+
+// log_read <lines> [-o <file>]: the service writes the newest lines of the xray log into its run dir (the reply
+// buffer is too small for a log), this client copies them to stdout or to the file and removes the dump.
+int log_read(int argc, char* argv[]) {
+    char* end = nullptr;
+    long n = argc >= 3 ? strtol(argv[2], &end, 10) : -1;
+    if (argc < 3 || !end || *end || n < 0 || n > 100000 || !(argc == 3 || (argc == 5 && !strcmp(argv[3], "-o")))) {
+        fprintf(stderr, "Usage: %s log_read <lines> [-o <file>]\n", argv[0]);
+        return 2;
+    }
+    const std::string dump = std::string(kRunDir) + "/xlog." + std::to_string(getpid());
+    int rc = talk("log_dump " + std::to_string(n) + " " + std::to_string(getpid()));
+    if (rc == 0) {
+        int in = open(dump.c_str(), O_RDONLY | O_CLOEXEC);
+        int out = argc == 5 ? open(argv[4], O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600) : STDOUT_FILENO;
+        if (in < 0 || out < 0) { plog("log_read: %s", strerror(errno)); rc = 1; }
+        else {
+            char buf[16384];
+            ssize_t r;
+            while ((r = read(in, buf, sizeof buf)) > 0)
+                for (ssize_t off = 0; off < r; ) {
+                    ssize_t w = write(out, buf + off, static_cast<size_t>(r - off));
+                    if (w < 0 && errno == EINTR) continue;
+                    if (w <= 0) { rc = 1; r = 0; break; }
+                    off += w;
+                }
+        }
+        if (in >= 0) close(in);
+        if (argc == 5 && out >= 0) close(out);
+    }
+    unlink(dump.c_str());
+    return rc;
+}
+
 }  // namespace
 
 int run_proxy_control(int argc, char* argv[]) {
     const char* prog = argc > 0 ? argv[0] : "proxy_control";
     open_log();
     g_debug = read_debug();
+    if (argc >= 2 && !strcmp(argv[1], "log_read")) return log_read(argc, argv);
     std::string argverb;
     if (argc >= 2 && build_arg_verb(argc, argv, &argverb)) return talk(argverb);
     if (argc < 2 || !known_verb(argv[1])) {

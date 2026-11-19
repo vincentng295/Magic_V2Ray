@@ -6,8 +6,6 @@
 // Implemented in openxtun.cpp / dnsjson.cpp (renamed from their old main()).
 int run_openxtun(int argc, char* argv[]);
 int run_dnsjson(int argc, char* argv[]);
-// Implemented in logservice.cpp.
-int run_logservice(int argc, char* argv[]);
 // Implemented in service/service_main.c (C, magic_v2ray daemon; formerly its own main()).
 extern "C" int run_service(int argc, char* argv[]);
 // Implemented in vpnrun.cpp (non-root mode: receive the VpnService tun fd, then exec xray).
@@ -20,12 +18,11 @@ int run_proxy_control(int argc, char* argv[]);
 int run_tcping(int argc, char* argv[]);
 
 static void print_usage(const char* prog) {
-    std::cerr << "Usage: " << prog << " <service|proxy_control|openxtun|dnsjson|logservice|vpnrun|obsprobe|tcping> [args...]\n"
+    std::cerr << "Usage: " << prog << " <service|proxy_control|openxtun|dnsjson|vpnrun|obsprobe|tcping> [args...]\n"
               << "  " << prog << " service -m <MODDIR> [-f]\n"
               << "  " << prog << " proxy_control <start|stop|restart|reload|status|reapply|...>\n"
-              << "  " << prog << " openxtun <tun_name> <xray_cmd> [args...]\n"
+              << "  " << prog << " openxtun [--uid N] [--gid N] <tun_name> <xray_cmd> [args...]\n"
               << "  " << prog << " dnsjson <domain> [dns_server_ip]\n"
-              << "  " << prog << " logservice <create|set|read|flush|stop> -c <control.pipe> [...]\n"
               << "  " << prog << " vpnrun <abstract-socket-name> <program> [args...]\n"
               << "  " << prog << " obsprobe <ipv4:port> <timeout_ms> <tag> [<tag>...]\n"
               << "  " << prog << " tcping <host[,host...]> <port> [timeout_ms]\n";
@@ -54,8 +51,6 @@ int main(int argc, char* argv[]) {
         return run_openxtun(sub_argc, sub_argv.data());
     } else if (subcmd == "dnsjson") {
         return run_dnsjson(sub_argc, sub_argv.data());
-    } else if (subcmd == "logservice") {
-        return run_logservice(sub_argc, sub_argv.data());
     } else if (subcmd == "vpnrun") {
         return run_vpnrun(sub_argc, sub_argv.data());
     } else if (subcmd == "obsprobe") {

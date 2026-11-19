@@ -70,7 +70,13 @@ int  start_xray(void);
 int  stop_xray(void);
 void notify_app_state(void);                /* "xray started / stopped": wakes the app, see xray.c */
 int  restart_xray(void);
-void xray_helper_logservice(const char *verb, const char *extra_flag, const char *extra_val);
+
+/* xraylog.c - xray's output: anonymous pipe + reader thread + ring buffer in RAM (replaces the logservice daemon) */
+int  xlog_init(void);                       /* creates the pipe, starts the thread; returns the write end */
+void xlog_flush(void);
+int  xlog_set_max(size_t n);                /* lines kept (default 1000) */
+int  xlog_dump(const char *path, size_t n); /* newest n lines (0 = all) into path; 0 or -errno */
+void xlog_save(const char *path);           /* xlog_dump(path, 0), errors ignored */
 
 /* control.c */
 int  control_run_prepare(void);        /* create + open the FIFO */

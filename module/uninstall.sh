@@ -101,6 +101,9 @@ drop_rule "$iptables" -D OUTPUT -p tcp --dport "$TUN_PORT" -d "$TUN_ADDR" \
     -m owner --uid-owner 9999-2147483647 -j REJECT --reject-with tcp-reset
 drop_rule "$iptables" -D OUTPUT -p udp --dport "$TUN_PORT" -d "$TUN_ADDR" \
     -m owner --uid-owner 9999-2147483647 -j REJECT
+# current builds hide the ports from uid >= 10000 only (9999 is xray itself)
+drop_rule "$iptables" -D OUTPUT -p tcp --dport "$TUN_PORT" -d "$TUN_ADDR" \
+    -m owner --uid-owner 10000-2147483647 -j REJECT --reject-with tcp-reset
 
 for fam in "$iptables" "$ip6tables"; do
     drop_rule "$fam" -D FORWARD -i "$TUN_NAME" -j ACCEPT

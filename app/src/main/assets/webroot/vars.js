@@ -96,9 +96,8 @@ const LOG_DIR = `${STUB_DIR}/logs`;
 // loop exits on its own once this stops being updated, so closing the WebUI
 // can no longer leave a per-second curl running until reboot.
 const LATENCY_HB_FILE = `${STUB_DIR}/run/latency.hb`;
-// Logging pipe control
-const LOG_CTRL = `${LOG_DIR}/control.pipe`;
-// Non-root mode has no logservice daemon: the VpnService appends xray's output to this plain
+// Root mode keeps xray's output in the service (ring buffer in RAM, read with `proxy_control log_read`).
+// Non-root mode has no service: the VpnService appends xray's output to this plain
 // file in the app's own directory and the Log tab tails it directly.
 const LOG_FILE = `${LOG_DIR}/xray.log`;
  

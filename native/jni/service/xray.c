@@ -1,6 +1,7 @@
 /* xray lifecycle (service.sh section 8). `openxtun` is done natively: open
  * /dev/net/tun, TUNSETIFF, hand the fd to xray via XRAY_TUN_FD, exec. */
 #include "service.h"
+#include "privdrop.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/if_tun.h>
@@ -11,6 +12,7 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -18,16 +20,6 @@ extern char **environ;
 static pid_t g_xray;
 
 static void bin(char *out, size_t n, const char *name) { snprintf(out, n, "%s/bin/%s", g_moddir, name); }
-
-void xray_helper_logservice(const char *verb, const char *flag, const char *val)
-{
-    char *h = g_self;                              /* logservice is an applet of this very binary */
-    char *argv[8] = { h, "logservice", (char *)verb, NULL, NULL, NULL, NULL, NULL };
-    int i = 3;
-    argv[i++] = "-c"; argv[i++] = LOG_CTRL;
-    if (flag) { argv[i++] = (char *)flag; argv[i++] = (char *)val; }
-    u_run(argv);
-}
 
 /* Tell the app that xray started / stopped, so it can announce it to other apps (README "State events").
  * Fire and forget on a helper thread: `am` takes a second to start and must never hold up the control loop.
@@ -104,7 +96,58 @@ static int open_tun_retry(void)
     return -1;
 }
 
-/* Everything async-unsafe happens BEFORE fork; the child only dup2()s and execs. */
+#ifndef __NR_memfd_create
+# if defined(__aarch64__)
+#  define __NR_memfd_create 279
+# elif defined(__x86_64__)
+#  define __NR_memfd_create 319
+# elif defined(__arm__)
+#  define __NR_memfd_create 385
+# elif defined(__i386__)
+#  define __NR_memfd_create 356
+# endif
+#endif
+
+/* An anonymous file holding a copy of the config, positioned at offset 0, ready to be xray's stdin
+ * (`-c stdin:`). The config can sit in the root-only runtime dir (/mnt/runtime, 0700 root) or in DATADIR, and
+ * xray no longer runs as root: it gets the content through an inherited fd instead of a path, and
+ * nothing secret (UUIDs, keys) is ever copied to a world-readable place.
+ * memfd_create first (kernel >= 3.17); else a file in /dev that is unlinked right after it is opened. */
+static int config_to_fd(const char *path)
+{
+    int in = open(path, O_RDONLY | O_CLOEXEC);
+    if (in < 0) { log_msg("cannot open config %s: %s", path, strerror(errno)); return -1; }
+    int out = -1;
+#ifdef __NR_memfd_create
+    out = (int)syscall(__NR_memfd_create, "xray-config", 1u /* MFD_CLOEXEC */);
+#endif
+    if (out < 0) {
+        char tmp[64];
+        snprintf(tmp, sizeof tmp, "/dev/.mv_cfg.%d", (int)getpid());
+        out = open(tmp, O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+        if (out >= 0) unlink(tmp);                   /* the open fd is all that is needed */
+    }
+    if (out < 0) { log_msg("cannot create a config copy: %s", strerror(errno)); close(in); return -1; }
+    char buf[65536];
+    for (;;) {
+        ssize_t n = read(in, buf, sizeof buf);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) break;
+        for (ssize_t off = 0; off < n; ) {
+            ssize_t w = write(out, buf + off, (size_t)(n - off));
+            if (w < 0 && errno == EINTR) continue;
+            if (w <= 0) { log_msg("config copy failed: %s", strerror(errno)); close(in); close(out); return -1; }
+            off += w;
+        }
+    }
+    close(in);
+    if (lseek(out, 0, SEEK_SET) < 0) { close(out); return -1; }
+    return out;
+}
+
+/* Everything async-unsafe happens BEFORE fork; the child only dup2()s, drops privileges (system calls
+ * only) and execs. If the drop (or the exec) fails, the child tells the parent through a CLOEXEC pipe:
+ * a successful exec closes it, so EOF there means "xray is running". */
 static pid_t spawn_xray(void)
 {
     char xray[300], cfg[300], envfd[32];
@@ -112,25 +155,63 @@ static pid_t spawn_xray(void)
     u_ov_path(cfg, sizeof cfg, CONFIG_NAME, DATADIR "/" CONFIG_NAME);   /* override session first */
     int tun = open_tun_retry();
     if (tun < 0) return -1;
+    int cfgfd = config_to_fd(cfg);
+    if (cfgfd < 0) { close(tun); return -1; }
     snprintf(envfd, sizeof envfd, "XRAY_TUN_FD=%d", tun);
     int n = 0; while (environ[n]) n++;
     char **env = malloc((n + 2) * sizeof *env);
     for (int i = 0; i < n; i++) env[i] = environ[i];
     env[n] = envfd; env[n + 1] = NULL;
-    char *argv[] = { xray, "run", "-c", cfg, NULL };
-    int nul = open("/dev/null", O_RDONLY | O_CLOEXEC), out = log_fd();
+    char *argv[] = { xray, "run", "-c", "stdin:", "-format", "json", NULL };
+    int out = log_fd();
+
+    mv_priv pv;
+    bool drop = mv_priv_prepare(&pv, MV_XRAY_UID, MV_XRAY_GID) == 0;
+    if (!drop) log_msg("no ambient capabilities on this kernel (%s): xray keeps running as root", strerror(errno));
+
+    int ep[2];
+    if (pipe2(ep, O_CLOEXEC) < 0) {
+        log_msg("pipe2 failed: %s", strerror(errno));
+        close(tun); close(cfgfd); free(env);
+        return -1;
+    }
 
     pid_t pid = fork();
     if (pid == 0) {
+        int rec[2];
         setsid();
         fcntl(tun, F_SETFD, 0);                      /* the one fd xray must inherit */
-        if (nul >= 0) dup2(nul, 0);
+        dup2(cfgfd, 0);                              /* config; dup2 clears CLOEXEC on the copy */
         if (out >= 0) { dup2(out, 1); dup2(out, 2); }
+        if (drop) {
+            int step = mv_priv_drop(&pv);
+            if (step != MV_PRIV_OK) {
+                rec[0] = step; rec[1] = errno;
+                (void)!write(ep[1], rec, sizeof rec);
+                _exit(126);
+            }
+        }
         execve(xray, argv, env);
+        rec[0] = -1; rec[1] = errno;
+        (void)!write(ep[1], rec, sizeof rec);
         _exit(127);
     }
-    close(tun); free(env); if (nul >= 0) close(nul);   /* only xray keeps the tun alive */
-    if (pid > 0 && proc_track_pid(pid, "xray", xray_exited) != 0) {
+    close(ep[1]); close(tun); close(cfgfd); free(env);   /* only xray keeps the tun alive */
+    if (pid < 0) { log_msg("fork failed: %s", strerror(errno)); close(ep[0]); return -1; }
+
+    int rec[2] = { 0, 0 };
+    ssize_t r;
+    do r = read(ep[0], rec, sizeof rec); while (r < 0 && errno == EINTR);
+    close(ep[0]);
+    if (r == (ssize_t)sizeof rec) {
+        int st; waitpid(pid, &st, 0);
+        if (rec[0] < 0) log_msg("cannot execute %s: %s", xray, strerror(rec[1]));
+        else log_msg("cannot drop xray to uid %d gid %d: %s failed: %s", (int)MV_XRAY_UID, (int)MV_XRAY_GID,
+                     mv_priv_step_name(rec[0]), strerror(rec[1]));
+        return -1;
+    }
+    if (drop) log_msg("xray runs as uid %d gid %d with all capabilities kept (ambient)", (int)MV_XRAY_UID, (int)MV_XRAY_GID);
+    if (proc_track_pid(pid, "xray", xray_exited) != 0) {
         /* without a tracked pid + reaper we could neither tell its state nor clear its zombie */
         log_msg("cannot track xray pid %d (no reaper thread): killing it", (int)pid);
         int st; kill(pid, SIGKILL); waitpid(pid, &st, 0);
@@ -191,7 +272,7 @@ int start_xray(void)
 {
     if (proc_running("xray")) { log_msg("xray already running (pid %d)", (int)g_xray); return 0; }
     if (!config_ok()) { log_msg("refusing to start: %s missing or empty", CONFIG_NAME); return -1; }
-    xray_helper_logservice("flush", NULL, NULL);
+    xlog_flush();
     g_xray = spawn_xray();
     if (g_xray <= 0) { g_xray = 0; return -1; }
     u_writef(PIDFILE, "%d\n", (int)g_xray);
@@ -217,8 +298,8 @@ int stop_xray(void)
     enabled_set(false);
     log_msg("xray stopped");
     notify_app_state();
-    xray_helper_logservice("read", "-o", XRAY_LOG_FILE);   /* keep last run's output for the UI */
-    xray_helper_logservice("flush", NULL, NULL);
+    xlog_save(XRAY_LOG_FILE);   /* keep last run's output for the UI */
+    xlog_flush();
     return 0;
 }
 
@@ -231,8 +312,8 @@ int restart_xray(void)
     install_tun_blackhole();                    /* fail closed for everyone else while the tun is gone */
     kill_tracked_xray();
     kill_stale_pidfile();
-    xray_helper_logservice("read", "-o", XRAY_LOG_FILE);
-    xray_helper_logservice("flush", NULL, NULL);
+    xlog_save(XRAY_LOG_FILE);
+    xlog_flush();
     g_xray = spawn_xray();
     if (g_xray <= 0) { g_xray = 0; root_direct_window(false); return -1; }
     u_writef(PIDFILE, "%d\n", (int)g_xray);

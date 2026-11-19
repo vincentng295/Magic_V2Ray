@@ -5876,7 +5876,7 @@ function _logRenderLines() {
     }
 }
 
-// `logservice read -n N` always returns the LAST N lines, so once the log is
+// `proxy_control log_read N` always returns the LAST N lines, so once the log is
 // longer than N the window slides: old lines fall off the front while new ones
 // appear at the back. Returns how many lines to drop from the front of `oldL`
 // so that what remains is a prefix of `newL`, or -1 if they don't line up
@@ -5903,11 +5903,11 @@ function refreshLog() {
     const dot = document.getElementById('log-status-dot');
 
     const nLines = Math.max(1, Math.min(5000, parseInt(tailLines, 10) || 200));
-    // Root: the logservice ring buffer. Non-root: tail the log file the VpnService writes
+    // Root: the service's in-RAM ring buffer. Non-root: tail the log file the VpnService writes
     // inside the app's own directory.
     const readCmd = MV_NONROOT
         ? `tail -n ${nLines} ${shQuote(LOG_FILE)} 2>/dev/null`
-        : `${MODDIR}/bin/xhuskydg_helper logservice read -c '${LOG_CTRL}' -n ${nLines}`;
+        : `${MODDIR}/bin/xhuskydg_helper proxy_control log_read ${nLines}`;
     execShell(
         readCmd,
         (output) => {
@@ -6041,7 +6041,7 @@ function setLogFilter(level) {
 function clearLogView() {
     const flushCmd = MV_NONROOT
         ? `: > ${shQuote(LOG_FILE)}`
-        : `${MODDIR}/bin/xhuskydg_helper logservice flush -c '${LOG_CTRL}'`;
+        : `${MODDIR}/bin/xhuskydg_helper proxy_control log_flush`;
     execShell(flushCmd, () => {
         _logAllLines = [];
         _logLineBase = 0;
