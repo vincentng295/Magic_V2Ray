@@ -158,23 +158,100 @@ static void oom_check(pid_t pid)
         log_msg("cannot protect xray from the OOM killer (oom_score_adj=%d): %s", atoi(b), strerror(errno));
 }
 
+/* User-managed geo databases (geoip.dat, geosite.dat, any extra *.dat used through "ext:").
+ * They live in DATADIR/location_assets, outside the module dir: the app hash-checks everything in
+ * the module dir against its APK and would overwrite a replaced file at the next start.
+ * The directory is opened HERE, as root, and handed to xray as XRAY_LOCATION_ASSET=/proc/self/fd/<n>:
+ * DATADIR is 0700 root, and xray runs as another uid, so a path inside it cannot be resolved by xray,
+ * while a path through an already-open directory fd can (the lookup starts at the fd's inode).
+ * The bundled databases are COPIED in only when the user has no file of that name, so deleting a
+ * user file (from the app) brings a bundled copy back at the next start. */
+#define LOCATION_ASSETS_DIR DATADIR "/location_assets"
+
+/* Copies src to dst through dst.new + rename (never leaves a half-written database). 0 or -1. */
+static int copy_file_atomic(const char *src, const char *dst)
+{
+    char tmp[320];
+    snprintf(tmp, sizeof tmp, "%s.new", dst);
+    int in = open(src, O_RDONLY | O_CLOEXEC);
+    if (in < 0) return -1;
+    int out = open(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+    if (out < 0) { close(in); return -1; }
+    char buf[65536];
+    int rc = 0;
+    for (;;) {
+        ssize_t n = read(in, buf, sizeof buf);
+        if (n < 0 && errno == EINTR) continue;
+        if (n < 0) { rc = -1; break; }
+        if (n == 0) break;
+        for (ssize_t off = 0; off < n; ) {
+            ssize_t w = write(out, buf + off, (size_t)(n - off));
+            if (w < 0 && errno == EINTR) continue;
+            if (w <= 0) { rc = -1; break; }
+            off += w;
+        }
+        if (rc) break;
+    }
+    if (rc == 0 && fchmod(out, 0644) != 0) rc = -1;
+    if (close(out) != 0) rc = -1;
+    close(in);
+    if (rc == 0 && rename(tmp, dst) != 0) rc = -1;
+    if (rc) unlink(tmp);
+    return rc;
+}
+
+static void location_assets_seed(void)
+{
+    static const char *const names[] = { "geoip.dat", "geosite.dat" };
+    u_mkdir_p(LOCATION_ASSETS_DIR, 0755);
+    chmod(LOCATION_ASSETS_DIR, 0755);
+    for (size_t i = 0; i < sizeof names / sizeof *names; i++) {
+        char dst[300], src[300];
+        struct stat st;
+        snprintf(dst, sizeof dst, "%s/%s", LOCATION_ASSETS_DIR, names[i]);
+        bin(src, sizeof src, names[i]);
+        if (lstat(dst, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0) continue;   /* the user's file, or an earlier copy */
+        unlink(dst);                                              /* empty file, dangling link from an older build */
+        if (copy_file_atomic(src, dst) != 0) log_msg("cannot copy %s -> %s: %s", src, dst, strerror(errno));
+    }
+}
+
+/* O_CLOEXEC directory fd, moved above the low fds that the child dup2()s over (0, 1, 2 can be free in a daemon). */
+static int location_assets_open(void)
+{
+    location_assets_seed();
+    int fd = open(LOCATION_ASSETS_DIR, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (fd < 0) { log_msg("cannot open %s: %s (xray uses the bundled databases)", LOCATION_ASSETS_DIR, strerror(errno)); return -1; }
+    int hi = fcntl(fd, F_DUPFD_CLOEXEC, 10);
+    if (hi >= 0) { close(fd); fd = hi; }
+    return fd;
+}
+
 /* Everything async-unsafe happens BEFORE fork; the child only dup2()s, drops privileges (system calls
  * only) and execs. If the drop (or the exec) fails, the child tells the parent through a CLOEXEC pipe:
  * a successful exec closes it, so EOF there means "xray is running". */
 static pid_t spawn_xray(void)
 {
-    char xray[300], cfg[300], envfd[32];
+    char xray[300], cfg[300], envfd[32], envasset[64];
     bin(xray, sizeof xray, "xray");
     u_ov_path(cfg, sizeof cfg, CONFIG_NAME, DATADIR "/" CONFIG_NAME);   /* override session first */
     int tun = open_tun_retry();
     if (tun < 0) return -1;
     int cfgfd = config_to_fd(cfg);
     if (cfgfd < 0) { close(tun); return -1; }
+    int assetfd = location_assets_open();            /* -1: xray falls back to the bundled databases next to its binary */
     snprintf(envfd, sizeof envfd, "XRAY_TUN_FD=%d", tun);
+    snprintf(envasset, sizeof envasset, "XRAY_LOCATION_ASSET=/proc/self/fd/%d", assetfd);
     int n = 0; while (environ[n]) n++;
-    char **env = malloc((n + 2) * sizeof *env);
-    for (int i = 0; i < n; i++) env[i] = environ[i];
-    env[n] = envfd; env[n + 1] = NULL;
+    char **env = malloc((n + 3) * sizeof *env);
+    int m = 0;
+    for (int i = 0; i < n; i++) {
+        if (!strncmp(environ[i], "XRAY_LOCATION_ASSET=", 20) || !strncmp(environ[i], "XRAY_TUN_FD=", 12)) continue;
+        env[m++] = environ[i];
+    }
+    env[m++] = envfd;
+    if (assetfd >= 0) env[m++] = envasset;
+    env[m] = NULL;
     char *argv[] = { xray, "run", "-c", "stdin:", "-format", "json", NULL };
     int out = log_fd();
 
@@ -185,7 +262,7 @@ static pid_t spawn_xray(void)
     int ep[2];
     if (pipe2(ep, O_CLOEXEC) < 0) {
         log_msg("pipe2 failed: %s", strerror(errno));
-        close(tun); close(cfgfd); free(env);
+        close(tun); close(cfgfd); if (assetfd >= 0) close(assetfd); free(env);
         return -1;
     }
 
@@ -193,7 +270,8 @@ static pid_t spawn_xray(void)
     if (pid == 0) {
         int rec[2];
         setsid();
-        fcntl(tun, F_SETFD, 0);                      /* the one fd xray must inherit */
+        fcntl(tun, F_SETFD, 0);                      /* the fds xray must inherit: the tun ... */
+        if (assetfd >= 0) fcntl(assetfd, F_SETFD, 0);/* ... and the geo database directory */
         dup2(cfgfd, 0);                              /* config; dup2 clears CLOEXEC on the copy */
         if (out >= 0) { dup2(out, 1); dup2(out, 2); }
         (void)mv_oom_protect(0);                     /* oom_score_adj -1000, needs root: before the drop; verified below */
@@ -210,7 +288,7 @@ static pid_t spawn_xray(void)
         (void)!write(ep[1], rec, sizeof rec);
         _exit(127);
     }
-    close(ep[1]); close(tun); close(cfgfd); free(env);   /* only xray keeps the tun alive */
+    close(ep[1]); close(tun); close(cfgfd); if (assetfd >= 0) close(assetfd); free(env);   /* only xray keeps the tun alive */
     if (pid < 0) { log_msg("fork failed: %s", strerror(errno)); close(ep[0]); return -1; }
 
     int rec[2] = { 0, 0 };

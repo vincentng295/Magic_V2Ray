@@ -57,6 +57,9 @@ public class MainActivity extends Activity {
     private String pendingSaveText;
     private String pendingSaveCb;
     private static final int REQ_SAVE_ZIP = 4;
+    private static final int REQ_GEO = 11;
+    private String pendingGeoTarget;
+    private String pendingGeoCb;
     private java.io.File pendingZip;
     private String pendingZipCb;
     private static final Pattern PKG_RE = Pattern.compile("^[A-Za-z0-9_.]+$");
@@ -549,6 +552,63 @@ public class MainActivity extends Activity {
         }
     }
 
+    /**
+     * Routing settings > geo databases: lets the user pick a .dat file and installs it into location_assets.
+     * {@code target} is the name to store it under ("geoip.dat", "geosite.dat"), or "" to keep the picked
+     * file's own name. Reports back to JS as callback(code, installedName, error); code 1 + "cancelled" when
+     * the picker was dismissed.
+     */
+    void pickGeoFile(String target, String callback) {
+        pendingGeoTarget = target;
+        pendingGeoCb = callback;
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT)
+                .addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("*/*");
+        try {
+            startActivityForResult(i, REQ_GEO);
+        } catch (ActivityNotFoundException e) {
+            finishGeoImport(null);
+        }
+    }
+
+    private void finishGeoImport(final Uri uri) {
+        final String target = pendingGeoTarget == null ? "" : pendingGeoTarget;
+        final String cb = pendingGeoCb;
+        pendingGeoTarget = null;
+        pendingGeoCb = null;
+        if (cb == null) return;
+        if (uri == null) {
+            reportGeo(cb, 1, "", "cancelled");
+            return;
+        }
+        final Context app = getApplicationContext();
+        new Thread(() -> {
+            String name = target;
+            if (name.isEmpty()) {
+                try (android.database.Cursor q = getContentResolver().query(uri,
+                        new String[]{android.provider.OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+                    if (q != null && q.moveToFirst()) name = GeoAssets.sanitize(q.getString(0));
+                } catch (RuntimeException ignored) {
+                }
+                if (name.isEmpty()) name = GeoAssets.sanitize(uri.getLastPathSegment());
+            }
+            String err;
+            try (InputStream in = getContentResolver().openInputStream(uri)) {
+                err = in == null ? "cannot open the file" : GeoAssets.install(app, in, name);
+            } catch (IOException | RuntimeException e) {
+                err = "cannot read the file: " + e.getMessage();
+            }
+            reportGeo(cb, err == null ? 0 : 1, name, err == null ? "" : err);
+        }, "geo-import").start();
+    }
+
+    private void reportGeo(String cb, int code, String name, String err) {
+        if (web == null) return;
+        final String js = "window['" + cb + "']&&window['" + cb + "'](" + code + ","
+                + org.json.JSONObject.quote(name) + "," + org.json.JSONObject.quote(err) + ")";
+        web.post(() -> web.evaluateJavascript(js, null));
+    }
+
     /** Android 9 and older: asks where to save the exported logs zip; reports back to JS as (code, "", reason). */
     void saveZipFile(java.io.File zip, String callback) {
         pendingZip = zip;
@@ -604,6 +664,10 @@ public class MainActivity extends Activity {
         }
         if (requestCode == REQ_SAVE_ZIP) {
             finishSaveZip(resultCode == RESULT_OK && data != null ? data.getData() : null);
+            return;
+        }
+        if (requestCode == REQ_GEO) {
+            finishGeoImport(resultCode == RESULT_OK && data != null ? data.getData() : null);
             return;
         }
         if (requestCode == REQ_FILE && filePathCallback != null) {

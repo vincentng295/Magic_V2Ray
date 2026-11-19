@@ -5432,7 +5432,11 @@ function _buildProbeScript(tmpFile, configB64, innerCmd, settleSec = 1) {
         cleanup() { [ -n "$XPID" ] && kill -9 "$XPID" 2>/dev/null; rm -f ${shQuote(tmpFile)}; }
         trap cleanup EXIT HUP INT TERM
         printf '%s' ${shQuote(configB64)} | base64 -d > ${shQuote(tmpFile)}
-        ${MV_NONROOT ? `export XRAY_LOCATION_ASSET=${shQuote(MODDIR + '/bin')}` : ''}
+        if [ -s ${shQuote(GEO_ASSETS_DIR + '/geoip.dat')} ] && [ -s ${shQuote(GEO_ASSETS_DIR + '/geosite.dat')} ]; then
+            export XRAY_LOCATION_ASSET=${shQuote(GEO_ASSETS_DIR)}
+        else
+            export XRAY_LOCATION_ASSET=${shQuote(MODDIR + '/bin')}
+        fi
         ${MODDIR}/bin/xray run -c ${shQuote(tmpFile)} >/dev/null 2>&1 &
         XPID=$!
         ${settleSec > 0 ? `sleep ${settleSec}` : ''}

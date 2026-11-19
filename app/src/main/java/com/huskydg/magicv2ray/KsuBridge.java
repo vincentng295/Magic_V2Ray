@@ -144,6 +144,25 @@ final class KsuBridge {
         return out.toString();
     }
 
+    /**
+     * Geo databases (Routing settings): opens the system file picker and installs the chosen .dat file into
+     * location_assets. {@code target} = name to store it as, or "" to keep the file's name. Callback gets
+     * (0, name, "") on success, (1, name, reason) otherwise ("cancelled" when the picker was dismissed).
+     */
+    @JavascriptInterface
+    public void importGeoFile(final String target, final String callback) {
+        if (callback == null || !CB_RE.matcher(callback).matches() || !(activity instanceof MainActivity)) return;
+        final String t = target == null ? "" : target;
+        if (!t.isEmpty() && !GeoAssets.NAME_RE.matcher(t).matches()) return;
+        activity.runOnUiThread(() -> ((MainActivity) activity).pickGeoFile(t, callback));
+    }
+
+    /** Where user geo databases live (root: under /data/adb, so only a root shell can list it). */
+    @JavascriptInterface
+    public String assetsdir() {
+        return GeoAssets.dir(activity);
+    }
+
     /** Save dialog for a text file; callback(0) saved, callback(1) cancelled / failed. */
     @JavascriptInterface
     public void saveTextFile(final String name, final String text, final String callback) {

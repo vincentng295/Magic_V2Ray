@@ -65,6 +65,51 @@ final class NonRootEnv {
         return new File(moddir(c), "bin/" + name);
     }
 
+    /**
+     * User-managed geo databases (geoip.dat, geosite.dat, extra *.dat used through "ext:"). Kept apart from
+     * module/bin, which is re-synced from the APK; xray reads it through XRAY_LOCATION_ASSET.
+     */
+    static File assetsDir(Context c) {
+        return new File(datadir(c), "location_assets");
+    }
+
+    /**
+     * Makes sure geoip.dat / geosite.dat exist in {@link #assetsDir}: a name the user has no file for gets a COPY of
+     * the bundled one, so deleting a user file brings a bundled copy back. Returns the directory for
+     * XRAY_LOCATION_ASSET, or the bundled bin dir when it cannot be prepared. Never throws.
+     */
+    static File prepareAssets(Context c) {
+        File dir = assetsDir(c);
+        try {
+            if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("cannot create " + dir);
+            for (String g : new String[]{"geoip.dat", "geosite.dat"}) {
+                File f = new File(dir, g);
+                if (f.isFile() && !isLink(f) && f.length() > 0) continue;   // the user's file, or an earlier copy
+                //noinspection ResultOfMethodCallIgnored
+                f.delete();                                                  // empty file / link from an older build
+                File tmp = new File(dir, g + ".new");
+                try (InputStream in = new FileInputStream(bin(c, g)); FileOutputStream out = new FileOutputStream(tmp)) {
+                    byte[] b = new byte[64 * 1024];
+                    int n;
+                    while ((n = in.read(b)) > 0) out.write(b, 0, n);
+                }
+                if (!tmp.renameTo(f)) throw new IOException("cannot replace " + f);
+            }
+            return dir;
+        } catch (IOException e) {
+            android.util.Log.w("NonRootEnv", "location_assets: " + e.getMessage() + " (using the bundled databases)");
+            return new File(moddir(c), "bin");
+        }
+    }
+
+    private static boolean isLink(File f) {
+        try {
+            return android.system.Os.lstat(f.getPath()).st_mode >> 12 == 012;   // S_IFLNK
+        } catch (ErrnoException e) {
+            return false;
+        }
+    }
+
     /** Xray's stdout/stderr (written by MagicVpnService, tailed by the WebUI's Log tab). */
     static File logFile(Context c) {
         return new File(stubdir(c), "logs/xray.log");

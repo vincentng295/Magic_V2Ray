@@ -8,6 +8,9 @@ const SETTINGS_FILE = `${DATADIR}/settings.base64`;
 const ACTIVE_FILE = `${DATADIR}/active_config.txt`;
 const CONFIG_JSON = `${DATADIR}/config.v2.json`;
 const IP_HUNT_FILE = `${DATADIR}/ip_hunt.list`;
+// User-managed geo databases (geoip.dat, geosite.dat, extra *.dat for "ext:"). The engine reads this directory
+// through XRAY_LOCATION_ASSET; anything xray is run for by hand (node probes) must point at it too.
+const GEO_ASSETS_DIR = `${DATADIR}/location_assets`;
 // Custom Hosts tab — a genuine /etc/hosts-syntax file, not an app-invented
 // format: "IP  hostname [hostname2 ...]  [# comment]", one mapping per
 // line, so it looks and edits like a real hosts file (and stays usable if
