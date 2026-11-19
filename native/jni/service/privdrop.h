@@ -17,6 +17,7 @@
 #define MV_PRIVDROP_H
 
 #include <errno.h>
+#include <fcntl.h>
 #include <grp.h>
 #include <stdint.h>
 #include <string.h>
@@ -114,6 +115,35 @@ static inline int mv_priv_drop(const mv_priv *p)
         if (p->caps & ((uint64_t)1 << c))
             if (prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_RAISE, c, 0, 0) < 0) return MV_PRIV_AMBIENT;
     return MV_PRIV_OK;
+}
+
+/* Protects the calling process (or, with pid > 0, that process) from the kernel OOM killer and from Android's
+ * lmkd: oom_score_adj = -1000 means "never pick me". Lowering it needs CAP_SYS_RESOURCE, so do it while still
+ * root (before mv_priv_drop). System calls only, so it is async-signal-safe. Returns 0 or -1 (errno set). */
+static inline int mv_oom_protect(pid_t pid)
+{
+    char path[48];
+    int n = 0;
+    const char *a = "/proc/";
+    while (*a) path[n++] = *a++;
+    if (pid > 0) {
+        char d[12]; int k = 0; unsigned v = (unsigned)pid;
+        while (v) { d[k++] = (char)('0' + v % 10); v /= 10; }
+        while (k) path[n++] = d[--k];
+    } else {
+        const char *m = "self";
+        while (*m) path[n++] = *m++;
+    }
+    const char *b = "/oom_score_adj";
+    while (*b) path[n++] = *b++;
+    path[n] = 0;
+    int fd = open(path, O_WRONLY | O_CLOEXEC);
+    if (fd < 0) return -1;
+    ssize_t w = write(fd, "-1000", 5);
+    int e = errno;
+    close(fd);
+    if (w != 5) { errno = e; return -1; }
+    return 0;
 }
 
 #endif

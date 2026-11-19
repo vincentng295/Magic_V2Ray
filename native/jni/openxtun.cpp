@@ -129,6 +129,8 @@ int run_openxtun(int argc, char* argv[]) {
         return 1;
     }
 
+    if (mv_oom_protect(0) != 0) std::cerr << "[opentun] cannot set oom_score_adj -1000: " << std::strerror(errno) << "\n";
+
     if (uid >= 0) {
         mv_priv pv;
         if (mv_priv_prepare(&pv, (uid_t)uid, (gid_t)gid) != 0) {

@@ -145,6 +145,19 @@ static int config_to_fd(const char *path)
     return out;
 }
 
+/* The child sets oom_score_adj = -1000 itself right before the drop; this confirms it from the root side
+ * (and retries once if the write did not take), so the log tells whether the kernel / lmkd can still kill xray. */
+static void oom_check(pid_t pid)
+{
+    char path[64], b[16] = "";
+    snprintf(path, sizeof path, "/proc/%d/oom_score_adj", (int)pid);
+    if (u_read(path, b, sizeof b) > 0 && atoi(b) == -1000) { log_msg("xray oom_score_adj = -1000 (protected from the OOM killer)"); return; }
+    if (mv_oom_protect(pid) == 0 && u_read(path, b, sizeof b) > 0 && atoi(b) == -1000)
+        log_msg("xray oom_score_adj set to -1000 from the service");
+    else
+        log_msg("cannot protect xray from the OOM killer (oom_score_adj=%d): %s", atoi(b), strerror(errno));
+}
+
 /* Everything async-unsafe happens BEFORE fork; the child only dup2()s, drops privileges (system calls
  * only) and execs. If the drop (or the exec) fails, the child tells the parent through a CLOEXEC pipe:
  * a successful exec closes it, so EOF there means "xray is running". */
@@ -183,6 +196,7 @@ static pid_t spawn_xray(void)
         fcntl(tun, F_SETFD, 0);                      /* the one fd xray must inherit */
         dup2(cfgfd, 0);                              /* config; dup2 clears CLOEXEC on the copy */
         if (out >= 0) { dup2(out, 1); dup2(out, 2); }
+        (void)mv_oom_protect(0);                     /* oom_score_adj -1000, needs root: before the drop; verified below */
         if (drop) {
             int step = mv_priv_drop(&pv);
             if (step != MV_PRIV_OK) {
@@ -210,6 +224,7 @@ static pid_t spawn_xray(void)
                      mv_priv_step_name(rec[0]), strerror(rec[1]));
         return -1;
     }
+    oom_check(pid);
     if (drop) log_msg("xray runs as uid %d gid %d with all capabilities kept (ambient)", (int)MV_XRAY_UID, (int)MV_XRAY_GID);
     if (proc_track_pid(pid, "xray", xray_exited) != 0) {
         /* without a tracked pid + reaper we could neither tell its state nor clear its zombie */
