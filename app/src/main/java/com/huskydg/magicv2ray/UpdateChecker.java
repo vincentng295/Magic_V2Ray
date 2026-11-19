@@ -55,8 +55,9 @@ final class UpdateChecker {
     private static final int JOB_ID = 0x4d56;           // "MV"
     private static final int CONNECT_TIMEOUT_MS = 10_000;
     private static final int READ_TIMEOUT_MS = 15_000;
-    private static final int MAX_REDIRECTS = 5;
     private static final int MAX_BYTES = 64 * 1024;     // update.json is a few hundred bytes
+    private static final int MAX_NOTES_BYTES = 256 * 1024; // CHANGELOG.md
+    private static final int MAX_NOTES_CHARS = 20_000;
 
     static final String CHANNEL = "mv_update";
     private static final int NOTIF_ID = 4;
@@ -119,7 +120,7 @@ final class UpdateChecker {
         JSONObject cur = current(c);
         JSONObject res = new JSONObject();
         try {
-            String body = fetch(UPDATE_URL);
+            String body = fetch(UPDATE_URL, MAX_BYTES);
             JSONObject j = new JSONObject(body);
             int code = j.optInt("versionCode", 0);
             String version = j.optString("version", "").trim();
@@ -143,7 +144,9 @@ final class UpdateChecker {
             res.put("versionCode", code);
             res.put("url", url);
             res.put("universalUrl", universal);
-            res.put("changelog", httpsOrEmpty(j.optString("changelog", "")));
+            String changelog = httpsOrEmpty(j.optString("changelog", ""));
+            res.put("changelog", changelog);
+            res.put("notes", notes(j, changelog, code > cur.optLong("code", 0)));
             res.put("checkedAt", System.currentTimeMillis());
             res.put("current", cur);
             sp(c).edit()
@@ -181,52 +184,53 @@ final class UpdateChecker {
         return out.toString();
     }
 
+    /**
+     * Release notes for the update popup: the optional "notes" text of update.json, else the text of the
+     * "changelog" URL. Best effort - a failure here never fails the check (the popup then has no body).
+     * Only fetched when an update is actually available.
+     */
+    private static String notes(JSONObject j, String changelogUrl, boolean available) {
+        if (!available) return "";
+        String n = j.optString("notes", "").trim();
+        if (n.isEmpty() && !changelogUrl.isEmpty()) {
+            try {
+                n = fetch(changelogUrl, MAX_NOTES_BYTES).trim();
+            } catch (IOException e) {
+                n = "";
+            }
+        }
+        return n.length() > MAX_NOTES_CHARS ? n.substring(0, MAX_NOTES_CHARS) : n;
+    }
+
     private static String httpsOrEmpty(String u) {
         u = u == null ? "" : u.trim();
         return u.matches("(?i)^https://[^\\s'\"]+$") ? u : "";
     }
 
-    private static String fetch(String address) throws IOException {
-        URL url = new URL(address);
-        // HttpURLConnection only follows same-protocol redirects on its own (and not reliably for 301/308),
-        // so the redirects are followed by hand, https only, to a bounded depth.
-        for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            try {
-                conn.setInstanceFollowRedirects(false);
-                conn.setConnectTimeout(CONNECT_TIMEOUT_MS);
-                conn.setReadTimeout(READ_TIMEOUT_MS);
-                conn.setUseCaches(false);
-                conn.setRequestProperty("Cache-Control", "no-cache");
-                conn.setRequestProperty("Accept", "application/json");
-                conn.setRequestProperty("User-Agent", "MagicV2Ray-update-check");
-                int code = conn.getResponseCode();
-                if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
-                    String loc = conn.getHeaderField("Location");
-                    if (loc == null || loc.trim().isEmpty()) throw new IOException("HTTP " + code + " without Location");
-                    URL next = new URL(url, loc.trim());    // Location may be relative
-                    if (!"https".equalsIgnoreCase(next.getProtocol())) {
-                        throw new IOException("redirect to non-https url refused");
-                    }
-                    url = next;
-                    continue;
+    private static String fetch(String address, int maxBytes) throws IOException {
+        HttpURLConnection conn = (HttpURLConnection) new URL(address).openConnection();
+        try {
+            conn.setConnectTimeout(CONNECT_TIMEOUT_MS);
+            conn.setReadTimeout(READ_TIMEOUT_MS);
+            conn.setUseCaches(false);
+            conn.setRequestProperty("Cache-Control", "no-cache");
+            conn.setRequestProperty("Accept", "application/json");
+            conn.setRequestProperty("User-Agent", "MagicV2Ray-update-check");
+            int code = conn.getResponseCode();
+            if (code != HttpURLConnection.HTTP_OK) throw new IOException("HTTP " + code);
+            try (InputStream in = conn.getInputStream()) {
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                byte[] b = new byte[4096];
+                int n;
+                while ((n = in.read(b)) > 0) {
+                    if (out.size() + n > maxBytes) throw new IOException("response too large");
+                    out.write(b, 0, n);
                 }
-                if (code != HttpURLConnection.HTTP_OK) throw new IOException("HTTP " + code);
-                try (InputStream in = conn.getInputStream()) {
-                    ByteArrayOutputStream out = new ByteArrayOutputStream();
-                    byte[] b = new byte[4096];
-                    int n;
-                    while ((n = in.read(b)) > 0) {
-                        if (out.size() + n > MAX_BYTES) throw new IOException("response too large");
-                        out.write(b, 0, n);
-                    }
-                    return new String(out.toByteArray(), StandardCharsets.UTF_8);
-                }
-            } finally {
-                conn.disconnect();
+                return new String(out.toByteArray(), StandardCharsets.UTF_8);
             }
+        } finally {
+            conn.disconnect();
         }
-        throw new IOException("too many redirects");
     }
 
     // ------------------------------------------------------------------ auto check

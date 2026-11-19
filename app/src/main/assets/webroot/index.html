@@ -1058,6 +1058,24 @@
     <script src="geoassets.js"></script>
     <div id="toast-container" class="toast-container"></div>
 
+    <!-- App update popup with release notes; see updatecheck.js -->
+    <div id="update-modal-overlay" class="modal-overlay update-overlay" style="display: none;">
+        <div class="update-dialog" role="dialog" aria-modal="true" aria-labelledby="update-modal-title">
+            <div class="update-dialog-head">
+                <div class="update-dialog-titles">
+                    <h2 id="update-modal-title" data-i18n="update_modal_title">New update available</h2>
+                    <small id="update-modal-sub"></small>
+                </div>
+                <button type="button" class="modal-icon-btn" id="update-modal-x" aria-label="Close">&#10005;</button>
+            </div>
+            <div class="update-notes" id="update-modal-notes"></div>
+            <div class="update-dialog-actions">
+                <button type="button" class="btn btn-secondary" id="update-modal-close" data-i18n="btn_update_close">Close</button>
+                <button type="button" class="btn btn-primary" id="update-modal-dl" data-i18n="btn_update_download_apk">Download APK</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Confirm Modal (KSU webui does not support window.confirm()) -->
     <div id="confirm-modal-overlay" class="modal-overlay confirm-overlay" style="display: none;">
         <div class="modal-window confirm-window">
