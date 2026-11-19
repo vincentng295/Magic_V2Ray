@@ -539,6 +539,7 @@
                         <div class="category-menu-container">
                             <button class="btn-menu-trigger" onclick="toggleCategoryMenu(event, this)">⋮</button>
                             <div class="category-dropdown-menu">
+                                <button onclick="geoImport(); closeAllMenus();" data-i18n="geo_menu_import">Import geo database (.dat)</button>
                                 <button onclick="openImportRoutingModal(); closeAllMenus();" data-i18n="menu_import_presets">Import presets from JSON</button>
                                 <button onclick="exportRoutingRulesToClipboard(); closeAllMenus();" data-i18n="menu_export_presets">Export presets JSON to clipboard</button>
                                 <button onclick="resetRoutingRulesToDefault(); closeAllMenus();" data-i18n="menu_reset_rules">Reset to default rules</button>
@@ -561,16 +562,7 @@
                     <h4 data-i18n="geo_title">Geo databases</h4>
                     <p class="routing-strategy-hint" data-i18n="geo_desc">geoip.dat / geosite.dat used by geoip: and geosite: rules. Files you import or download are kept apart from the app's own copies and are never overwritten by app updates. Restart the engine to load a change.</p>
                     <div id="geo-assets-list"></div>
-                    <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;">
-                        <button type="button" class="btn btn-secondary" onclick="geoImport('geoip.dat')" data-i18n="geo_btn_import_geoip">Import geoip.dat</button>
-                        <button type="button" class="btn btn-secondary" onclick="geoImport('geosite.dat')" data-i18n="geo_btn_import_geosite">Import geosite.dat</button>
-                        <button type="button" class="btn btn-secondary" onclick="geoImport('')" data-i18n="geo_btn_import_other">Import other .dat</button>
-                    </div>
                     <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; align-items:center;">
-                        <select id="geo-dl-target" onchange="geoTargetChanged()">
-                            <option value="geoip.dat">geoip.dat</option>
-                            <option value="geosite.dat">geosite.dat</option>
-                        </select>
                         <input type="text" id="geo-dl-url" data-i18n-placeholder="geo_url_placeholder" placeholder="https://example.com/geoip.dat" style="flex:1; min-width:160px;" autocapitalize="off" autocomplete="off" spellcheck="false">
                         <button type="button" class="btn btn-primary" id="geo-dl-btn" onclick="geoDownload()" data-i18n="geo_btn_download">Download</button>
                     </div>

@@ -1,4 +1,4 @@
-// Routing settings > "Geo databases": import / download / remove geoip.dat, geosite.dat and any extra
+// Routing settings > "Geo databases": import (from the routing menu) / download / rename / remove geoip.dat, geosite.dat and any extra
 // *.dat that rules reach through "ext:file.dat:tag".
 //
 // The files live in GEO_ASSETS_DIR (<DATADIR>/location_assets), which the engine reads through
@@ -12,11 +12,6 @@
     'use strict';
     var $ = function (id) { return document.getElementById(id); };
     var NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}\.dat$/;
-    // Defaults offered in the download box (daily builds of the community lists).
-    var PRESETS = {
-        'geoip.dat': 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat',
-        'geosite.dat': 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat'
-    };
     var busy = false;
 
     function fmtSize(n) {
@@ -75,6 +70,12 @@
             row.appendChild(lab);
             // a copy identical to the bundled file has nothing to remove
             if (!r.bundled) {
+                var rn = document.createElement('button');
+                rn.type = 'button';
+                rn.className = 'btn btn-secondary';
+                rn.textContent = t('geo_btn_rename');
+                rn.onclick = function () { startRename(row, r.name); };
+                row.appendChild(rn);
                 var b = document.createElement('button');
                 b.type = 'button';
                 b.className = 'btn btn-secondary';
@@ -95,7 +96,7 @@
         _forceRestart({ onlyIfRunning: true }, function () { refresh(); });
     }
 
-    function importFile(target) {
+    function importFile() {
         if (busy) return;
         if (!window.ksu || typeof ksu.importGeoFile !== 'function') { showToast(t('geo_toast_failed', { err: 'unsupported' }), 'error'); return; }
         busy = true;
@@ -111,30 +112,78 @@
                 showToast(t('geo_toast_failed', { err: err }), 'error');
             }
         };
-        ksu.importGeoFile(target || '', cb);
+        ksu.importGeoFile('', cb);   // keeps the picked file's own name; rename afterwards if needed
+    }
+
+    // geoip.dat / geosite.dat: put a copy of the bundled file back (the engine also does this at every start)
+    function reseedScript(name) {
+        if (name !== 'geoip.dat' && name !== 'geosite.dat') return '';
+        var D = shQuote(GEO_ASSETS_DIR), N = shQuote(name), T = shQuote(GEO_ASSETS_DIR + '/' + name + '.new');
+        return 'cp ' + shQuote(MODDIR + '/bin/' + name) + ' ' + T + ' && chmod 644 ' + T + ' && chown 0:0 ' + T + ' 2>/dev/null; ' +
+            'chcon u:object_r:system_file:s0 ' + T + ' 2>/dev/null; mv -f ' + T + ' ' + D + '/' + N + ' 2>/dev/null\n';
     }
 
     async function remove(name) {
         if (!NAME_RE.test(name)) return;
         if (!(await showConfirm(t('geo_confirm_delete', { name: name })))) return;
         var D = shQuote(GEO_ASSETS_DIR), N = shQuote(name);
-        // geoip.dat / geosite.dat: put a copy of the bundled file back right away
-        var T = shQuote(GEO_ASSETS_DIR + '/' + name + '.new');
-        var recopy = (name === 'geoip.dat' || name === 'geosite.dat')
-            ? 'cp ' + shQuote(MODDIR + '/bin/' + name) + ' ' + T + ' && chmod 644 ' + T + ' && chown 0:0 ' + T + ' 2>/dev/null; ' +
-              'chcon u:object_r:system_file:s0 ' + T + ' 2>/dev/null; mv -f ' + T + ' ' + D + '/' + N + ' 2>/dev/null\n' : '';
-        await execShellAsync('rm -f ' + D + '/' + N + '\n' + recopy + 'echo ok');
+        await execShellAsync('rm -f ' + D + '/' + N + '\n' + reseedScript(name) + 'echo ok');
         showToast(t('geo_toast_deleted', { name: name }), 'success');
         await refresh();
         offerRestart();
     }
 
+    // Names always end in .dat: the list, the importer and "ext:name.dat:tag" rules all rely on it.
+    async function rename(oldName, newName) {
+        newName = (newName || '').trim();
+        if (/\.dat$/i.test(newName) === false && newName) newName += '.dat';
+        if (!NAME_RE.test(newName)) { showToast(t('geo_err_name'), 'error'); return false; }
+        if (newName === oldName) return true;
+        var D = shQuote(GEO_ASSETS_DIR);
+        var out = await execShellAsync(
+            'cd ' + D + ' 2>/dev/null || { echo FAIL; exit 0; }\n' +
+            '[ -e ' + shQuote(newName) + ' ] || [ -L ' + shQuote(newName) + ' ] && { echo EXISTS; exit 0; }\n' +
+            'mv ' + shQuote(oldName) + ' ' + shQuote(newName) + ' && echo OK || echo FAIL\n' +
+            reseedScript(oldName));
+        if (out.indexOf('EXISTS') >= 0) { showToast(t('geo_err_exists', { name: newName }), 'error'); return false; }
+        if (out.indexOf('OK') < 0) { showToast(t('geo_toast_failed', { err: 'rename' }), 'error'); return false; }
+        showToast(t('geo_toast_renamed', { name: newName }), 'success');
+        await refresh();
+        offerRestart();
+        return true;
+    }
+
+    // Turns a row into an inline name editor (no window.prompt in the WebUI).
+    function startRename(row, name) {
+        row.textContent = '';
+        var inp = document.createElement('input');
+        inp.type = 'text';
+        inp.value = name;
+        inp.style.flex = '1';
+        inp.style.minWidth = '120px';
+        inp.autocapitalize = 'off';
+        inp.spellcheck = false;
+        var ok = document.createElement('button');
+        ok.type = 'button'; ok.className = 'btn btn-primary'; ok.textContent = t('confirm_ok');
+        var no = document.createElement('button');
+        no.type = 'button'; no.className = 'btn btn-secondary'; no.textContent = t('confirm_cancel');
+        row.style.gap = '6px';
+        row.appendChild(inp); row.appendChild(ok); row.appendChild(no);
+        var submit = async function () { if (!(await rename(name, inp.value))) inp.focus(); };
+        ok.onclick = submit;
+        no.onclick = function () { refresh(); };
+        inp.onkeydown = function (e) { if (e.key === 'Enter') submit(); else if (e.key === 'Escape') refresh(); };
+        inp.focus();
+        inp.select();
+    }
+
     async function download() {
         if (busy) return;
-        var target = $('geo-dl-target').value;
         var url = ($('geo-dl-url').value || '').trim();
-        if (!NAME_RE.test(target)) return;
         if (!/^https?:\/\/[^\s'"`$\\]+$/i.test(url)) { showToast(t('geo_err_url'), 'error'); return; }
+        // stored under the file name in the URL (query / fragment dropped)
+        var target = url.replace(/[?#].*$/, '').split('/').pop();
+        if (!NAME_RE.test(target)) { showToast(t('geo_err_name'), 'error'); return; }
         busy = true;
         var btn = $('geo-dl-btn');
         if (btn) btn.disabled = true;
@@ -162,17 +211,8 @@
         }
     }
 
-    function targetChanged() {
-        var sel = $('geo-dl-target'), inp = $('geo-dl-url');
-        if (!sel || !inp) return;
-        var cur = (inp.value || '').trim();
-        var isPreset = !cur || Object.keys(PRESETS).some(function (k) { return PRESETS[k] === cur; });
-        if (isPreset && PRESETS[sel.value]) inp.value = PRESETS[sel.value];
-    }
-
     window.geoImport = importFile;
     window.geoDownload = download;
-    window.geoTargetChanged = targetChanged;
     window.geoRefresh = refresh;
 
     // refresh the list whenever the Routing tab is opened
@@ -184,5 +224,4 @@
             return r;
         };
     }
-    document.addEventListener('DOMContentLoaded', targetChanged);
 })();
