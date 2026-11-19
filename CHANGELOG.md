@@ -1,10 +1,10 @@
-# Magic V2Ray v3.2 Release Notes
+# Magic V2Ray v3.3 Release Notes
 
-Magic V2Ray v3.2 introduces a dedicated Traffic Monitor tab to track network usage in real time. The new view features a live tunnel speed chart alongside total upload and download counters that work in both root and VpnService modes. For rooted devices, a separate Devices view breaks down hotspot traffic by MAC address while filtering out multicast noise, and allows you to block specific clients, enforce per-device or global data limits, and reset individual counters.
+Magic V2Ray v3.3 adds in-app update checks. You can check manually or let the app check about once a day, and a notification and a dashboard banner tell you when a new version is out. A popup shows the release notes with a button to download the APK that matches your device. If GitHub is blocked in your region, the check automatically falls back to mirror links, and it now follows HTTP redirects instead of failing with HTTP 301.
 
-You can now enable live tunnel speeds and session totals directly inside the active proxy notification from App Settings. Additionally, proxy nodes now display exit country flags, with automatic lookups after importing subscriptions or nodes as well as manual refresh options for individual nodes and categories.
+You can now manage your own geoip and geosite databases. Import `.dat` files or download them from a URL, rename or remove custom files, and add extra `.dat` files for rules. Your files are kept separate from the app's bundled copies, so app updates never overwrite them, and the bundled defaults can be restored at any time. This works in both root and non-root modes.
 
-This release also routes the built-in provider mini browser through the core proxy's SOCKS inbound when active, ensuring provider websites remain accessible even when the main app is excluded from the tunnel. Finally, URI parsing and serialization have been updated to use v2rayNG's `fm` parameter for final masks while keeping backward compatibility with older `finalmask` links.
+On rooted devices, Xray now runs as an unprivileged user with only the capabilities it needs, and its config is passed to it without being left on disk. The separate log daemon has been replaced by a log buffer inside the service. The tunnel processes (`openxtun` and `xray`) are also protected from Android's low-memory killer, so the proxy stays alive under memory pressure. Proxy ports are hidden from other apps while Xray itself stays excluded from the tunnel.
 
 ---
 
