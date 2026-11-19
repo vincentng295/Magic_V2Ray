@@ -111,7 +111,7 @@ static void do_fast(const char *c, out_t *o)
         if (sscanf(c + 9, "%lu %d", &n, &pid) != 2 || n > 100000 || pid <= 0) { o->rc = 1; ERR(o, "bad log_dump"); return; }
         char p[96]; snprintf(p, sizeof p, RUN_DIR "/xlog.%d", pid);
         int r = xlog_dump(p, n);
-        if (r < 0) { o->rc = 1; ERR(o, "log_dump: %s", strerror(-r)); } else OUT(o, "ok");
+        if (r < 0) { o->rc = 1; ERR(o, "log_dump: %s", strerror(-r)); }   /* no "ok": the client (log_read) prints the reply's stdout before the dump, it would head every log */
         return;
     }
     /* refreshed by the UI while its Latency tab is open */
