@@ -178,7 +178,6 @@ let advSettings = {
     exposeSocksAuth: false,
     exposeSocksUser: "",
     exposeSocksPass: "",
-    pinnedPeerCertSha256: "",
     dnsViaProxy: true,
     // Hijack DNS (Traffic Settings). When true, port-53 traffic from tun-in /
     // socks-test-in is routed to a `dns` outbound (tag dns-out) so Xray's own
@@ -367,7 +366,7 @@ const LAN_BYPASS_CIDRS = [
 // professional mode and the UI language are deliberately not listed.
 const TRAFFIC_SETTING_KEYS = [
     "loglevel", "sniffing", "routeOnly", "queryStrategy",
-    "dnsViaProxy", "hijackDns", "pinnedPeerCertSha256",
+    "dnsViaProxy", "hijackDns",
     "mux", "mux_connections",
     "fragment", "fragment_packets", "fragment_length", "fragment_interval",
     "mtu",
@@ -411,7 +410,7 @@ const CUSTOM_CONFIG_TEMPLATE = `{
     {
       "tag": "tun-in",
       "protocol": "tun",
-      "settings": { "name": "xraytun0", "mtu": 8500 },
+      "settings": { "name": "xraytun0", "mtu": 1350 },
       "sniffing": { "enabled": true, "destOverride": ["http", "tls", "quic"], "routeOnly": false }
     }
   ],

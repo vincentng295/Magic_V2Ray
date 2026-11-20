@@ -189,11 +189,6 @@
                             <option value="UseSystem">UseSystem</option>
                         </select>
                     </div>
-
-                    <div class="setting-item-row">
-                        <label><span data-i18n="lbl_pinned_cert">Pinned Peer Cert SHA256</span><small data-i18n="desc_pinned_cert">Pin the SHA256 hash of the server certificate.</small></label>
-                        <input type="text" id="set-pinned-cert" placeholder="">
-                    </div>
                 </div>
 
                 <div class="settings-group-box">
@@ -236,7 +231,7 @@
                     <h4 data-i18n="group_network">Network Interfaces</h4>
                     <div class="setting-item-row">
                         <label data-i18n="lbl_mtu">Maximum Transmission Unit (MTU)</label>
-                        <input type="number" id="set-mtu" value="1350">
+                        <input type="number" id="set-mtu" value="1350" min="1280" max="9000">
                     </div>
                 </div>
 

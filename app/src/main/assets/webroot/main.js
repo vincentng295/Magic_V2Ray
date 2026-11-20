@@ -4393,7 +4393,6 @@ function bindSettingsToFormView() {
     document.getElementById('set-dnsviaproxy').checked = advSettings.dnsViaProxy !== false;
     // Default ON: settings saved by older versions have no value.
     document.getElementById('set-hijackdns').checked = advSettings.hijackDns !== false;
-    document.getElementById('set-pinned-cert').value = advSettings.pinnedPeerCertSha256 || "";
 
     // DNS engine options
     document.getElementById('set-dns-disablecache').checked = advSettings.dnsDisableCache === true;
@@ -4464,7 +4463,6 @@ function saveAdvancedSettingsForm(isLangOnly = false) {
     }
     advSettings.dnsViaProxy = document.getElementById('set-dnsviaproxy').checked;
     advSettings.hijackDns = document.getElementById('set-hijackdns').checked;
-    advSettings.pinnedPeerCertSha256 = document.getElementById('set-pinned-cert').value.trim();
 
     // DNS engine options
     advSettings.dnsDisableCache = document.getElementById('set-dns-disablecache').checked;
@@ -4491,7 +4489,7 @@ function saveAdvancedSettingsForm(isLangOnly = false) {
     advSettings.fragment_length = document.getElementById('set-fragment-length').value || "50-100";
     advSettings.fragment_interval = document.getElementById('set-fragment-interval').value || "10-20";
 
-    advSettings.mtu = parseInt(document.getElementById('set-mtu').value) || 1350;
+    { const m = parseInt(document.getElementById('set-mtu').value, 10); advSettings.mtu = (m >= 1280 && m <= 9000) ? m : 1350; }
 
     // advSettings.lang is only written by changeLanguage() (explicit choice);
     // persisting currentLang here would turn auto-detection into a fixed choice.

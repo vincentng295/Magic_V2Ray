@@ -183,7 +183,12 @@ int configure_tun_iface(void)
     if (access("/proc/sys/net/ipv4/conf/" TUN_NAME "/rp_filter", F_OK) == 0)
         sysctl_w("/proc/sys/net/ipv4/conf/" TUN_NAME "/rp_filter", "0");
     /* openxtun only does TUNSETIFF: the MTU must be set here */
-    NOP(link_set_mtu(TUN_NAME, 8500));
+    {
+        char mv[16]; int mtu = 1350;
+        if (settings_query("mtu", mv, sizeof mv) && mv[0]) mtu = atoi(mv);
+        if (mtu < 1280 || mtu > 9000) mtu = 1350;
+        NOP(link_set_mtu(TUN_NAME, mtu));
+    }
     struct in_addr a4; inet_pton(AF_INET, "198.18.0.1", &a4);
     NOP(nl_addr_add(AF_INET, TUN_NAME, &a4, 16, 0, false)); // 198.18.0.1/16
     NOP(link_set_up(TUN_NAME, true));

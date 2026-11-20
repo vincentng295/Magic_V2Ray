@@ -961,7 +961,6 @@ function convert_uri_to_xray_json(uri, optional_settings, is_nonroot = false) {
         fragment_length: "50-100",
         fragment_interval: "10-20",
         mtu: 1350,
-        pinnedPeerCertSha256: "",
         dnsViaProxy: true,
         hijackDns: true,
         dnsDisableCache: false,
@@ -1039,7 +1038,7 @@ function convert_uri_to_xray_json(uri, optional_settings, is_nonroot = false) {
                     ...(c.ech ? { echConfigList: c.ech } : {}),
                     ...(c.vcn ? { verifyPeerCertByName: c.vcn } : {})
                 };
-                const nodePcs = c.pcs || settings.pinnedPeerCertSha256;
+                const nodePcs = c.pcs;
                 if (nodePcs) {
                     outbound.streamSettings.tlsSettings.pinnedPeerCertSha256 = nodePcs;
                 }
@@ -1147,7 +1146,7 @@ function convert_uri_to_xray_json(uri, optional_settings, is_nonroot = false) {
                         ...(p.get('ech') ? { echConfigList: p.get('ech') } : {}),
                         ...(p.get('vcn') ? { verifyPeerCertByName: p.get('vcn') } : {})
                     };
-                    const nodePcs = p.get('pcs') || settings.pinnedPeerCertSha256;
+                    const nodePcs = p.get('pcs');
                     if (nodePcs) {
                         outbound.streamSettings.tlsSettings.pinnedPeerCertSha256 = nodePcs;
                     }
@@ -1320,7 +1319,7 @@ function convert_uri_to_xray_json(uri, optional_settings, is_nonroot = false) {
                                 ...(ssParams.get('ech') ? { echConfigList: ssParams.get('ech') } : {}),
                                 ...(ssParams.get('vcn') ? { verifyPeerCertByName: ssParams.get('vcn') } : {})
                             };
-                            const nodePcs = ssParams.get('pcs') || settings.pinnedPeerCertSha256;
+                            const nodePcs = ssParams.get('pcs');
                             if (nodePcs) {
                                 outbound.streamSettings.tlsSettings.pinnedPeerCertSha256 = nodePcs;
                             }
@@ -1410,9 +1409,6 @@ function convert_uri_to_xray_json(uri, optional_settings, is_nonroot = false) {
                                     serverName: pOpts.host || ssHost
                                     // "allowInsecure" was removed by Xray-core; never emit it into config.json.
                                 };
-                                if (settings.pinnedPeerCertSha256) {
-                                    outbound.streamSettings.tlsSettings.pinnedPeerCertSha256 = settings.pinnedPeerCertSha256;
-                                }
                             }
                             if (pluginNet === 'ws') {
                                 outbound.streamSettings.wsSettings = {
@@ -1594,8 +1590,7 @@ function convert_uri_to_xray_json(uri, optional_settings, is_nonroot = false) {
             if (p.get('alpn')) mqTls.alpn = p.get('alpn').split(',').map(s => s.trim()).filter(Boolean);
             if (p.get('fp')) mqTls.fingerprint = p.get('fp');
             if (p.get('vcn')) mqTls.verifyPeerCertByName = p.get('vcn');
-            // Per-node pin only: the global pinnedPeerCertSha256 would override
-            // (and break) the WARP edge's publicKey pin.
+            // Per-node pin only (there is no global pin).
             if (p.get('pcs')) mqTls.pinnedPeerCertSha256 = p.get('pcs');
 
             outbound = {
@@ -1858,7 +1853,7 @@ function convert_uri_to_xray_json(uri, optional_settings, is_nonroot = false) {
                 "protocol": "tun",
                 "settings": {
                     "name": "xraytun0",
-                    "mtu": 8500
+                    "mtu": (() => { const m = parseInt(settings.mtu, 10); return (m >= 1280 && m <= 9000) ? m : 1350; })()
                 },
                 "sniffing": {
                     "enabled": settings.sniffing,

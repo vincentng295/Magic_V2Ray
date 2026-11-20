@@ -232,9 +232,9 @@ final class ExternalSession {
         String[] t = {
             "loglevel", "e:debug|info|warning|error|none", "sniffing", "b", "routeOnly", "b",
             "queryStrategy", "e:UseIP|UseIPv4|UseIPv6|UseSystem", "dnsViaProxy", "b", "hijackDns", "b",
-            "pinnedPeerCertSha256", "s:512", "mux", "b", "mux_connections", "i:1:1024",
+            "mux", "b", "mux_connections", "i:1:1024",
             "fragment", "b", "fragment_packets", "s:32", "fragment_length", "s:32", "fragment_interval", "s:32",
-            "mtu", "i:576:9000", "localDns", "b", "fakeDnsLocal", "b",
+            "mtu", "i:1280:9000", "localDns", "b", "fakeDnsLocal", "b",
             "foreignDns", "s:4000", "directDns", "s:500", "directDnsDomains", "s:8000",
             "dnsDisableCache", "b", "dnsServeStale", "b", "dnsServeExpiredTTL", "i:0:86400",
             "dnsDisableFallback", "b", "dnsDisableFallbackIfMatch", "b", "dnsParallelQuery", "b", "dnsUseSystemHosts", "b"
