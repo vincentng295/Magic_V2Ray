@@ -37,6 +37,8 @@
         var o = parse(k.getUpdateInfo());
         info = { current: (o && o.current) || {}, last: (o && o.last) || null };
     }
+    // dismissal token: alpha builds can share a versionCode, so the version string is part of it
+    function tok(u) { return u.versionCode + ':' + u.version; }
     function newer() {
         var l = info.last;
         return l && l.ok && l.available ? l : null;
@@ -94,9 +96,9 @@
     var shownFor = null;     // versionCode the popup was already shown for in this page session
     function maybeShowModal() {
         var upd = newer();
-        if (!upd || String(upd.versionCode) === stored(DISMISS_KEY)) return;
-        if (shownFor === String(upd.versionCode)) return;
-        shownFor = String(upd.versionCode);
+        if (!upd || tok(upd) === stored(DISMISS_KEY)) return;
+        if (shownFor === tok(upd)) return;
+        shownFor = tok(upd);
         showModal(upd);
     }
 
@@ -121,7 +123,7 @@
 
         var banner = $('update-banner');
         if (banner) {
-            var show = !!upd && String(upd.versionCode) !== stored(DISMISS_KEY);
+            var show = !!upd && tok(upd) !== stored(DISMISS_KEY);
             banner.style.display = show ? '' : 'none';
             if (show) {
                 $('update-banner-title').textContent = t('update_banner_title', { version: upd.version });
@@ -193,7 +195,7 @@
         $('update-modal-dl').addEventListener('click', function () { download(); hideModal(); });
         function dismiss() {
             var u = newer();
-            if (u) store(DISMISS_KEY, u.versionCode);       // do not nag again for this version
+            if (u) store(DISMISS_KEY, tok(u));       // do not nag again for this version
             hideModal();
             render();
         }
@@ -209,7 +211,7 @@
         });
         $('update-banner-later').addEventListener('click', function () {
             var u = newer();
-            if (u) store(DISMISS_KEY, u.versionCode);
+            if (u) store(DISMISS_KEY, tok(u));
             render();
         });
 

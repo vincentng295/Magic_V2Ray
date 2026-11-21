@@ -25,7 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Update check against {@link #UPDATE_URL}.
+ * Update check against {@link #UPDATE_URL} (stable) or {@link #ALPHA_UPDATE_URL} (alpha builds).
  *
  * The WebView is not allowed to touch the network (see MainActivity), so the request is made here, in the
  * app process, and only the parsed result goes back to the WebUI as JSON:
@@ -37,7 +37,8 @@ import java.util.concurrent.TimeUnit;
  * {"ok":false,"error":"..."}
  * </pre>
  *
- * "Newer" is decided by versionCode only (the version string is for display).
+ * "Newer" is decided by versionCode; alpha builds share one versionCode between many builds, so on an equal
+ * versionCode the version string (x-alpha-build-<hash>) decides: different from the installed one = update.
  * The download is not done in the app: the WebUI hands the APK link to the browser (KsuBridge.openUrl).
  *
  * Auto check: on app start (at most once per {@link #MIN_INTERVAL_MS}) and by a daily {@link JobScheduler}
@@ -45,16 +46,20 @@ import java.util.concurrent.TimeUnit;
  */
 final class UpdateChecker {
 
+    /** Stable builds. */
     static final String UPDATE_URL = "https://raw.githubusercontent.com/vincentng295/magic-v2ray-site/refs/heads/main/update.json";
+    /** Alpha builds (versionName "x-alpha-build-<hash>", stamped by CI on the alpha branch only). */
+    static final String ALPHA_UPDATE_URL = "https://github.com/vincentng295/Magic_V2Ray/releases/download/x-alpha-pre-release/update.json";
+    private static final String ALPHA_PREFIX = "x-alpha-build-";
 
     /**
      * Tried in order until one answers. raw.githubusercontent.com is blocked in some countries (China), so
-     * the rest are mirrors. Add or reorder mirrors here; each must serve the same update.json over https.
+     * the rest are mirrors. Each must serve the same update.json over https.
      */
-    private static final String[] UPDATE_URLS = {
-            UPDATE_URL,
-            "https://gh-proxy.com/" + UPDATE_URL,
-    };
+    private static String[] updateUrls(JSONObject cur) {
+        String u = cur.optString("name", "").startsWith(ALPHA_PREFIX) ? ALPHA_UPDATE_URL : UPDATE_URL;
+        return new String[]{u, "https://gh-proxy.com/" + u};
+    }
 
     /** Auto check is on until the user turns it off in App settings. */
     private static final boolean DEFAULT_AUTO = true;
@@ -77,6 +82,7 @@ final class UpdateChecker {
     private static final String K_LAST_CHECK = "last_check";
     private static final String K_LAST_RESULT = "last_result";
     private static final String K_NOTIFIED = "notified_code";
+    private static final String K_NOTIFIED_VER = "notified_version";
 
     private static final Object LOCK = new Object();
     private static boolean autoRunning;
@@ -129,7 +135,7 @@ final class UpdateChecker {
         JSONObject cur = current(c);
         JSONObject res = new JSONObject();
         try {
-            String body = fetchFirst(UPDATE_URLS, MAX_BYTES);
+            String body = fetchFirst(updateUrls(cur), MAX_BYTES);
             JSONObject j = new JSONObject(body);
             int code = j.optInt("versionCode", 0);
             String version = j.optString("version", "").trim();
@@ -148,14 +154,15 @@ final class UpdateChecker {
                 }
             }
             res.put("ok", true);
-            res.put("available", code > cur.optLong("code", 0));
+            boolean avail = isNewer(code, version, cur);
+            res.put("available", avail);
             res.put("version", version);
             res.put("versionCode", code);
             res.put("url", url);
             res.put("universalUrl", universal);
             String changelog = httpsOrEmpty(j.optString("changelog", ""));
             res.put("changelog", changelog);
-            res.put("notes", notes(j, changelog, code > cur.optLong("code", 0)));
+            res.put("notes", notes(j, changelog, avail));
             res.put("checkedAt", System.currentTimeMillis());
             res.put("current", cur);
             sp(c).edit()
@@ -174,6 +181,14 @@ final class UpdateChecker {
         return res;
     }
 
+    /** Higher versionCode wins; on the same code a different version string (another alpha build) counts as newer. */
+    private static boolean isNewer(long code, String version, JSONObject cur) {
+        long have = cur.optLong("code", 0);
+        if (code != have) return code > have;
+        String name = cur.optString("name", "").trim();
+        return !version.isEmpty() && !name.isEmpty() && !version.equals(name);
+    }
+
     /** What the WebUI shows on open: the installed version plus the last good check (if any). */
     static String info(Context c) {
         JSONObject out = new JSONObject();
@@ -184,7 +199,7 @@ final class UpdateChecker {
             if (!last.isEmpty()) {
                 JSONObject r = new JSONObject(last);
                 // The app may have been updated since: re-evaluate against the installed version.
-                r.put("available", r.optInt("versionCode", 0) > cur.optLong("code", 0));
+                r.put("available", isNewer(r.optInt("versionCode", 0), r.optString("version", ""), cur));
                 r.put("current", cur);
                 out.put("last", r);
             }
@@ -314,7 +329,9 @@ final class UpdateChecker {
     private static void notifyAvailable(Context c, JSONObject r) {
         int code = r.optInt("versionCode", 0);
         SharedPreferences p = sp(c);
-        if (p.getInt(K_NOTIFIED, 0) >= code) return;
+        String ver = r.optString("version", "");
+        int seen = p.getInt(K_NOTIFIED, 0);
+        if (seen > code || (seen == code && ver.equals(p.getString(K_NOTIFIED_VER, "")))) return;
         if (MainActivity.resumed) return;
         try {
             NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
@@ -334,7 +351,7 @@ final class UpdateChecker {
                     .setContentIntent(open)
                     .setAutoCancel(true)
                     .build());
-            p.edit().putInt(K_NOTIFIED, code).apply();      // only after it was actually posted
+            p.edit().putInt(K_NOTIFIED, code).putString(K_NOTIFIED_VER, ver).apply();      // only after it was actually posted
         } catch (RuntimeException ignored) {    // notifications blocked: the in-app banner still shows it
         }
     }

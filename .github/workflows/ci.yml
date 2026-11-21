@@ -200,6 +200,7 @@ jobs:
         run: |
           set -e
           sed -i "s|^version=.*|version=x-alpha-build-${GITHUB_SHA::8}|" module/module.prop
+          sed -i "s|^updateJson=.*|updateJson=https://github.com/${GITHUB_REPOSITORY}/releases/download/x-alpha-pre-release/update.json|" module/module.prop
           grep '^version=' module/module.prop
 
       - uses: actions/setup-java@v4
@@ -381,19 +382,45 @@ jobs:
 
         # tag_name is fixed, so every push to alpha lands on the same
         # "x-alpha-pre-release" tag/release instead of piling up new ones.
-        - name: Build release notes from main...alpha
+        # The same text goes to the release body and to changelog.md (the app
+        # downloads the latter via update.json's "changelog" field).
+        - name: Build release notes from main..alpha
           id: log
           run: |
             set -e
             git fetch origin main --quiet
+            commits=$(git log --pretty=format:'- %s (%h)' "origin/main..${GITHUB_SHA}")
+            if [ -z "$commits" ]; then
+              notes="This version is same as release one!"
+            else
+              notes=$(printf 'Changes on `alpha` since it diverged from `main`:\n\n%s' "$commits")
+            fi
+            printf '%s\n' "$notes" > dist/changelog.md
             {
               echo "notes<<GH_EOF"
-              echo "Changes on \`alpha\` since it diverged from \`main\`:"
-              echo
-              git log --pretty=format:'- %s (%h)' origin/main...origin/alpha
-              echo
+              cat dist/changelog.md
               echo "GH_EOF"
             } >> "$GITHUB_OUTPUT"
+
+        # update.json for alpha builds. Same versionCode can span many alpha
+        # builds, so the app also compares "version" (x-alpha-build-<hash>).
+        - name: Generate update.json
+          run: |
+            set -e
+            ver="x-alpha-build-${GITHUB_SHA::8}"
+            code=$(grep -E '^versionCode=' module/module.prop | cut -d= -f2- | tr -d '[:space:]')
+            [ -n "$code" ] || { echo "::error::versionCode missing in module.prop"; exit 1; }
+            base="https://github.com/${GITHUB_REPOSITORY}/releases/download/x-alpha-pre-release"
+            apk() { ls dist/*-"$1".apk | head -n1 | xargs basename; }
+            jq -n \
+              --arg version "$ver" --argjson code "$code" \
+              --arg zip "$base/$(apk universal)" \
+              --arg a64 "$base/$(apk arm64-v8a)" \
+              --arg x64 "$base/$(apk x86_64)" \
+              --arg cl "$base/changelog.md" \
+              '{version:$version, versionCode:$code, zipUrl:$zip,
+                arch:{"arm64-v8a":$a64, "x86_64":$x64}, changelog:$cl}' > dist/update.json
+            cat dist/update.json
 
         # The tag must be deleted (not just the release) or it keeps
         # pointing at the old commit and the "release" ends up detached
@@ -414,3 +441,5 @@ jobs:
             fail_on_unmatched_files: true
             files: |
               dist/*.apk
+              dist/update.json
+              dist/changelog.md
