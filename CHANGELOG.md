@@ -1,6 +1,7 @@
-# Magic V2Ray v3.3.1 Release Notes
+# Magic V2Ray v3.3.2 Release Notes
 
-Fix MTU configuration does not take effect and remove global cert pin!
+- Add adjustable app display scaling
+- Improve update UI responsiveness
 
 ---
 
