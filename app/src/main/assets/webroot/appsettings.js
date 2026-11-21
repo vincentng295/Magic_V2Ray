@@ -50,6 +50,20 @@
         colorSel.value = p.color === 'system' && !sysOk ? 'default' : p.color;
         syncColorRow();
     }
+    // ---- display size (DPI): applied natively (density override), so the screen is re-created after saving
+    var dpiSel = $('app-dpi');
+    if (dpiSel && window.ksu && typeof window.ksu.applyUiScale === 'function') {
+        $('app-dpi-row').style.display = '';
+        var cur = String(T.get().dpi || 100);
+        if (!dpiSel.querySelector('option[value="' + cur + '"]')) {
+            var o = document.createElement('option'); o.value = cur; o.textContent = cur + '%'; dpiSel.appendChild(o);
+        }
+        dpiSel.value = cur;
+        dpiSel.addEventListener('change', function () {
+            T.set({ dpi: +dpiSel.value });
+            try { window.ksu.applyUiScale(); } catch (e) { /* host without applyUiScale */ }
+        });
+    }
     themeSel.addEventListener('change', function () { T.set({ theme: themeSel.value }); });
     colorSel.addEventListener('change', function () {
         if (colorSel.value === 'custom') openPicker();

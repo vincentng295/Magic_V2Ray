@@ -8,7 +8,7 @@
     'use strict';
 
     var DEFAULT_SEED = '#006E1C';                 // Material baseline green
-    var DEFAULTS = { theme: 'system', color: 'default', seed: DEFAULT_SEED, bg: false, bgTheme: false, bgSeed: '', bgDim: 35 };
+    var DEFAULTS = { theme: 'system', color: 'default', seed: DEFAULT_SEED, bg: false, bgTheme: false, bgSeed: '', bgDim: 35, dpi: 100 };
     var BG_KEY = 'mv_bg_image';                   // wallpaper data URL (downscaled JPEG), per-device
     var MIN_SDK_SYSTEM_COLOR = 33;                // only "Follow system" (dynamic colour) needs Android 13+; Default and a custom colour work everywhere
 
@@ -149,6 +149,7 @@
             bg: o.bg === true,
             bgTheme: o.bgTheme === true,
             bgSeed: /^#[0-9a-fA-F]{6}$/.test(o.bgSeed || '') ? o.bgSeed.toUpperCase() : '',
+            dpi: Math.max(60, Math.min(200, Number(o.dpi) >= 60 ? Math.round(Number(o.dpi)) : DEFAULTS.dpi)),
             bgDim: Math.max(0, Math.min(80, Number(o.bgDim) >= 0 ? Math.round(Number(o.bgDim)) : DEFAULTS.bgDim))
         };
     }

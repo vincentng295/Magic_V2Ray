@@ -713,6 +713,12 @@ final class KsuBridge {
         AppPrefs.setJson(activity, json);
     }
 
+    /** Re-creates the screen so a changed UI scale (AppPrefs.uiScale) takes effect. */
+    @JavascriptInterface
+    public void applyUiScale() {
+        activity.runOnUiThread(activity::recreate);
+    }
+
     /** True when the SYSTEM is in dark mode, whatever theme the app itself is showing. */
     @JavascriptInterface
     public boolean isSystemNight() {

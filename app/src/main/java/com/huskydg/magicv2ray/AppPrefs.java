@@ -63,13 +63,31 @@ final class AppPrefs {
         return "dark".equals(t) || ("system".equals(t) && systemIsNight(c));
     }
 
-    /** Forces the day/night resource qualifier to the user's choice (no-op for "system"). */
+    /** UI size in percent of the system density (the "DPI" setting): 100 = system, clamped to 60..200. */
+    static int uiScale(Context c) {
+        try {
+            int v = new JSONObject(getJson(c)).optInt("dpi", 100);
+            return v < 60 || v > 200 ? 100 : v;
+        } catch (JSONException e) {
+            return 100;
+        }
+    }
+
+    /** Forces the day/night resource qualifier to the user's choice and applies the UI scale (density). */
     static Context wrap(Context base) {
         String t = theme(base);
-        if ("system".equals(t)) return base;
+        int scale = uiScale(base);
+        if ("system".equals(t) && scale == 100) return base;
         Configuration cfg = new Configuration(base.getResources().getConfiguration());
-        cfg.uiMode = (cfg.uiMode & ~Configuration.UI_MODE_NIGHT_MASK)
-                | ("dark".equals(t) ? Configuration.UI_MODE_NIGHT_YES : Configuration.UI_MODE_NIGHT_NO);
+        if (!"system".equals(t)) {
+            cfg.uiMode = (cfg.uiMode & ~Configuration.UI_MODE_NIGHT_MASK)
+                    | ("dark".equals(t) ? Configuration.UI_MODE_NIGHT_YES : Configuration.UI_MODE_NIGHT_NO);
+        }
+        if (scale != 100) {
+            // Same as the system "Display size" setting: a higher density makes dp/CSS px bigger on screen,
+            // so 150% shows everything 1.5x larger and 70% fits more on screen.
+            cfg.densityDpi = Math.max(60, Math.round(cfg.densityDpi * scale / 100f));
+        }
         return base.createConfigurationContext(cfg);
     }
 
