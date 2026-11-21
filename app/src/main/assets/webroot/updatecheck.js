@@ -141,6 +141,19 @@
         render();
         maybeShowModal();
 
+        // The dynamic texts above are built with t(); they were produced before the UI language was
+        // applied (or stay stale after a language switch), so rebuild them whenever applyI18n runs.
+        if (typeof window.applyI18n === 'function' && !window.applyI18n.__mvUpdate) {
+            var origApply = window.applyI18n;
+            window.applyI18n = function () {
+                var r = origApply.apply(this, arguments);
+                try { render(); } catch (e) { /* page not ready */ }
+                return r;
+            };
+            window.applyI18n.__mvUpdate = true;
+        }
+        setTimeout(render, 0);   // after the startup language pass
+
         // ---- auto check
         var auto = $('app-auto-update');
         try { auto.checked = !!k.getAutoUpdateCheck(); } catch (e) { auto.checked = true; }
