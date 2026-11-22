@@ -19,6 +19,7 @@ cd "$(dirname "$0")/.."
 DIST="${1:-dist}"
 REPO="${GITHUB_REPOSITORY:-vincentng295/Magic_V2Ray}"
 PROP="${MODULE_PROP:-module/module.prop}"
+METAINF="${MODULE_METAINF:-module/META-INF}"
 
 prop() { sed -n "s/^$1=//p" "$PROP" | head -n 1 | tr -d '\r'; }
 
@@ -70,10 +71,12 @@ tr -d '\r' < "$PROP" \
     | sed 's|^description=.*|description=Installer stub: tap Action to download and install the Magic V2Ray app, which then installs the module.|' \
     > "$STAGE/module.prop"
 
+cp -rf "$METAINF" "$STAGE/META-INF"
+
 mkdir -p "$DIST"
 OUT="$(cd "$DIST" && pwd)/${MODID}-${VERSION}-stub.zip"
 rm -f "$OUT"
-(cd "$STAGE" && zip -X -q "$OUT" module.prop action.sh)
+(cd "$STAGE" && zip -X -q -r "$OUT" module.prop action.sh 'META-INF/')
 
 echo "==> $OUT ($(du -h "$OUT" | cut -f1))"
 unzip -l "$OUT"
