@@ -1,4 +1,4 @@
-# Magic V2Ray v3.3.3 Release Notes
+# Magic V2Ray v3.4 Release Notes
 
 First release supports `KernelSU-Modules` repo.
 
