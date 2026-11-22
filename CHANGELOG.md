@@ -1,7 +1,6 @@
-# Magic V2Ray v3.3.2 Release Notes
+# Magic V2Ray v3.3.3 Release Notes
 
-- Add adjustable app display scaling
-- Improve update UI responsiveness
+First release supports `KernelSU-Modules` repo.
 
 ---
 
