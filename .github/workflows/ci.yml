@@ -349,6 +349,7 @@ jobs:
             zip: ${{ steps.stub.outputs.zip }}
             dry-run: true
             tag: ${{ steps.ver.outputs.tag }}
+            asset-pattern: "magic_v2ray-*.zip"
 
         # Created as a DRAFT with every asset attached, then published below:
         # an immutable release locks its assets the moment it is published, so
