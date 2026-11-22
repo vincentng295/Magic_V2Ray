@@ -378,6 +378,10 @@ jobs:
       if: github.ref == 'refs/heads/alpha'
       permissions:
         contents: write
+      # Assets are swapped in place on one shared release: never run two at once.
+      concurrency:
+        group: alpha-release
+        cancel-in-progress: false
       steps:
         - uses: actions/checkout@v4
           with:
@@ -449,20 +453,44 @@ jobs:
                 arch:{"arm64-v8a":$a64, "x86_64":$x64}, changelog:$cl}' > dist/update.json
             cat dist/update.json
 
-        # The tag must be deleted (not just the release) or it keeps
-        # pointing at the old commit and the "release" ends up detached
-        # from what was actually just built.
-        - name: Delete previous x-alpha-pre-release
+        # The release AND its tag are reused, never deleted. The tag
+        # x-alpha-pre-release is a fixed marker (it points at an empty commit and
+        # is not moved); each push only swaps the assets and notes of the existing
+        # release. The build is identified by the release title
+        # (x-alpha-build-<sha8>) and notes, not by the tag.
+        #
+        # This needs that release to stay MUTABLE. With "release immutability"
+        # enabled in the repo settings, only releases published BEFORE it was
+        # enabled remain editable, so never delete this release: a re-created one
+        # would be immutable and every later run would fail.
+        - name: Prepare alpha release (must be editable; drop old APKs)
           env:
             GH_TOKEN: ${{ github.token }}
-          run: gh release delete x-alpha-pre-release --yes --cleanup-tag || true
+          run: |
+            set -e
+            tag=x-alpha-pre-release
+            if imm=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" --jq '.immutable' 2>/dev/null); then
+              if [ "$imm" = "true" ]; then
+                echo "::error::release ${tag} is immutable: its assets cannot be replaced. Immutable releases cannot be fixed; use another tag for alpha builds (or a repository without release immutability)."
+                exit 1
+              fi
+              # Asset names carry the build (x-alpha-build-<sha8>), so a new push
+              # does not overwrite the old APKs by name: remove them first.
+              # update.json and changelog.md keep their names and are overwritten.
+              { gh release view "$tag" --json assets --jq '.assets[].name' | grep -E '\.apk$' || true; } \
+                | while read -r asset; do
+                    echo "removing old asset $asset"
+                    gh release delete-asset "$tag" "$asset" --yes
+                  done
+            else
+              echo "No ${tag} release yet: it will be created."
+            fi
 
-        - name: Create/overwrite alpha pre-release
+        - name: Create/update alpha pre-release
           uses: softprops/action-gh-release@v2
           with:
             tag_name: x-alpha-pre-release
             name: ${{ steps.ver.outputs.release_name }}
-            target_commitish: ${{ github.sha }}
             body: ${{ steps.log.outputs.notes }}
             prerelease: true
             fail_on_unmatched_files: true
