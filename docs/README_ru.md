@@ -52,6 +52,9 @@
 
 Magic V2Ray распространяется как самостоятельное Android-приложение (`.apk`), которое одновременно служит zip-архивом для прошивки как root-модуль.
 
+> [!IMPORTANT]
+> Файл `.zip`, скачанный с [modules.kernelsu.org](https://modules.kernelsu.org), — **это только установщик**, а не APK. Скачайте APK на [странице Releases репозитория](https://github.com/vincentng295/Magic_V2Ray/releases).
+
 ### Пользователи без root
 1. Скачайте и установите `magic_v2ray-*-arm64-v8a.apk` (или `-x86_64.apk`).
 2. Откройте приложение, выберите **Non-Root (VpnService) Mode**, предоставьте разрешение VPN и запустите подключение.

@@ -52,6 +52,9 @@ Từ phiên bản **v2.0**, các thiết bị chưa root có thể chạy Magic 
 
 File APK phát hành của Magic V2Ray vừa là ứng dụng Android độc lập, vừa đóng vai trò là một file zip module có thể flash qua bộ quản lý Root.
 
+> [!IMPORTANT]
+> File `.zip` tải từ [modules.kernelsu.org](https://modules.kernelsu.org) **chỉ là trình cài đặt**, không phải file APK. Hãy tải APK tại [trang Releases của repo](https://github.com/vincentng295/Magic_V2Ray/releases).
+
 ### Dành cho máy Chưa Root (Non-Root)
 1. Tải và cài đặt file `magic_v2ray-*-arm64-v8a.apk` (hoặc `-x86_64.apk`).
 2. Mở app, chọn **Chế độ Non-Root (VpnService)**, cấp quyền VPN và bắt đầu sử dụng.

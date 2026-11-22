@@ -52,6 +52,9 @@ Starting with **v2.0**, devices without root access can run Magic V2Ray seamless
 
 Magic V2Ray is distributed as a standalone Android application (`.apk`), which also doubles as a flashable root module zip.
 
+> [!IMPORTANT]
+> The `.zip` downloaded from [modules.kernelsu.org](https://modules.kernelsu.org) is **only an installer**, not the APK. To get the APK, download it from the [repo's Releases page](https://github.com/vincentng295/Magic_V2Ray/releases).
+
 ### Non-Root Users
 1. Download and install `magic_v2ray-*-arm64-v8a.apk` (or `-x86_64.apk`).
 2. Open the app, select **Non-Root (VpnService) Mode**, grant the VPN permission, and start the connection.

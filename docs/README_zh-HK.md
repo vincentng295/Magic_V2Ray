@@ -52,6 +52,9 @@
 
 Magic V2Ray 以獨立的 Android 應用程式（`.apk`）形式發行，同時也可作為可刷入的 Root 模塊 zip 使用。
 
+> [!IMPORTANT]
+> 從 [modules.kernelsu.org](https://modules.kernelsu.org) 下載的 `.zip` 檔案**僅是安裝器**，並不是 APK。請前往[倉庫的 Releases 頁面](https://github.com/vincentng295/Magic_V2Ray/releases)下載 APK。
+
 ### 未 Root 的用戶
 1. 下載並安裝 `magic_v2ray-*-arm64-v8a.apk`（或 `-x86_64.apk`）。
 2. 開啟應用程式，選擇 **Non-Root (VpnService) Mode**，授予 VPN 權限，然後啟動連接。
