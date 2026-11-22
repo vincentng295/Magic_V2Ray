@@ -2,3 +2,6 @@
 	path = core/xray-core
 	url = https://github.com/vincentng295/Xray-core.git
 	branch = huskydg/xhuskydg
+[submodule "native/curl"]
+	path = native/curl
+	url = https://github.com/vincentng295/curl-android-build.git
