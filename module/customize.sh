@@ -42,6 +42,10 @@ else
     unzip -j -o "$ZIPFILE" "bin/$ABI/*" -d "$MODPATH/bin" >&2 || abort "! Failed to extract $ABI binaries"
 fi
 
+# curl is an applet of the helper: bin/curl -> xhuskydg_helper (argv[0] picks the applet)
+rm -f "$MODPATH/bin/curl"
+ln -s xhuskydg_helper "$MODPATH/bin/curl" || abort "! Failed to create bin/curl symlink"
+
 # ---------------------------------------------------------------------------
 # 2. Extract scripts and routing databases. (The Web UI is the Magic V2Ray app.)
 #    uninstall.sh MUST be in this list — it was previously omitted, so the

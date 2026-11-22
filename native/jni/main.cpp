@@ -32,7 +32,33 @@ static void print_usage(const char* prog) {
               << "  " << prog << " curl [curl args...]   (full curl tool: HTTP/1-3, TLS via BoringSSL)\n";
 }
 
+// Applets reachable through a symlink named after them (e.g. bin/curl -> xhuskydg_helper),
+// BusyBox-style: when argv[0]'s basename is a subcommand name, that subcommand runs and every
+// argument belongs to it.
+static bool is_applet_name(const std::string& n) {
+    static const char* const names[] = {"curl", "tcping", "dnsjson", "obsprobe", "vpnrun",
+                                        "openxtun", "proxy_control", "service"};
+    for (const char* a : names) if (n == a) return true;
+    return false;
+}
+
 int main(int argc, char* argv[]) {
+    std::vector<char*> applet_argv;
+    std::string applet;
+    {
+        const char* slash = std::strrchr(argv[0], '/');
+        applet = slash ? slash + 1 : argv[0];
+        if (is_applet_name(applet)) {
+            // rebuild as `<helper> <applet> <args...>` and fall through to the normal dispatch
+            applet_argv.push_back(argv[0]);
+            applet_argv.push_back(&applet[0]);
+            for (int i = 1; i < argc; ++i) applet_argv.push_back(argv[i]);
+            applet_argv.push_back(nullptr);
+            argc = static_cast<int>(applet_argv.size()) - 1;
+            argv = applet_argv.data();
+        }
+    }
+
     if (argc < 2) {
         print_usage(argv[0]);
         return 1;

@@ -199,7 +199,7 @@
         var out = await execShellAsync(
             'umask 022\n' +
             'mkdir -p ' + D + ' && chmod 755 ' + D + '\n' +
-            shQuote(MODDIR + '/bin/xhuskydg_helper') + ' curl' + ' -fL --max-redirs 5 --connect-timeout 15 --max-time 600 -o ' + T + ' ' + shQuote(url) + ' 2>/dev/null || { rm -f ' + T + '; echo FAIL_DL; exit 0; }\n' +
+            shQuote(MODDIR + '/bin/xhuskydg_helper') + ' curl' + ' ' + CURL_DOH_ARG + ' -fL --max-redirs 5 --connect-timeout 15 --max-time 600 -o ' + T + ' ' + shQuote(url) + ' 2>/dev/null || { rm -f ' + T + '; echo FAIL_DL; exit 0; }\n' +
             // same sanity checks as the native importer: not tiny, and a protobuf list (first byte 0x0a)
             '[ "$(stat -c %s ' + T + ' 2>/dev/null || echo 0)" -ge 16 ] || { rm -f ' + T + '; echo FAIL_SIZE; exit 0; }\n' +
             '[ "$(head -c1 ' + T + ' | od -An -tx1 | tr -d \' \')" = "0a" ] || { rm -f ' + T + '; echo FAIL_FORMAT; exit 0; }\n' +

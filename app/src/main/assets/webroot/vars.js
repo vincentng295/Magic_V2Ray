@@ -549,3 +549,6 @@ const ABOUT_LINKS = {
     openxtun: "https://github.com/vincentng295/openxtun",
     curl: "https://github.com/vvb2060/curl-android"
 };
+
+// Direct (non-socks5) curl calls resolve names over DoH instead of the system resolver.
+const CURL_DOH_ARG = '--doh-url https://1.1.1.1/dns-query';

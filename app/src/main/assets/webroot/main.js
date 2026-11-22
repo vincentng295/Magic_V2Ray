@@ -1168,7 +1168,7 @@ async function fetchSubscription(category, url, isReload = false) {
     renderProfiles();
 
     const status = await execShellAsync(`${MODDIR}/bin/xhuskydg_helper proxy_control status`);
-    const viaProxy = (status === 'running') ? `--socks5-hostname ${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT}` : "";
+    const viaProxy = (status === 'running') ? `--socks5-hostname ${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT}` : CURL_DOH_ARG;
 
     // Certificate validation is ON by default. It used to be disabled
     // unconditionally (-k), which let any on-path attacker substitute the
@@ -1182,15 +1182,23 @@ async function fetchSubscription(category, url, isReload = false) {
 
     const userAgent = (profiles[category]?.useragent || "").trim() || DEFAULT_SUB_USERAGENT;
 
-    const cmd = `${MODDIR}/bin/xhuskydg_helper curl ${viaProxy} ${tlsArgs} -sSL -f --max-redirs 3 ` +
+    // bin/curl is a symlink to xhuskydg_helper; older installs without it fall back to the subcommand.
+    // The CA directory is passed explicitly: the bundled BoringSSL has no Android default, so
+    // without it every https:// fetch dies with "SSL certificate problem".
+    const curlBin = `$( [ -x ${shQuote(MODDIR + '/bin/curl')} ] && echo ${shQuote(MODDIR + '/bin/curl')} || echo "${MODDIR}/bin/xhuskydg_helper curl" )`;
+    const caArg = allowInsecure ? '' :
+        '$( for d in /apex/com.android.conscrypt/cacerts /system/etc/security/cacerts; do ' +
+        '[ -d "$d" ] && { echo "--capath $d"; break; }; done )';
+    const cmd = `${curlBin} ${viaProxy} ${tlsArgs} ${caArg} -sSL -f --max-redirs 3 ` +
                 `-A ${shQuote(userAgent)} ` +
                 `--proto '=http,https' --proto-redir '=http,https' ` +
-                `--max-time 15 ${shQuote(url)}`;
+                `--max-time 15 -- ${shQuote(url)}`;
 
-    execShell(cmd, (res) => {
+    execShell(cmd, (res, stderr, errno) => {
         if (!res || res.trim() === "") {
             _endSubFetch(category);
-            return showToast(t('toast_fetch_failed'), "error");
+            const why = (stderr || '').split('\n').filter(Boolean).pop() || (errno ? 'exit ' + errno : '');
+            return showToast(t('toast_fetch_failed') + (why ? ' — ' + why : ''), "error");
         }
         if (res.includes("Failed to connect") || res.includes("Could not resolve")) {
             _endSubFetch(category);
@@ -5094,7 +5102,7 @@ async function fetchRoutingPresetFromUrl() {
     }
 
     const status = await execShellAsync(`${MODDIR}/bin/xhuskydg_helper proxy_control status`);
-    const viaProxy = (status === 'running') ? `--socks5-hostname ${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT}` : "";
+    const viaProxy = (status === 'running') ? `--socks5-hostname ${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT}` : CURL_DOH_ARG;
 
     // Certificate validation is ON by default, matching fetchSubscription().
     // Routing presets reach a root shell just like subscription bodies do,
@@ -7476,7 +7484,7 @@ async function refreshProviderInfo(category) {
     try {
         const site = cat.website;
         const status = await execShellAsync(`${MODDIR}/bin/xhuskydg_helper proxy_control status`);
-        const viaProxy = (status === 'running') ? `--socks5-hostname ${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT}` : '';
+        const viaProxy = (status === 'running') ? `--socks5-hostname ${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT}` : CURL_DOH_ARG;
         const curl = `${MODDIR}/bin/xhuskydg_helper curl ${viaProxy} -sSL -f --max-redirs 3 --proto '=https' ` +
                      `--proto-redir '=https' --max-time 15 -A ${shQuote(_PROVIDER_UA)}`;
         const html = await execShellAsync(`${curl} --max-filesize 3000000 ${shQuote(site)} | head -c 400000`);

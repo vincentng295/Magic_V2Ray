@@ -119,7 +119,7 @@ final class ModuleInstaller {
                         + "  echo \"VC=$(sed -n 's/^versionCode=//p' \"$M/module.prop\" | head -n 1 | tr -d '\\r')\"\n"
                         + "  echo \"VER=$(sed -n 's/^version=//p' \"$M/module.prop\" | head -n 1 | tr -d '\\r')\"\n"
                         + "fi\n"
-                        + "if [ -s \"$M/module.prop\" ] && [ -x \"$M/bin/xray\" ] && [ -x \"$M/bin/xhuskydg_helper\" ] \\\n"
+                        + "if [ -s \"$M/module.prop\" ] && [ -x \"$M/bin/xray\" ] && [ -x \"$M/bin/xhuskydg_helper\" ] && [ -x \"$M/bin/curl\" ] \\\n"
                         + "   && [ -s \"$M/bin/geoip.dat\" ] && [ -s \"$M/bin/geosite.dat\" ] \\\n"
                         + "   && [ -x \"$M/service.sh\" ] && [ -s \"$M/app.apk\" ]; then\n"
                         + "  :\n"
@@ -240,6 +240,8 @@ final class ModuleInstaller {
                         + "}\n"
                         + "put bin/xray 0755 || fail bin/xray\n"
                         + "put bin/xhuskydg_helper 0755 || fail bin/xhuskydg_helper\n"
+                        // curl is an applet of the helper: bin/curl -> xhuskydg_helper (argv[0] dispatch)
+                        + "rm -f \"$MOD/bin/curl\"; ln -s xhuskydg_helper \"$MOD/bin/curl\" || fail bin/curl\n"
                         + "put bin/geoip.dat 0644 || fail bin/geoip.dat\n"
                         + "put bin/geosite.dat 0644 || fail bin/geosite.dat\n"
                         + "put service.sh 0755 || fail service.sh\n"

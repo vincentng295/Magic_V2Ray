@@ -161,7 +161,8 @@ final class NonRootEnv {
             if (!d.isDirectory() && !d.mkdirs()) throw new IOException("cannot create " + d);
         }
         File lib = new File(c.getApplicationInfo().nativeLibraryDir);
-        String[][] links = {{"xray", "libxray.so"}, {"xhuskydg_helper", "libxhuskydg_helper.so"}};
+        String[][] links = {{"xray", "libxray.so"}, {"xhuskydg_helper", "libxhuskydg_helper.so"},
+                {"curl", "libxhuskydg_helper.so"}};   // curl -> helper; argv[0] picks the curl applet
         for (String[] l : links) {
             File target = new File(lib, l[1]);
             File link = bin(c, l[0]);
