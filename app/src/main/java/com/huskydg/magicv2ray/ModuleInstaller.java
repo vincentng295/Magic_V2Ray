@@ -25,7 +25,7 @@ import java.util.regex.Pattern;
  * Payload layout inside the APK (zip root, same files a flashed module zip uses):
  *   {service.sh, uninstall.sh, action.sh, module.prop}
  *   bin/{geoip.dat, geosite.dat}
- *   lib/<abi>/{libxray.so, libxhuskydg_helper.so, libcurl.so}   (real executables,
+ *   lib/<abi>/{libxray.so, libxhuskydg_helper.so}   (real executables,
  *       extracted to nativeLibraryDir at install; installed as bin/xray etc.)
  *
  * Besides the payload, the app copies its own APK to $MODDIR/app.apk, so the
@@ -81,8 +81,7 @@ final class ModuleInstaller {
     // lib file in nativeLibraryDir -> path inside the module
     private static final String[][] NATIVE_BINS = {
             {"libxray.so", "bin/xray"},
-            {"libxhuskydg_helper.so", "bin/xhuskydg_helper"},
-            {"libcurl.so", "bin/curl"}};
+            {"libxhuskydg_helper.so", "bin/xhuskydg_helper"}};
 
     private ModuleInstaller() {
     }
@@ -121,7 +120,7 @@ final class ModuleInstaller {
                         + "  echo \"VER=$(sed -n 's/^version=//p' \"$M/module.prop\" | head -n 1 | tr -d '\\r')\"\n"
                         + "fi\n"
                         + "if [ -s \"$M/module.prop\" ] && [ -x \"$M/bin/xray\" ] && [ -x \"$M/bin/xhuskydg_helper\" ] \\\n"
-                        + "   && [ -x \"$M/bin/curl\" ] && [ -s \"$M/bin/geoip.dat\" ] && [ -s \"$M/bin/geosite.dat\" ] \\\n"
+                        + "   && [ -s \"$M/bin/geoip.dat\" ] && [ -s \"$M/bin/geosite.dat\" ] \\\n"
                         + "   && [ -x \"$M/service.sh\" ] && [ -s \"$M/app.apk\" ]; then\n"
                         + "  :\n"
                         + "else echo MISSING; fi\n"
@@ -241,7 +240,6 @@ final class ModuleInstaller {
                         + "}\n"
                         + "put bin/xray 0755 || fail bin/xray\n"
                         + "put bin/xhuskydg_helper 0755 || fail bin/xhuskydg_helper\n"
-                        + "put bin/curl 0755 || fail bin/curl\n"
                         + "put bin/geoip.dat 0644 || fail bin/geoip.dat\n"
                         + "put bin/geosite.dat 0644 || fail bin/geosite.dat\n"
                         + "put service.sh 0755 || fail service.sh\n"

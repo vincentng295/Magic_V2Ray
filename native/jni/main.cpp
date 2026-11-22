@@ -17,15 +17,19 @@ int run_proxy_control(int argc, char* argv[]);
 // Implemented in tcping.cpp (TCP handshake time; node "TCPing" test and the real-delay pre-check).
 int run_tcping(int argc, char* argv[]);
 
+// Implemented in curl/src/tool_main.c (the curl tool, built from native/curl; its main() is renamed to run_curl).
+extern "C" int run_curl(int argc, char* argv[]);
+
 static void print_usage(const char* prog) {
-    std::cerr << "Usage: " << prog << " <service|proxy_control|openxtun|dnsjson|vpnrun|obsprobe|tcping> [args...]\n"
+    std::cerr << "Usage: " << prog << " <service|proxy_control|openxtun|dnsjson|vpnrun|obsprobe|tcping|curl> [args...]\n"
               << "  " << prog << " service -m <MODDIR> [-f]\n"
               << "  " << prog << " proxy_control <start|stop|restart|reload|status|reapply|...>\n"
               << "  " << prog << " openxtun [--uid N] [--gid N] <tun_name> <xray_cmd> [args...]\n"
               << "  " << prog << " dnsjson <domain> [dns_server_ip]\n"
               << "  " << prog << " vpnrun <abstract-socket-name> <program> [args...]\n"
               << "  " << prog << " obsprobe <ipv4:port> <timeout_ms> <tag> [<tag>...]\n"
-              << "  " << prog << " tcping <host[,host...]> <port> [timeout_ms]\n";
+              << "  " << prog << " tcping <host[,host...]> <port> [timeout_ms]\n"
+              << "  " << prog << " curl [curl args...]   (full curl tool: HTTP/1-3, TLS via BoringSSL)\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -59,6 +63,8 @@ int main(int argc, char* argv[]) {
         return run_tcping(sub_argc, sub_argv.data());
     } else if (subcmd == "proxy_control") {
         return run_proxy_control(sub_argc, sub_argv.data());
+    } else if (subcmd == "curl") {
+        return run_curl(sub_argc, sub_argv.data());
     } else if (subcmd == "service") {
         return run_service(sub_argc, sub_argv.data());
     } else {

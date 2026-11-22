@@ -14,3 +14,7 @@ local.properties
 *.jks
 *.keystore
 MV2R_KEYSTORE.env
+
+# curl applet: downloaded BoringSSL + compiled objects
+/native/curl/.deps/
+/native/curl/.build/

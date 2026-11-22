@@ -27,7 +27,7 @@ import java.util.zip.ZipFile;
  * Files and settings of non-root mode. Everything lives in the app's private storage, laid
  * out like the root install so the WebUI only needs different base paths:
  *
- *   files/module/bin/{xray,xhuskydg_helper,curl}  symlinks to the native libs
+ *   files/module/bin/{xray,xhuskydg_helper}  symlinks to the native libs
  *   files/module/bin/geoip.dat, geosite.dat       copied from the APK
  *   files/data/                                   DATADIR (profiles, settings, config.v2.json)
  *   files/stubs/{run,logs,proc}                   STUB_DIR (runtime state, log pipes)
@@ -161,7 +161,7 @@ final class NonRootEnv {
             if (!d.isDirectory() && !d.mkdirs()) throw new IOException("cannot create " + d);
         }
         File lib = new File(c.getApplicationInfo().nativeLibraryDir);
-        String[][] links = {{"xray", "libxray.so"}, {"xhuskydg_helper", "libxhuskydg_helper.so"}, {"curl", "libcurl.so"}};
+        String[][] links = {{"xray", "libxray.so"}, {"xhuskydg_helper", "libxhuskydg_helper.so"}};
         for (String[] l : links) {
             File target = new File(lib, l[1]);
             File link = bin(c, l[0]);

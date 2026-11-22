@@ -11,7 +11,7 @@
 #   ./build.sh --update-xray       -> force rebuild of xray even if up to date
 #   ./build.sh --update-helper     -> force rebuild of xhuskydg_helper even if up to date
 #
-# Needs JDK 17, Gradle 8.7+, Go (version from core/xray-core/go.mod) and an
+# Needs JDK 17, Gradle 8.7+, curl + unzip (BoringSSL download), Go (version from core/xray-core/go.mod) and an
 # Android SDK (see check_apk_tools below).
 #
 # xray is built from source in core/xray-core (GOOS=android, cgo with the NDK clang). The result is cached per-arch in module/bin/<arch>/xray, stamped in
@@ -23,8 +23,11 @@
 # is cached per-arch in module/bin/<arch>/xhuskydg_helper, stamped in
 # module/bin/<arch>/xhuskydg_helper.version with a hash of native/ + build settings, and
 # rebuilt whenever the sources change or --update-helper is passed.
+# It also carries curl (`xhuskydg_helper curl ...`): native/curl is vendored curl-android (curl tool + libcurl +
+# nghttp2/nghttp3/ngtcp2) compiled with the NDK and linked against BoringSSL, which build.sh downloads (Maven
+# Central AAR, cached in native/curl/.deps; MV_BORINGSSL_DIR / MV_BORINGSSL_VERSION override it).
 #
-# APK: build_apk stages xray/helper/curl as app/src/main/jniLibs/<abi>/lib*.so and runs
+# APK: build_apk stages xray/helper/busybox as app/src/main/jniLibs/<abi>/lib*.so and runs
 # `gradle assembleRelease` (or ./gradlew if present). Output: dist/<id>-<version>-<abi>.apk.
 # Set MV_KEYSTORE, MV_KEYSTORE_PASSWORD, MV_KEY_ALIAS, MV_KEY_PASSWORD to sign with your
 # own key, or put them (plus MV_KEYSTORE_BASE64) in MV2R_KEYSTORE.env (see
@@ -142,10 +145,63 @@ find_ndk() {
     exit 1
 }
 
-helper_src_hash() {
-    { find native -type f \( -name '*.c' -o -name '*.cpp' -o -name '*.h' \) -not -path 'native/tests/*' -print0 \
+# native/curl is vendored (curl tool + libcurl + nghttp2/nghttp3/ngtcp2, see native/curl/README.md) and is
+# compiled into its own cached archive (build_curl_lib), so it is hashed separately from the helper sources.
+curl_src_hash() {
+    { find native/curl -type f \( -name '*.c' -o -name '*.h' -o -name 'sources.txt' -o -name 'build_curl.sh' \) -print0 \
         | sort -z | xargs -0 sha256sum
+      echo "boringssl=${MV_BORINGSSL_VERSION}"
+    } | sha256sum | cut -d' ' -f1
+}
+
+# BoringSSL (static libssl.a / libcrypto.a + headers) for the curl applet: the prefab AAR that curl-android
+# itself uses, cached in native/curl/.deps. Override with MV_BORINGSSL_DIR=<dir holding include/ and
+# <abi>/libssl.a,libcrypto.a> to use your own build (or to build offline).
+fetch_boringssl() {
+    local arch="$1" root="native/curl/.deps/boringssl-${MV_BORINGSSL_VERSION}"
+    if [[ -n "${MV_BORINGSSL_DIR:-}" ]]; then BSSL_ROOT="$MV_BORINGSSL_DIR"; return; fi
+    if [[ ! -d "$root/aar" ]]; then
+        command -v unzip >/dev/null 2>&1 || { echo "unzip is required to unpack BoringSSL" >&2; exit 1; }
+        echo "==> fetching BoringSSL ${MV_BORINGSSL_VERSION}"
+        mkdir -p "$root"
+        curl -fsSL -o "$root/boringssl.aar" \
+            "https://repo1.maven.org/maven2/io/github/vvb2060/ndk/boringssl/${MV_BORINGSSL_VERSION}/boringssl-${MV_BORINGSSL_VERSION}.aar"
+        mkdir -p "$root/aar" && unzip -q -o "$root/boringssl.aar" -d "$root/aar"
+    fi
+    BSSL_ROOT="$root/aar"
+}
+
+# Locates BoringSSL's include dir and libssl.a / libcrypto.a for <arch> inside $BSSL_ROOT (prefab layout:
+# prefab/modules/<m>/libs/android.<abi>/lib*.a, headers in prefab/modules/<m>/include).
+locate_boringssl() {
+    local arch="$1" inc
+    inc=$(find "$BSSL_ROOT" -type f -path '*/openssl/ssl.h' | head -n 1)
+    [[ -n "$inc" ]] || { echo "BoringSSL headers (openssl/ssl.h) not found under $BSSL_ROOT" >&2; exit 1; }
+    BSSL_INC="${inc%/openssl/ssl.h}"
+    BSSL_SSL=$(find "$BSSL_ROOT" -type f -name 'libssl*.a' -path "*${arch}*" | head -n 1)
+    BSSL_CRYPTO=$(find "$BSSL_ROOT" -type f -name 'libcrypto*.a' -path "*${arch}*" | head -n 1)
+    [[ -f "$BSSL_SSL" && -f "$BSSL_CRYPTO" ]] || { echo "BoringSSL libssl.a/libcrypto.a for ${arch} not found under $BSSL_ROOT" >&2; exit 1; }
+}
+
+# Builds native/curl/.build/<arch>/libmvcurl.a (curl tool + libcurl + nghttp2/3 + ngtcp2), cached by curl_src_hash.
+build_curl_lib() {
+    local arch="$1" cc="$2" ar="$3"
+    local out="native/curl/.build/${arch}" hash; hash=$(curl_src_hash)
+    if [[ "$FORCE_UPDATE_HELPER" != "1" && -f "$out/libmvcurl.a" && "$(cat "$out/.stamp" 2>/dev/null)" == "$hash" ]]; then
+        echo "==> libmvcurl.a (${arch}) is up to date, skipping"
+        return
+    fi
+    echo "==> building curl for ${arch} (BoringSSL ${MV_BORINGSSL_VERSION})"
+    rm -rf "$out"; mkdir -p "$out"
+    bash native/curl/build_curl.sh "$cc" "$ar" "$BSSL_INC" "$out"
+    echo -n "$hash" > "$out/.stamp"
+}
+
+helper_src_hash() {
+    { find native -type f \( -name '*.c' -o -name '*.cpp' -o -name '*.h' \) -not -path 'native/tests/*' \
+            -not -path 'native/curl/*' -print0 | sort -z | xargs -0 sha256sum
       echo "xtables_lock=${MV_XTABLES_LOCK}"
+      echo "curl=$(curl_src_hash)"
     } | sha256sum | cut -d' ' -f1
 }
 
@@ -169,6 +225,9 @@ build_helper() {
     [[ -x "${tc}/${triple}-clang" ]] || { echo "missing ${tc}/${triple}-clang" >&2; exit 1; }
     local cc="${tc}/${triple}-clang" cxx="${tc}/${triple}-clang++"
 
+    fetch_boringssl "$arch"; locate_boringssl "$arch"
+    build_curl_lib "$arch" "$cc" "${tc}/llvm-ar"
+
     echo "==> building xhuskydg_helper for ${arch} (NDK: ${ndk})"
     local obj; obj=$(mktemp -d)
     local cflags=(-std=gnu11 -D_GNU_SOURCE -Os -ffunction-sections -fdata-sections
@@ -187,7 +246,9 @@ build_helper() {
         objs+=("$o")
     done
     mkdir -p "$dest"
-    "$cxx" "${objs[@]}" -static -Wl,--gc-sections -o "${obj}/xhuskydg_helper"
+    # curl's archive comes before BoringSSL (it needs it); zlib is the NDK's static libz.a.
+    "$cxx" "${objs[@]}" "native/curl/.build/${arch}/libmvcurl.a" "$BSSL_SSL" "$BSSL_CRYPTO" \
+        -static -Wl,--gc-sections -lz -o "${obj}/xhuskydg_helper"
     "${tc}/llvm-strip" "${obj}/xhuskydg_helper"
     install -m 0755 "${obj}/xhuskydg_helper" "${dest}/xhuskydg_helper"
     echo -n "$hash" > "$vfile"
@@ -196,7 +257,7 @@ build_helper() {
 }
 
 # BusyBox (osm0sis busybox-ndk, static, GPLv2) for the non-root app: its applets are symlinked
-# into files/module/bin at runtime (NonRootEnv). Committed like curl; fetched only if missing.
+# into files/module/bin at runtime (NonRootEnv). Committed; fetched only if missing.
 fetch_busybox() {
     local arch="$1" name
     [[ -x "module/bin/${arch}/busybox" ]] && return
@@ -218,11 +279,10 @@ fetch_busybox() {
 stage_jnilibs() {
     local arch="$1"
     local dst="app/src/main/jniLibs/${arch}"
-    need "module/bin/${arch}/xray" "module/bin/${arch}/xhuskydg_helper" "module/bin/${arch}/curl" "module/bin/${arch}/busybox"
+    need "module/bin/${arch}/xray" "module/bin/${arch}/xhuskydg_helper" "module/bin/${arch}/busybox"
     mkdir -p "$dst"
     install -m 0755 "module/bin/${arch}/xray"             "$dst/libxray.so"
     install -m 0755 "module/bin/${arch}/xhuskydg_helper"  "$dst/libxhuskydg_helper.so"
-    install -m 0755 "module/bin/${arch}/curl"             "$dst/libcurl.so"
     install -m 0755 "module/bin/${arch}/busybox"          "$dst/libbusybox.so"
     echo "    staged $dst"
 }
@@ -301,7 +361,7 @@ verify_flashable() {
         *)           abis="arm64-v8a x86_64" ;;
     esac
     for abi in $abis; do
-        for lib in libxray.so libxhuskydg_helper.so libcurl.so libbusybox.so; do
+        for lib in libxray.so libxhuskydg_helper.so libbusybox.so; do
             grep -q " lib/${abi}/${lib}\$" <<<"$list" || { echo "!! $f is missing lib/${abi}/${lib}" >&2; exit 1; }
         done
     done
@@ -328,6 +388,8 @@ FORCE_UPDATE_XRAY=0
 FORCE_UPDATE_HELPER=0
 # xtables lock file netd uses (compiled into the service daemon); differs per ROM.
 MV_XTABLES_LOCK="${MV_XTABLES_LOCK:-/system/etc/xtables.lock}"
+# BoringSSL release (vvb2060 prefab AAR on Maven Central) linked into the curl applet.
+MV_BORINGSSL_VERSION="${MV_BORINGSSL_VERSION:-20251124}"
 
 for a in "$@"; do
     case "$a" in

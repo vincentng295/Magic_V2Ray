@@ -59,6 +59,8 @@ jobs:
           for f in native/jni/*.cpp; do
             g++ -std=c++17 -Wall -c "$f" -o "/tmp/o/$(basename "${f%.cpp}").o"
           done
+          # the curl applet (native/curl) needs the NDK + BoringSSL; the host link uses a stub for run_curl
+          printf 'int run_curl(int a, char **v) { (void)a; (void)v; return 0; }\n' | gcc -x c -c - -o /tmp/o/curl_stub.o
           g++ /tmp/o/*.o -o /tmp/xhuskydg_helper -lpthread
           # no args / bad flag must print usage and not touch the system
           /tmp/xhuskydg_helper service -x 2>&1 | grep -q 'usage: xhuskydg_helper service'

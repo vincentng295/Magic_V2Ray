@@ -39,6 +39,8 @@ for proc in xray hev-socks5-tunnel curl; do
     pkill -9 -f "$MODDIR/bin/$proc" 2>/dev/null
     pkill -9 -f "/data/adb/modules/magic_v2ray/bin/$proc" 2>/dev/null
 done
+# curl is the helper's applet now (`xhuskydg_helper curl ...`); the loop above still covers a pre-merge bin/curl.
+pkill -9 -f "$MODDIR/bin/xhuskydg_helper curl" 2>/dev/null
 pkill -9 -f "ip monitor route" 2>/dev/null
 log "stopped module processes"
 

@@ -22,7 +22,7 @@ sub_log() { echo "$(date '+%Y-%m-%d %H:%M:%S') sublist: $*" >> "$DATADIR/service
 sub_download() {
     for proxy in "" "--socks5-hostname 127.17.1.3:808"; do
         # shellcheck disable=SC2086
-        "$MODDIR/bin/curl" $proxy -sSL -f --max-redirs 3 --max-time 40 -A "$SUB_UA" \
+        "$MODDIR/bin/xhuskydg_helper" curl $proxy -sSL -f --max-redirs 3 --max-time 40 -A "$SUB_UA" \
             --proto '=http,https' --proto-redir '=http,https' -o "$2" -- "$1" 2>/dev/null \
             && [ -s "$2" ] && return 0
     done
@@ -99,7 +99,7 @@ SUB_PID_FILE="$DATADIR/.sub_loop.pid"
 old=$(cat "$SUB_PID_FILE" 2>/dev/null)
 if [ -n "$old" ] && grep -q 'service\.sh' "/proc/$old/cmdline" 2>/dev/null; then kill -9 "$old" 2>/dev/null; fi
 rm -f "$SUB_PID_FILE"
-if [ -x "$MODDIR/bin/curl" ]; then
+if [ -x "$MODDIR/bin/xhuskydg_helper" ]; then
     ( sub_loop </dev/null >/dev/null 2>&1 & echo $! > "$SUB_PID_FILE" )
 fi
 

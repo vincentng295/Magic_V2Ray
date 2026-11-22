@@ -1000,7 +1000,7 @@ async function refreshProxyInfo() {
     _pinfoState(t('pinfo_checking'), 'busy');
     try {
         const out = await execShellAsync(
-            `${MODDIR}/bin/curl --socks5-hostname ${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT} -s ` +
+            `${MODDIR}/bin/xhuskydg_helper curl --socks5-hostname ${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT} -s ` +
             `--max-time 8 -w '\\n__T__%{time_total}' https://api.ip.sb/geoip 2>/dev/null`
         );
         const raw = String(out || '');
@@ -1182,7 +1182,7 @@ async function fetchSubscription(category, url, isReload = false) {
 
     const userAgent = (profiles[category]?.useragent || "").trim() || DEFAULT_SUB_USERAGENT;
 
-    const cmd = `${MODDIR}/bin/curl ${viaProxy} ${tlsArgs} -sSL -f --max-redirs 3 ` +
+    const cmd = `${MODDIR}/bin/xhuskydg_helper curl ${viaProxy} ${tlsArgs} -sSL -f --max-redirs 3 ` +
                 `-A ${shQuote(userAgent)} ` +
                 `--proto '=http,https' --proto-redir '=http,https' ` +
                 `--max-time 15 ${shQuote(url)}`;
@@ -2885,7 +2885,7 @@ async function generateWarpAccount() {
             locale: 'en_US'
         });
         const jsonText = await execShellAsync(
-            `${MODDIR}/bin/curl -fsSL --max-time 15 -X POST "https://api.cloudflareclient.com/v0a2158/reg" ` +
+            `${MODDIR}/bin/xhuskydg_helper curl -fsSL --max-time 15 -X POST "https://api.cloudflareclient.com/v0a2158/reg" ` +
             `-H "CF-Client-Version: a-7.21-0721" -H "User-Agent: okhttp/0.7.21" ` +
             `-H "Content-Type: application/json; charset=UTF-8" -d ${shQuote(body)}`
         );
@@ -5099,7 +5099,7 @@ async function fetchRoutingPresetFromUrl() {
     // Certificate validation is ON by default, matching fetchSubscription().
     // Routing presets reach a root shell just like subscription bodies do,
     // so the same TLS and shell-quoting hardening applies here.
-    const cmd = `${MODDIR}/bin/curl ${viaProxy} -sSL -f --max-redirs 3 ` +
+    const cmd = `${MODDIR}/bin/xhuskydg_helper curl ${viaProxy} -sSL -f --max-redirs 3 ` +
                 `--proto '=http,https' --proto-redir '=http,https' ` +
                 `--max-time 15 ${shQuote(url)}`;
 
@@ -5565,7 +5565,7 @@ async function _runIpCheck(node, show) {
             timeoutMs: SYSDNS_PROBE_TIMEOUT_MS
         });
         const configB64 = utoa(finalConfig);
-        const innerCmd = `RES=$(${MODDIR}/bin/curl --socks5-hostname ${testIp}:${testPort} -s ` +
+        const innerCmd = `RES=$(${MODDIR}/bin/xhuskydg_helper curl --socks5-hostname ${testIp}:${testPort} -s ` +
             `--max-time 3 https://icanhazip.com 2>/dev/null)`;
         const output = await execShellAsync(
             `timeout 15 sh -c ${shQuote(_buildProbeScript(tmpFile, configB64, innerCmd, 1))}`
@@ -5719,7 +5719,7 @@ async function _fetchNodeLoc(node) {
         // xray needs a moment to open its inbound, so the request is retried a few times.
         const innerCmd = `RES=""
         for i in 1 2 3 4; do
-            RES=$(${MODDIR}/bin/curl --socks5-hostname ${testIp}:${testPort} -s -L --max-redirs 2 ` +
+            RES=$(${MODDIR}/bin/xhuskydg_helper curl --socks5-hostname ${testIp}:${testPort} -s -L --max-redirs 2 ` +
             `--max-time 4 ${shQuote(FLAG_TRACE_URL)} 2>/dev/null)
             case "$RES" in *loc=*) break;; esac
             sleep 1
@@ -6800,7 +6800,7 @@ function pollLatencyNonRoot() {
     if (_latencyBusy) return;
     _latencyBusy = true;
     execShell(
-        `${shQuote(MODDIR + '/bin/curl')} --socks5-hostname ${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT} ` +
+        `${shQuote(MODDIR + '/bin/xhuskydg_helper') + ' curl'} --socks5-hostname ${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT} ` +
         `-s -o /dev/null -w '%{time_starttransfer}' --max-time 3 http://gstatic.com/generate_204 2>/dev/null`,
         (output) => {
             _latencyBusy = false;
@@ -7477,7 +7477,7 @@ async function refreshProviderInfo(category) {
         const site = cat.website;
         const status = await execShellAsync(`${MODDIR}/bin/xhuskydg_helper proxy_control status`);
         const viaProxy = (status === 'running') ? `--socks5-hostname ${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT}` : '';
-        const curl = `${MODDIR}/bin/curl ${viaProxy} -sSL -f --max-redirs 3 --proto '=https' ` +
+        const curl = `${MODDIR}/bin/xhuskydg_helper curl ${viaProxy} -sSL -f --max-redirs 3 --proto '=https' ` +
                      `--proto-redir '=https' --max-time 15 -A ${shQuote(_PROVIDER_UA)}`;
         const html = await execShellAsync(`${curl} --max-filesize 3000000 ${shQuote(site)} | head -c 400000`);
 
