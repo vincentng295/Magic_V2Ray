@@ -209,7 +209,7 @@ jobs:
         run: |
           set -e
           sed -i "s|^version=.*|version=x-alpha-build-${GITHUB_SHA::8}|" module/module.prop
-          sed -i "s|^updateJson=.*|updateJson=https://github.com/${GITHUB_REPOSITORY}/releases/download/x-alpha-pre-release/update.json|" module/module.prop
+          sed -i "s|^updateJson=.*|updateJson=https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/refs/heads/alpha-build/update.json|" module/module.prop
           grep '^version=' module/module.prop
 
       - uses: actions/setup-java@v4
@@ -371,22 +371,27 @@ jobs:
             GH_TOKEN: ${{ github.token }}
           run: gh release edit "${{ steps.ver.outputs.tag }}" --draft=false
 
+  # Alpha builds are no longer GitHub releases: every push to `alpha` force-pushes
+  # one fresh orphan commit to the `alpha-build` branch holding the three APKs with
+  # fixed names, update.json and changelog.md. The app and module.prop read them via
+  # https://raw.githubusercontent.com/<repo>/refs/heads/alpha-build/<file>.
+  # An orphan commit each time keeps the repository from growing with old APKs.
   release_alpha:
-      name: Publish Alpha Pre-release
+      name: Publish Alpha Build (alpha-build branch)
       runs-on: ubuntu-latest
       needs: [build]
       if: github.ref == 'refs/heads/alpha'
       permissions:
         contents: write
-      # Assets are swapped in place on one shared release: never run two at once.
+      # One writer at a time: the branch is force-pushed.
       concurrency:
-        group: alpha-release
+        group: alpha-build
         cancel-in-progress: false
       steps:
         - uses: actions/checkout@v4
           with:
             # Full history (all branches) needed for `git log main...alpha`
-            # below — a shallow clone wouldn't contain main's commits.
+            # below - a shallow clone wouldn't contain main's commits.
             fetch-depth: 0
 
         - name: Download all APKs
@@ -396,27 +401,19 @@ jobs:
             pattern: magic_v2ray-*
             merge-multiple: true
 
-        # An APK is also a module zip. Publish a .zip copy next to each APK so
-        # the root manager can flash it without renaming.
-        - name: Add flashable .zip copies
+        # build.sh names APKs <id>-<version>-<abi>.apk; the alpha channel uses
+        # fixed names so the URLs in update.json never change.
+        - name: Rename APKs to fixed alpha names
           run: |
             set -e
-            for f in dist/*.apk; do
-              cp -f "$f" "${f%.apk}.zip"
+            for abi in universal arm64-v8a x86_64; do
+              src=$(ls dist/*-"$abi".apk 2>/dev/null | head -n1 || true)
+              [ -n "$src" ] || { echo "::error::no $abi APK in dist/"; exit 1; }
+              mv -f "$src" "dist/magic_v2ray-alpha-$abi.apk"
             done
             ls -la dist
 
-        - name: Derive prerelease name
-          id: ver
-          run: |
-            echo "release_name=x-alpha-build-${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
-
-        # tag_name is fixed, so every push to alpha lands on the same
-        # "x-alpha-pre-release" tag/release instead of piling up new ones.
-        # The same text goes to the release body and to changelog.md (the app
-        # downloads the latter via update.json's "changelog" field).
         - name: Build release notes from main..alpha
-          id: log
           run: |
             set -e
             git fetch origin main --quiet
@@ -427,74 +424,40 @@ jobs:
               notes=$(printf 'Changes on `alpha` since it diverged from `main`:\n\n%s' "$commits")
             fi
             printf '%s\n' "$notes" > dist/changelog.md
-            {
-              echo "notes<<GH_EOF"
-              cat dist/changelog.md
-              echo "GH_EOF"
-            } >> "$GITHUB_OUTPUT"
 
-        # update.json for alpha builds. Same versionCode can span many alpha
-        # builds, so the app also compares "version" (x-alpha-build-<hash>).
+        # Same versionCode can span many alpha builds, so the app also compares
+        # "version" (x-alpha-build-<sha8>).
         - name: Generate update.json
           run: |
             set -e
             ver="x-alpha-build-${GITHUB_SHA::8}"
             code=$(grep -E '^versionCode=' module/module.prop | cut -d= -f2- | tr -d '[:space:]')
             [ -n "$code" ] || { echo "::error::versionCode missing in module.prop"; exit 1; }
-            base="https://github.com/${GITHUB_REPOSITORY}/releases/download/x-alpha-pre-release"
-            apk() { ls dist/*-"$1".apk | head -n1 | xargs basename; }
+            base="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/refs/heads/alpha-build"
             jq -n \
               --arg version "$ver" --argjson code "$code" \
-              --arg zip "$base/$(apk universal)" \
-              --arg a64 "$base/$(apk arm64-v8a)" \
-              --arg x64 "$base/$(apk x86_64)" \
+              --arg zip "$base/magic_v2ray-alpha-universal.apk" \
+              --arg a64 "$base/magic_v2ray-alpha-arm64-v8a.apk" \
+              --arg x64 "$base/magic_v2ray-alpha-x86_64.apk" \
               --arg cl "$base/changelog.md" \
               '{version:$version, versionCode:$code, zipUrl:$zip,
                 arch:{"arm64-v8a":$a64, "x86_64":$x64}, changelog:$cl}' > dist/update.json
             cat dist/update.json
 
-        # The release AND its tag are reused, never deleted. The tag
-        # x-alpha-pre-release is a fixed marker (it points at an empty commit and
-        # is not moved); each push only swaps the assets and notes of the existing
-        # release. The build is identified by the release title
-        # (x-alpha-build-<sha8>) and notes, not by the tag.
-        #
-        # This needs that release to stay MUTABLE. With "release immutability"
-        # enabled in the repo settings, only releases published BEFORE it was
-        # enabled remain editable, so never delete this release: a re-created one
-        # would be immutable and every later run would fail.
-        - name: Prepare alpha release (must be editable; drop old APKs)
+        - name: Push to alpha-build branch
           env:
             GH_TOKEN: ${{ github.token }}
           run: |
             set -e
-            tag=x-alpha-pre-release
-            if imm=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" --jq '.immutable' 2>/dev/null); then
-              if [ "$imm" = "true" ]; then
-                echo "::error::release ${tag} is immutable: its assets cannot be replaced. Immutable releases cannot be fixed; use another tag for alpha builds (or a repository without release immutability)."
-                exit 1
-              fi
-              # Asset names carry the build (x-alpha-build-<sha8>), so a new push
-              # does not overwrite the old APKs by name: remove them first.
-              # update.json and changelog.md keep their names and are overwritten.
-              { gh release view "$tag" --json assets --jq '.assets[].name' | grep -E '\.apk$' || true; } \
-                | while read -r asset; do
-                    echo "removing old asset $asset"
-                    gh release delete-asset "$tag" "$asset" --yes
-                  done
-            else
-              echo "No ${tag} release yet: it will be created."
-            fi
-
-        - name: Create/update alpha pre-release
-          uses: softprops/action-gh-release@v2
-          with:
-            tag_name: x-alpha-pre-release
-            name: ${{ steps.ver.outputs.release_name }}
-            body: ${{ steps.log.outputs.notes }}
-            prerelease: true
-            fail_on_unmatched_files: true
-            files: |
-              dist/*.apk
-              dist/update.json
-              dist/changelog.md
+            pub="$RUNNER_TEMP/alpha-build"
+            rm -rf "$pub" && mkdir -p "$pub"
+            cp dist/magic_v2ray-alpha-*.apk dist/update.json dist/changelog.md "$pub/"
+            # APKs are binary: never let git touch line endings.
+            printf '* -text\n' > "$pub/.gitattributes"
+            cd "$pub"
+            git init -q -b alpha-build
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git commit -q -m "alpha build ${GITHUB_SHA::8}"
+            git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:refs/heads/alpha-build

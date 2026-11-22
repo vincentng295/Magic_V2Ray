@@ -49,7 +49,7 @@ final class UpdateChecker {
     /** Stable builds. */
     static final String UPDATE_URL = "https://raw.githubusercontent.com/vincentng295/magic-v2ray-site/refs/heads/main/update.json";
     /** Alpha builds (versionName "x-alpha-build-<hash>", stamped by CI on the alpha branch only). */
-    static final String ALPHA_UPDATE_URL = "https://github.com/vincentng295/Magic_V2Ray/releases/download/x-alpha-pre-release/update.json";
+    static final String ALPHA_UPDATE_URL = "https://raw.githubusercontent.com/vincentng295/Magic_V2Ray/refs/heads/alpha-build/update.json";
     private static final String ALPHA_PREFIX = "x-alpha-build-";
 
     /**
