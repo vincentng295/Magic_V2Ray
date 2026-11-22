@@ -27,6 +27,13 @@ jobs:
             dash -n "$f"
           done
 
+      # The installer stub (stub/) is what the KernelSU Modules catalog ships.
+      - name: Stub scripts (dash + shellcheck)
+        run: |
+          dash -n stub/action.sh
+          shellcheck --shell=dash --severity=warning stub/action.sh
+          shellcheck --shell=bash --severity=warning stub/build-stub.sh
+
       - name: shellcheck
         run: |
           cd module
@@ -312,16 +319,6 @@ jobs:
             pattern: magic_v2ray-*
             merge-multiple: true
 
-        # An APK is also a module zip. Publish a .zip copy next to each APK so
-        # the root manager / update.json can flash it without renaming.
-        - name: Add flashable .zip copies
-          run: |
-            set -e
-            for f in dist/*.apk; do
-              cp -f "$f" "${f%.apk}.zip"
-            done
-            ls -la dist
-
         - name: Derive tag and release name from module.prop
           id: ver
           run: |
@@ -336,15 +333,43 @@ jobs:
             echo "tag=$tag" >> "$GITHUB_OUTPUT"
             echo "release_name=$version_line" >> "$GITHUB_OUTPUT"
 
-        - name: Create GitHub Release
+        # modules.kernelsu.org lists exactly ONE .zip per release: a tiny installer
+        # stub (module.prop + action.sh) that downloads the APK built above. Its
+        # action.sh pins the SHA-256 of these exact APKs. No other .zip may be
+        # attached to the release.
+        - name: Build installer stub
+          id: stub
+          run: bash stub/build-stub.sh dist
+
+        # Same validator the catalog uses, before anything is published (a
+        # published immutable release burns its versionCode). Needs module.yaml.
+        - name: Precheck stub with KernelSU Modules validator
+          uses: KernelSU-Modules/tools/actions/module-release@424471eacf6c0bd00e8e3708980f6b1882b5bf33
+          with:
+            zip: ${{ steps.stub.outputs.zip }}
+            dry-run: true
+            tag: ${{ steps.ver.outputs.tag }}
+
+        # Created as a DRAFT with every asset attached, then published below:
+        # an immutable release locks its assets the moment it is published, so
+        # uploading after publishing does not work.
+        - name: Create GitHub Release (draft)
           uses: softprops/action-gh-release@v2
           with:
             tag_name: ${{ steps.ver.outputs.tag }}
             name: ${{ steps.ver.outputs.release_name }}
+            target_commitish: ${{ github.sha }}
             body_path: CHANGELOG.md
+            draft: true
             fail_on_unmatched_files: true
             files: |
               dist/*.apk
+              dist/*-stub.zip
+
+        - name: Publish release
+          env:
+            GH_TOKEN: ${{ github.token }}
+          run: gh release edit "${{ steps.ver.outputs.tag }}" --draft=false
 
   release_alpha:
       name: Publish Alpha Pre-release
