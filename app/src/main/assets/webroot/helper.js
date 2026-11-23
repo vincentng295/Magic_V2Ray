@@ -1,3 +1,15 @@
+// Happy Eyeballs (RFC 8305) for freedom outbounds ("proxy" in no-proxy mode
+// and "direct"). When a domain resolves to several IPs (UseIP), Xray races
+// IPv4/IPv6 connection attempts instead of waiting for each one to time out.
+//   interleave       - alternate address families every N addresses
+//   maxConcurrentTry - max simultaneous connection attempts
+//   tryDelayMs       - delay before starting the next attempt
+const FREEDOM_HAPPY_EYEBALLS = {
+    interleave: 2,
+    maxConcurrentTry: 4,
+    tryDelayMs: 250
+};
+
 // Preset DNS "hosts" overrides for well-known DoH/DoT resolver hostnames and
 // the googleapis.cn mainland mirror. Xray resolves these itself before
 // querying upstream, so pinning them here avoids resolver loops (a DoH
@@ -998,7 +1010,8 @@ function convert_uri_to_xray_json(uri, optional_settings, is_nonroot = false) {
                 streamSettings: {
                     sockopt: {
                         mark: 255,
-                        "domainStrategy": "UseIP"
+                        "domainStrategy": "UseIP",
+                        "happyEyeballs": { ...FREEDOM_HAPPY_EYEBALLS }
                     }
                 }
             };
@@ -1875,7 +1888,8 @@ function convert_uri_to_xray_json(uri, optional_settings, is_nonroot = false) {
                 "streamSettings": {
                     "sockopt": { 
                         mark: 255,
-                        "domainStrategy": "UseIP"
+                        "domainStrategy": "UseIP",
+                        "happyEyeballs": { ...FREEDOM_HAPPY_EYEBALLS }
                     }
                 }
             },
