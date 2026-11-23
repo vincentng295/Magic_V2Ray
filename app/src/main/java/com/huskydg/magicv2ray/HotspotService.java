@@ -291,7 +291,60 @@ public final class HotspotService extends IHotspotService.Stub {
         i.putExtra(HotspotMain.EXTRA_NONCE, nonce);
         i.addFlags(android.content.Intent.FLAG_RECEIVER_FOREGROUND
                 | android.content.Intent.FLAG_INCLUDE_STOPPED_PACKAGES);
+        // A bare app_process has no ApplicationThread registered with ActivityManager, so
+        // Context.sendBroadcast() is rejected ("Unable to find app for caller") or dropped. Go to
+        // IActivityManager directly with a null caller, exactly like `am broadcast` does as shell.
+        try {
+            broadcastAsShell(i);
+            System.err.println("binder broadcast sent via IActivityManager");
+            return;
+        } catch (Throwable t) {
+            System.err.println("IActivityManager broadcast failed: " + rootMessage(t));
+        }
         shell().sendBroadcast(i);
+        System.err.println("binder broadcast sent via Context");
+    }
+
+    private static void broadcastAsShell(android.content.Intent intent) throws Exception {
+        IBinder amBinder = (IBinder) Class.forName("android.os.ServiceManager")
+                .getMethod("getService", String.class).invoke(null, "activity");
+        if (amBinder == null) throw new IllegalStateException("the activity service is unavailable");
+        Class<?> amClass = Class.forName("android.app.IActivityManager");
+        Object am = Class.forName("android.app.IActivityManager$Stub")
+                .getMethod("asInterface", IBinder.class).invoke(null, amBinder);
+
+        Method target = null;
+        for (Method m : amClass.getMethods()) {
+            if (m.getName().equals("broadcastIntentWithFeature")) {
+                target = m;
+                break;
+            }
+        }
+        if (target == null) throw new NoSuchMethodException("broadcastIntentWithFeature");
+
+        // Signatures differ per release (12: 14 args, 13: 15, 14+: 16) but share this shape:
+        // (caller, feature, Intent, type, resultTo, int code, String data, Bundle map,
+        //  String[]..., int appOp, Bundle options, boolean serialized, boolean sticky, int userId)
+        Class<?>[] types = target.getParameterTypes();
+        int ints = 0;
+        for (Class<?> t : types) if (t == int.class) ints++;
+        Object[] args = new Object[types.length];
+        int intIdx = 0;
+        for (int k = 0; k < types.length; k++) {
+            Class<?> t = types[k];
+            if (t == android.content.Intent.class) {
+                args[k] = intent;
+            } else if (t == int.class) {
+                args[k] = (intIdx == ints - 1) ? Integer.valueOf(-2)      // USER_CURRENT
+                        : (intIdx == 0 ? Integer.valueOf(0) : Integer.valueOf(-1)); // code, OP_NONE
+                intIdx++;
+            } else if (t == boolean.class) {
+                args[k] = Boolean.FALSE;
+            } else {
+                args[k] = null;
+            }
+        }
+        target.invoke(am, args);
     }
 
     /** Reserved Shizuku transaction: the app unbound with remove=true, or it died. */
