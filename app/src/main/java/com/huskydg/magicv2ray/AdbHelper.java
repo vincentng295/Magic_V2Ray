@@ -61,15 +61,27 @@ final class AdbHelper {
         CompletableFuture<IBinder> binderFuture = HotspotBinderReceiver.expect(nonce.toString());
         AdbBridge b = AdbBridge.get(app);
         try {
-            boolean connected;
-            try {
-                connected = b.autoConnect(app, CONNECT_TIMEOUT_MS);
-            } catch (Exception e) {
-                throw new AdbFailure("adb_connect_failed", "cannot reach Wireless debugging: " + e.getMessage());
+            boolean connected = false;
+            String why = "";
+            int port = AdbPorts.findConnectPort(app, CONNECT_TIMEOUT_MS);
+            if (port > 0) {
+                try {
+                    connected = b.connect("127.0.0.1", port);
+                } catch (Exception e) {
+                    why = e.getMessage();
+                }
+            }
+            if (!connected) {                    // last resort: the library's own discovery
+                try {
+                    connected = b.autoConnect(app, CONNECT_TIMEOUT_MS);
+                } catch (Exception e) {
+                    if (why == null || why.isEmpty()) why = e.getMessage();
+                }
             }
             if (!connected) {
                 throw new AdbFailure("adb_connect_failed",
-                        "Wireless debugging is off or Wi-Fi is not connected (it is only needed for this step)");
+                        "no Wireless debugging port found (is it on, with Wi-Fi connected?)"
+                                + (why == null || why.isEmpty() ? "" : ": " + why));
             }
 
             String apk = app.getApplicationInfo().sourceDir;
@@ -78,7 +90,9 @@ final class AdbHelper {
                     + " " + app.getPackageName() + " " + nonce
                     + " >" + LOG_FILE + " 2>&1 </dev/null &); echo launched uid=$(id -u)";
             String out = run(b, cmd);
-            if (!out.contains("launched uid=2000")) {
+            // The reply is only a hint: the stream may close before it is read. The real proof is the
+            // helper's broadcast below. A reply naming another uid means adbd is not the shell.
+            if (out.contains("uid=") && !out.contains("uid=2000")) {
                 throw new AdbFailure("adb_launch_failed", "unexpected shell reply: " + out.trim());
             }
         } finally {
@@ -98,14 +112,30 @@ final class AdbHelper {
         }
     }
 
-    private static String run(AdbBridge b, String cmd) throws Exception {
-        try (AdbStream s = b.openStream("shell:" + cmd);
-             InputStream in = s.openInputStream()) {
-            ByteArrayOutputStream o = new ByteArrayOutputStream();
+    private static String run(AdbBridge b, String cmd) {
+        ByteArrayOutputStream o = new ByteArrayOutputStream();
+        AdbStream s = null;
+        try {
+            s = b.openStream("shell:" + cmd);
+            InputStream in = s.openInputStream();
             byte[] buf = new byte[1024];
             int n;
             while (o.size() < 8192 && (n = in.read(buf)) > 0) o.write(buf, 0, n);
+        } catch (java.io.IOException closed) {
+            // "Stream closed" is how the library reports the shell ending: not an error here
+        } catch (Exception ignored) {
+        } finally {
+            if (s != null) {
+                try {
+                    s.close();
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+        try {
             return o.toString("UTF-8");
+        } catch (java.io.UnsupportedEncodingException e) {
+            return "";
         }
     }
 
