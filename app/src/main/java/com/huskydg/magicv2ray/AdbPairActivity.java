@@ -2,83 +2,111 @@ package com.huskydg.magicv2ray;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
-import android.text.InputType;
-import android.view.Gravity;
+import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
-import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * One-time adb pairing for "Share proxy" without Shizuku. On the phone: Settings > Developer
- * options > Wireless debugging > Pair device with pairing code, then type the port and the 6-digit
- * code here (split screen / floating window keeps both visible; the dialog disappears when its
- * window loses focus on some versions).
+ * One-time adb pairing for "Share proxy" without Shizuku. Built from the same Material 3 tokens
+ * (mv_* colours, rounded cards, pill buttons) as the setup and welcome screens, so it follows the
+ * system light / dark mode like them. The recommended path is the notification (AdbPairingService):
+ * the code is typed there while the Settings dialog stays open, because the code changes as soon as
+ * that dialog closes. Typing port and code here is the fallback.
  */
 public final class AdbPairActivity extends Activity {
 
     private final ExecutorService exec = Executors.newSingleThreadExecutor();
-    private TextView status;
-    private EditText port;
-    private EditText code;
-    private Button pair;
+
+    private TextView statusBadge;
+    private TextView statusTitle;
+    private TextView statusDesc;
+    private TextView message;
+    private View manualBox;
+    private EditText portField;
+    private EditText codeField;
+    private Button pairButton;
 
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
-        int pad = (int) (16 * getResources().getDisplayMetrics().density);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(pad, pad, pad, pad);
-        root.setGravity(Gravity.TOP);
+        setContentView(R.layout.activity_adb_pair);
+        applySystemBars();
 
-        TextView help = new TextView(this);
-        help.setText("1. Connect to Wi-Fi and turn on Developer options > Wireless debugging.\n"
-                + "2. Tap \"Pair device with pairing code\".\n"
-                + "3. Type the port and the 6-digit code shown there below.\n\n"
-                + "This is done once. Wireless debugging is only needed while the hotspot helper starts.");
-        root.addView(help);
+        statusBadge = findViewById(R.id.adb_status_badge);
+        statusTitle = findViewById(R.id.adb_status_title);
+        statusDesc = findViewById(R.id.adb_status_desc);
+        message = findViewById(R.id.adb_message);
+        manualBox = findViewById(R.id.adb_manual_box);
+        portField = findViewById(R.id.adb_port);
+        codeField = findViewById(R.id.adb_code);
+        pairButton = findViewById(R.id.adb_btn_pair);
 
-        Button open = new Button(this);
-        open.setText("Open Developer options");
-        open.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)));
-        root.addView(open);
+        findViewById(R.id.adb_btn_notification).setOnClickListener(v -> startNotificationPairing());
+        findViewById(R.id.adb_btn_open_dev).setOnClickListener(v -> openDeveloperOptions());
+        findViewById(R.id.adb_btn_manual_toggle).setOnClickListener(v ->
+                manualBox.setVisibility(manualBox.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE));
+        pairButton.setOnClickListener(v -> pairManually());
+    }
 
-        Button viaNotif = new Button(this);
-        viaNotif.setText("Pair with a notification (recommended)");
-        viaNotif.setOnClickListener(v -> startNotificationPairing());
-        root.addView(viaNotif);
+    @Override
+    protected void onResume() {
+        super.onResume();
+        refreshStatus();                   // the notification may have paired while we were away
+    }
 
-        TextView manual = new TextView(this);
-        manual.setText("\nOr enter the port and code by hand (the code is void if you leave the Settings dialog):");
-        root.addView(manual);
+    @Override
+    protected void onDestroy() {
+        exec.shutdown();
+        super.onDestroy();
+    }
 
-        port = new EditText(this);
-        port.setHint("Pairing port (e.g. 37215)");
-        port.setInputType(InputType.TYPE_CLASS_NUMBER);
-        root.addView(port);
+    // ------------------------------------------------------------------ UI
 
-        code = new EditText(this);
-        code.setHint("Pairing code (6 digits)");
-        code.setInputType(InputType.TYPE_CLASS_NUMBER);
-        root.addView(code);
+    private void applySystemBars() {
+        boolean night = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+                == Configuration.UI_MODE_NIGHT_YES;
+        int bg = getColor(R.color.mv_bg);
+        getWindow().setStatusBarColor(bg);
+        getWindow().setNavigationBarColor(bg);
+        int flags = getWindow().getDecorView().getSystemUiVisibility();
+        if (night) {
+            flags &= ~(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+        } else {
+            flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+        }
+        getWindow().getDecorView().setSystemUiVisibility(flags);
+    }
 
-        pair = new Button(this);
-        pair.setText("Pair");
-        pair.setOnClickListener(v -> doPair());
-        root.addView(pair);
+    private void refreshStatus() {
+        boolean paired = AdbHelper.isPaired(this);
+        statusBadge.setText(paired ? "✓" : "!");
+        statusBadge.setBackgroundResource(paired ? R.drawable.bg_status_ok : R.drawable.bg_status_off);
+        statusBadge.setTextColor(getColor(paired ? R.color.mv_on_primary_container : R.color.mv_error));
+        statusTitle.setText(paired ? R.string.adb_status_paired : R.string.adb_status_unpaired);
+        statusDesc.setText(paired ? R.string.adb_status_paired_desc : R.string.adb_status_unpaired_desc);
+    }
 
-        status = new TextView(this);
-        status.setText(AdbHelper.isPaired(this) ? "Already paired." : "Not paired.");
-        root.addView(status);
+    private void showMessage(CharSequence text, boolean error) {
+        message.setText(text);
+        message.setTextColor(getColor(error ? R.color.mv_error : R.color.mv_primary));
+        message.setVisibility(View.VISIBLE);
+    }
 
-        setContentView(root);
+    // ------------------------------------------------------------------ actions
+
+    private void openDeveloperOptions() {
+        try {
+            startActivity(new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS));
+        } catch (Throwable ignored) {
+        }
     }
 
     private void startNotificationPairing() {
@@ -86,51 +114,48 @@ public final class AdbPairActivity extends Activity {
                 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
                 != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 1);
-            status.setText("Allow notifications, then tap again.");
+            showMessage(getString(R.string.adb_allow_notifications), true);
             return;
         }
         AdbPairingService.start(this);
-        status.setText("Now open \"Pair device with pairing code\" in Settings: a notification with a code field appears there.");
-        try {
-            startActivity(new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS));
-        } catch (Throwable ignored) {
-        }
+        showMessage(getString(R.string.adb_waiting_dialog), false);
+        openDeveloperOptions();
     }
 
-    private void doPair() {
-        final int p;
+    private void pairManually() {
+        final int port;
         try {
-            p = Integer.parseInt(port.getText().toString().trim());
+            port = Integer.parseInt(portField.getText().toString().trim());
         } catch (NumberFormatException e) {
-            status.setText("Enter the pairing port.");
+            showMessage(getString(R.string.adb_enter_port), true);
             return;
         }
-        final String c = code.getText().toString().trim();
-        if (c.isEmpty()) {
-            status.setText("Enter the pairing code.");
+        final String code = codeField.getText().toString().trim();
+        if (code.isEmpty()) {
+            showMessage(getString(R.string.adb_enter_code), true);
             return;
         }
-        pair.setEnabled(false);
-        status.setText("Pairing...");
+        pairButton.setEnabled(false);
+        showMessage(getString(R.string.adb_pairing), false);
+        final android.content.Context app = getApplicationContext();
         exec.execute(() -> {
-            String msg;
+            String text;
+            boolean error;
             try {
-                AdbHelper.pair(getApplicationContext(), p, c);
-                msg = "Paired. You can start sharing now.";
+                AdbHelper.pair(app, port, code);
+                text = app.getString(R.string.adb_paired_ok);
+                error = false;
             } catch (Throwable t) {
-                msg = "Pairing failed: " + t.getMessage();
+                text = app.getString(R.string.adb_pair_failed, String.valueOf(t.getMessage()));
+                error = true;
             }
-            final String shown = msg;
+            final String shown = text;
+            final boolean err = error;
             runOnUiThread(() -> {
-                status.setText(shown);
-                pair.setEnabled(true);
+                showMessage(shown, err);
+                pairButton.setEnabled(true);
+                refreshStatus();
             });
         });
-    }
-
-    @Override
-    protected void onDestroy() {
-        exec.shutdown();
-        super.onDestroy();
     }
 }

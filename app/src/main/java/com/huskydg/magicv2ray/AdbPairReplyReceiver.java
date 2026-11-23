@@ -22,16 +22,16 @@ public final class AdbPairReplyReceiver extends BroadcastReceiver {
             boolean done = false;
             try {
                 if (port <= 0) {
-                    msg = "The pairing dialog is closed (its code is void). Open it again and retry.";
+                    msg = app.getString(R.string.adb_notif_closed);
                 } else if (code.isEmpty()) {
-                    msg = "No code entered.";
+                    msg = app.getString(R.string.adb_notif_no_code);
                 } else {
                     AdbHelper.pair(app, port, code);
-                    msg = "Paired. You can start sharing now.";
+                    msg = app.getString(R.string.adb_paired_ok);
                     done = true;
                 }
             } catch (Throwable t) {
-                msg = "Pairing failed: " + t.getMessage();
+                msg = app.getString(R.string.adb_pair_failed, String.valueOf(t.getMessage()));
             }
             AdbPairingService.postResult(app, msg);
             if (done) AdbPairingService.stop(app);

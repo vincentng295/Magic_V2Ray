@@ -13,11 +13,14 @@ import android.net.nsd.NsdServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
 
+import java.util.ArrayDeque;
+
 /**
  * Pairing from a notification. The pairing code changes every time the Settings dialog closes,
  * so leaving Settings to type it into the app would invalidate it. Instead this foreground service
  * finds the pairing port itself (mDNS _adb-tls-pairing._tcp) and shows a notification with a reply
- * field: type the code there while the Settings dialog stays on screen.
+ * field: type the code there while the Settings dialog stays on screen. All texts are resources, so
+ * they follow the system language.
  */
 public final class AdbPairingService extends Service {
 
@@ -35,6 +38,9 @@ public final class AdbPairingService extends Service {
 
     private NsdManager nsd;
     private NsdManager.DiscoveryListener discovery;
+    // NsdManager (Android 11-13) refuses a second resolve while one is out: one at a time.
+    private final ArrayDeque<NsdServiceInfo> queue = new ArrayDeque<>();
+    private boolean resolving;
 
     static void start(Context c) {
         Intent i = new Intent(c, AdbPairingService.class).setAction(ACTION_START);
@@ -42,13 +48,12 @@ public final class AdbPairingService extends Service {
         else c.startService(i);
     }
 
-    /** Re-posts the reply notification (a RemoteInput reply leaves it in "sending" until updated). */
+    /** Re-posts the reply notification (a RemoteInput reply leaves it "sending" until it is updated). */
     static void rearm() {
         AdbPairingService s = instance;
         if (s == null) return;
         boolean found = port > 0;
-        s.notifyNow(s.build(found ? s.getString0("Enter the pairing code shown in Settings", "Nhập mã ghép nối đang hiện trong Cài đặt")
-                : s.getString0("Open \"Pair device with pairing code\" again", "Hãy mở lại \"Ghép nối thiết bị bằng mã\""), found));
+        s.notifyNow(s.build(s.getString(found ? R.string.adb_notif_enter : R.string.adb_notif_reopen), found));
     }
 
     static void stop(Context c) {
@@ -67,8 +72,8 @@ public final class AdbPairingService extends Service {
             return START_NOT_STICKY;
         }
         instance = this;
-        ensureChannel();
-        startForeground(ID, build(getString0("Searching for the pairing dialog...", "Đang tìm hộp thoại ghép nối..."), false));
+        ensureChannel(this);
+        startForeground(ID, build(getString(R.string.adb_notif_searching), false));
         if (!running) {
             running = true;
             port = -1;
@@ -97,29 +102,17 @@ public final class AdbPairingService extends Service {
 
             @Override
             public void onServiceFound(NsdServiceInfo info) {
-                try {
-                    nsd.resolveService(info, new NsdManager.ResolveListener() {
-                        @Override
-                        public void onResolveFailed(NsdServiceInfo i, int err) {
-                        }
-
-                        @Override
-                        public void onServiceResolved(NsdServiceInfo i) {
-                            port = i.getPort();
-                            notifyNow(build(getString0("Enter the pairing code shown in Settings",
-                                    "Nhập mã ghép nối đang hiện trong Cài đặt"), true));
-                        }
-                    });
-                } catch (Throwable ignored) {
+                synchronized (queue) {
+                    queue.add(info);
                 }
+                resolveNext();
             }
 
             @Override
             public void onServiceLost(NsdServiceInfo info) {
                 // The dialog was closed: its code is void now.
                 port = -1;
-                notifyNow(build(getString0("Open \"Pair device with pairing code\" again",
-                        "Hãy mở lại \"Ghép nối thiết bị bằng mã\""), false));
+                notifyNow(build(getString(R.string.adb_notif_reopen), false));
             }
 
             @Override
@@ -128,7 +121,7 @@ public final class AdbPairingService extends Service {
 
             @Override
             public void onStartDiscoveryFailed(String t, int err) {
-                notifyNow(build("mDNS discovery failed (" + err + ")", false));
+                notifyNow(build(getString(R.string.adb_notif_discovery_failed, String.valueOf(err)), false));
             }
 
             @Override
@@ -138,8 +131,41 @@ public final class AdbPairingService extends Service {
         try {
             nsd.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discovery);
         } catch (Throwable t) {
-            notifyNow(build("mDNS discovery failed: " + t.getMessage(), false));
+            notifyNow(build(getString(R.string.adb_notif_discovery_failed, String.valueOf(t.getMessage())), false));
         }
+    }
+
+    private void resolveNext() {
+        final NsdServiceInfo info;
+        synchronized (queue) {
+            if (resolving || queue.isEmpty() || !running) return;
+            info = queue.poll();
+            resolving = true;
+        }
+        try {
+            nsd.resolveService(info, new NsdManager.ResolveListener() {
+                @Override
+                public void onResolveFailed(NsdServiceInfo i, int err) {
+                    resolved();
+                }
+
+                @Override
+                public void onServiceResolved(NsdServiceInfo i) {
+                    port = i.getPort();
+                    notifyNow(build(getString(R.string.adb_notif_enter), true));
+                    resolved();
+                }
+            });
+        } catch (Throwable t) {
+            resolved();
+        }
+    }
+
+    private void resolved() {
+        synchronized (queue) {
+            resolving = false;
+        }
+        resolveNext();
     }
 
     private void stopDiscovery() {
@@ -148,15 +174,19 @@ public final class AdbPairingService extends Service {
         } catch (Throwable ignored) {
         }
         discovery = null;
+        synchronized (queue) {
+            queue.clear();
+            resolving = false;
+        }
     }
 
     // ------------------------------------------------------------------ notification
 
-    private void ensureChannel() {
+    private static void ensureChannel(Context c) {
         if (Build.VERSION.SDK_INT < 26) return;
-        NotificationManager nm = getSystemService(NotificationManager.class);
-        nm.createNotificationChannel(new NotificationChannel(CHANNEL, "adb pairing",
-                NotificationManager.IMPORTANCE_HIGH));
+        c.getSystemService(NotificationManager.class).createNotificationChannel(
+                new NotificationChannel(CHANNEL, c.getString(R.string.adb_channel),
+                        NotificationManager.IMPORTANCE_HIGH));
     }
 
     private void notifyNow(Notification n) {
@@ -166,44 +196,44 @@ public final class AdbPairingService extends Service {
     private Notification build(String text, boolean withInput) {
         Notification.Builder b = Build.VERSION.SDK_INT >= 26
                 ? new Notification.Builder(this, CHANNEL) : new Notification.Builder(this);
+        PendingIntent open = PendingIntent.getActivity(this, 0,
+                new Intent(this, AdbPairActivity.class),
+                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         b.setSmallIcon(R.drawable.ic_tile)
-                .setContentTitle("adb pairing")
+                .setContentTitle(getString(R.string.adb_notif_title))
                 .setContentText(text)
+                .setContentIntent(open)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true);
         PendingIntent stop = PendingIntent.getService(this, 1,
                 new Intent(this, AdbPairingService.class).setAction(ACTION_STOP),
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        b.addAction(new Notification.Action.Builder(null, getString0("Cancel", "Hủy"), stop).build());
+        b.addAction(new Notification.Action.Builder(null, getString(R.string.adb_notif_cancel), stop).build());
         if (withInput) {
             RemoteInput ri = new RemoteInput.Builder(KEY_CODE)
-                    .setLabel(getString0("Pairing code", "Mã ghép nối")).build();
+                    .setLabel(getString(R.string.adb_notif_label_code)).build();
             // RemoteInput results are written into the intent: it has to be mutable on Android 12+.
             int flags = PendingIntent.FLAG_UPDATE_CURRENT
                     | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0);
             PendingIntent reply = PendingIntent.getBroadcast(this, 2,
                     new Intent(this, AdbPairReplyReceiver.class).setPackage(getPackageName()), flags);
-            b.addAction(new Notification.Action.Builder(null, getString0("Enter code", "Nhập mã"), reply)
+            b.addAction(new Notification.Action.Builder(null, getString(R.string.adb_notif_action_code), reply)
                     .addRemoteInput(ri).build());
         }
         return b.build();
     }
 
-    private static String getString0(String en, String vi) {
-        return java.util.Locale.getDefault().getLanguage().equals("vi") ? vi : en;
-    }
-
     static void postResult(Context c, String text) {
-        ensureResultChannel(c);
+        ensureChannel(c);
         Notification.Builder b = Build.VERSION.SDK_INT >= 26
                 ? new Notification.Builder(c, CHANNEL) : new Notification.Builder(c);
-        b.setSmallIcon(R.drawable.ic_tile).setContentTitle("adb pairing").setContentText(text).setAutoCancel(true);
+        PendingIntent open = PendingIntent.getActivity(c, 0, new Intent(c, AdbPairActivity.class),
+                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        b.setSmallIcon(R.drawable.ic_tile)
+                .setContentTitle(c.getString(R.string.adb_notif_title))
+                .setContentText(text)
+                .setContentIntent(open)
+                .setAutoCancel(true);
         c.getSystemService(NotificationManager.class).notify(ID + 1, b.build());
-    }
-
-    private static void ensureResultChannel(Context c) {
-        if (Build.VERSION.SDK_INT < 26) return;
-        c.getSystemService(NotificationManager.class).createNotificationChannel(
-                new NotificationChannel(CHANNEL, "adb pairing", NotificationManager.IMPORTANCE_HIGH));
     }
 }

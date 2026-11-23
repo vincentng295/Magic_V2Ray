@@ -45,7 +45,7 @@ final class AdbHelper {
     static void pair(Context c, int port, String code) throws Exception {
         AdbBridge b = AdbBridge.get(c);
         boolean ok = b.pair("127.0.0.1", port, code);
-        if (!ok) throw new AdbFailure("adb_pair_failed", "pairing was refused (wrong code or port?)");
+        if (!ok) throw new AdbFailure("adb_pair_failed", c.getString(R.string.adb_pair_refused));
         AdbBridge.markPaired(c, true);
     }
 

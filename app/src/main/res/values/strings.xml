@@ -85,4 +85,43 @@
     <string name="update_channel">App updates</string>
     <string name="update_notif_title">Update available</string>
     <string name="update_notif_text">Magic V2Ray %1$s is available. Tap to view.</string>
+
+    <!-- adb pairing screen / notification -->
+    <string name="adb_title">adb pairing</string>
+    <string name="adb_subtitle">Share your proxy over hotspot without Shizuku</string>
+    <string name="adb_status_paired">Paired</string>
+    <string name="adb_status_unpaired">Not paired</string>
+    <string name="adb_status_paired_desc">Turn on Wireless debugging (and Wi-Fi) whenever you start sharing.</string>
+    <string name="adb_status_unpaired_desc">Pair once to share without Shizuku.</string>
+    <string name="adb_steps_title">How to pair</string>
+    <string name="adb_step1">Connect to Wi-Fi and turn on Wireless debugging in Developer options.</string>
+    <string name="adb_step2">Tap “Pair device with pairing code” and keep that dialog open.</string>
+    <string name="adb_step3">Type the 6-digit code into the notification that appears.</string>
+    <string name="adb_btn_notification">Pair with notification</string>
+    <string name="adb_btn_open_dev">Open Developer options</string>
+    <string name="adb_manual_toggle">Enter port and code manually</string>
+    <string name="adb_manual_title">Manual pairing</string>
+    <string name="adb_manual_note">The code becomes void when you leave the Settings dialog, so this works best in split-screen.</string>
+    <string name="adb_hint_port">Pairing port</string>
+    <string name="adb_hint_code">Pairing code</string>
+    <string name="adb_btn_pair">Pair</string>
+    <string name="adb_pairing">Pairing…</string>
+    <string name="adb_enter_port">Enter the pairing port.</string>
+    <string name="adb_enter_code">Enter the pairing code.</string>
+    <string name="adb_paired_ok">Paired. You can start sharing now.</string>
+    <string name="adb_pair_failed">Pairing failed: %1$s</string>
+    <string name="adb_pair_refused">Pairing was refused (wrong code or port?)</string>
+    <string name="adb_allow_notifications">Allow notifications, then tap again.</string>
+    <string name="adb_waiting_dialog">Now open “Pair device with pairing code”. A notification with a code field will appear.</string>
+    <string name="adb_channel">adb pairing</string>
+    <string name="adb_notif_title">adb pairing</string>
+    <string name="adb_notif_searching">Searching for the pairing dialog…</string>
+    <string name="adb_notif_enter">Enter the pairing code shown in Settings</string>
+    <string name="adb_notif_reopen">Open “Pair device with pairing code” again</string>
+    <string name="adb_notif_action_code">Enter code</string>
+    <string name="adb_notif_label_code">Pairing code</string>
+    <string name="adb_notif_cancel">Cancel</string>
+    <string name="adb_notif_discovery_failed">Discovery failed (%1$s)</string>
+    <string name="adb_notif_closed">The pairing dialog is closed (its code is void). Open it again and retry.</string>
+    <string name="adb_notif_no_code">No code entered.</string>
 </resources>

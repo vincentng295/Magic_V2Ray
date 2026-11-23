@@ -85,4 +85,43 @@
     <string name="update_channel">Cập nhật ứng dụng</string>
     <string name="update_notif_title">Có bản cập nhật mới</string>
     <string name="update_notif_text">Magic V2Ray %1$s đã có. Nhấn để xem.</string>
+
+    <!-- adb pairing screen / notification -->
+    <string name="adb_title">Ghép nối adb</string>
+    <string name="adb_subtitle">Chia sẻ proxy qua hotspot mà không cần Shizuku</string>
+    <string name="adb_status_paired">Đã ghép nối</string>
+    <string name="adb_status_unpaired">Chưa ghép nối</string>
+    <string name="adb_status_paired_desc">Hãy bật Gỡ lỗi không dây (và Wi-Fi) mỗi khi bắt đầu chia sẻ.</string>
+    <string name="adb_status_unpaired_desc">Ghép nối một lần để chia sẻ mà không cần Shizuku.</string>
+    <string name="adb_steps_title">Cách ghép nối</string>
+    <string name="adb_step1">Kết nối Wi-Fi và bật Gỡ lỗi không dây trong Tùy chọn nhà phát triển.</string>
+    <string name="adb_step2">Chạm “Ghép nối thiết bị bằng mã ghép nối” và giữ nguyên hộp thoại đó.</string>
+    <string name="adb_step3">Nhập mã 6 số vào thông báo vừa xuất hiện.</string>
+    <string name="adb_btn_notification">Ghép nối bằng thông báo</string>
+    <string name="adb_btn_open_dev">Mở Tùy chọn nhà phát triển</string>
+    <string name="adb_manual_toggle">Nhập cổng và mã thủ công</string>
+    <string name="adb_manual_title">Ghép nối thủ công</string>
+    <string name="adb_manual_note">Mã sẽ hết hiệu lực khi bạn rời hộp thoại trong Cài đặt, nên cách này hợp nhất với chế độ chia đôi màn hình.</string>
+    <string name="adb_hint_port">Cổng ghép nối</string>
+    <string name="adb_hint_code">Mã ghép nối</string>
+    <string name="adb_btn_pair">Ghép nối</string>
+    <string name="adb_pairing">Đang ghép nối…</string>
+    <string name="adb_enter_port">Hãy nhập cổng ghép nối.</string>
+    <string name="adb_enter_code">Hãy nhập mã ghép nối.</string>
+    <string name="adb_paired_ok">Đã ghép nối. Bây giờ bạn có thể bắt đầu chia sẻ.</string>
+    <string name="adb_pair_failed">Ghép nối thất bại: %1$s</string>
+    <string name="adb_pair_refused">Ghép nối bị từ chối (sai mã hoặc cổng?)</string>
+    <string name="adb_allow_notifications">Hãy cho phép thông báo rồi chạm lại.</string>
+    <string name="adb_waiting_dialog">Bây giờ hãy mở “Ghép nối thiết bị bằng mã ghép nối”. Một thông báo có ô nhập mã sẽ xuất hiện.</string>
+    <string name="adb_channel">Ghép nối adb</string>
+    <string name="adb_notif_title">Ghép nối adb</string>
+    <string name="adb_notif_searching">Đang tìm hộp thoại ghép nối…</string>
+    <string name="adb_notif_enter">Nhập mã ghép nối đang hiện trong Cài đặt</string>
+    <string name="adb_notif_reopen">Hãy mở lại “Ghép nối thiết bị bằng mã ghép nối”</string>
+    <string name="adb_notif_action_code">Nhập mã</string>
+    <string name="adb_notif_label_code">Mã ghép nối</string>
+    <string name="adb_notif_cancel">Hủy</string>
+    <string name="adb_notif_discovery_failed">Tìm kiếm thất bại (%1$s)</string>
+    <string name="adb_notif_closed">Hộp thoại ghép nối đã đóng (mã đã hết hiệu lực). Hãy mở lại rồi thử lại.</string>
+    <string name="adb_notif_no_code">Chưa nhập mã.</string>
 </resources>

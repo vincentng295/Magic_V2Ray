@@ -75,4 +75,43 @@
     <string name="update_channel">應用程式更新</string>
     <string name="update_notif_title">發現新版本</string>
     <string name="update_notif_text">Magic V2Ray %1$s 已發佈，輕按查看。</string>
+
+    <!-- adb pairing screen / notification -->
+    <string name="adb_title">adb 配對</string>
+    <string name="adb_subtitle">無需 Shizuku，透過熱點分享代理</string>
+    <string name="adb_status_paired">已配對</string>
+    <string name="adb_status_unpaired">未配對</string>
+    <string name="adb_status_paired_desc">每次開始分享時，請開啟無線偵錯（並連接 Wi-Fi）。</string>
+    <string name="adb_status_unpaired_desc">只需配對一次，即可在沒有 Shizuku 的情況下分享。</string>
+    <string name="adb_steps_title">配對步驟</string>
+    <string name="adb_step1">連接 Wi-Fi，並在開發人員選項中開啟無線偵錯。</string>
+    <string name="adb_step2">點按「使用配對碼配對裝置」，並保持該對話框開啟。</string>
+    <string name="adb_step3">在隨後出現的通知中輸入 6 位數字配對碼。</string>
+    <string name="adb_btn_notification">透過通知配對</string>
+    <string name="adb_btn_open_dev">開啟開發人員選項</string>
+    <string name="adb_manual_toggle">手動輸入連接埠及配對碼</string>
+    <string name="adb_manual_title">手動配對</string>
+    <string name="adb_manual_note">離開設定中的對話框後，配對碼便會失效，因此最好使用分割螢幕模式。</string>
+    <string name="adb_hint_port">配對連接埠</string>
+    <string name="adb_hint_code">配對碼</string>
+    <string name="adb_btn_pair">配對</string>
+    <string name="adb_pairing">正在配對…</string>
+    <string name="adb_enter_port">請輸入配對連接埠。</string>
+    <string name="adb_enter_code">請輸入配對碼。</string>
+    <string name="adb_paired_ok">配對成功，現在可以開始分享。</string>
+    <string name="adb_pair_failed">配對失敗：%1$s</string>
+    <string name="adb_pair_refused">配對被拒絕（配對碼或連接埠有誤？）</string>
+    <string name="adb_allow_notifications">請允許通知，然後再點按一次。</string>
+    <string name="adb_waiting_dialog">現在請開啟「使用配對碼配對裝置」，隨後會出現附有輸入欄的通知。</string>
+    <string name="adb_channel">adb 配對</string>
+    <string name="adb_notif_title">adb 配對</string>
+    <string name="adb_notif_searching">正在尋找配對對話框…</string>
+    <string name="adb_notif_enter">請輸入設定中顯示的配對碼</string>
+    <string name="adb_notif_reopen">請重新開啟「使用配對碼配對裝置」</string>
+    <string name="adb_notif_action_code">輸入配對碼</string>
+    <string name="adb_notif_label_code">配對碼</string>
+    <string name="adb_notif_cancel">取消</string>
+    <string name="adb_notif_discovery_failed">尋找失敗（%1$s）</string>
+    <string name="adb_notif_closed">配對對話框已關閉（其配對碼已失效）。請重新開啟後再試。</string>
+    <string name="adb_notif_no_code">尚未輸入配對碼。</string>
 </resources>

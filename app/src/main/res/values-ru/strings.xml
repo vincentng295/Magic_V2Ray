@@ -75,4 +75,43 @@
     <string name="update_channel">Обновления приложения</string>
     <string name="update_notif_title">Доступно обновление</string>
     <string name="update_notif_text">Доступна версия Magic V2Ray %1$s. Нажмите, чтобы посмотреть.</string>
+
+    <!-- adb pairing screen / notification -->
+    <string name="adb_title">Сопряжение adb</string>
+    <string name="adb_subtitle">Раздача прокси через точку доступа без Shizuku</string>
+    <string name="adb_status_paired">Сопряжено</string>
+    <string name="adb_status_unpaired">Не сопряжено</string>
+    <string name="adb_status_paired_desc">Включайте отладку по Wi-Fi (и Wi-Fi) каждый раз, когда запускаете раздачу.</string>
+    <string name="adb_status_unpaired_desc">Сопрягите один раз, чтобы раздавать без Shizuku.</string>
+    <string name="adb_steps_title">Как сопрячь</string>
+    <string name="adb_step1">Подключитесь к Wi-Fi и включите отладку по Wi-Fi в настройках разработчика.</string>
+    <string name="adb_step2">Нажмите «Подключить устройство по коду сопряжения» и не закрывайте это окно.</string>
+    <string name="adb_step3">Введите 6-значный код в появившемся уведомлении.</string>
+    <string name="adb_btn_notification">Сопрячь через уведомление</string>
+    <string name="adb_btn_open_dev">Открыть настройки разработчика</string>
+    <string name="adb_manual_toggle">Ввести порт и код вручную</string>
+    <string name="adb_manual_title">Ручное сопряжение</string>
+    <string name="adb_manual_note">Код перестаёт действовать, когда вы покидаете окно в настройках, поэтому удобнее всего использовать режим разделённого экрана.</string>
+    <string name="adb_hint_port">Порт сопряжения</string>
+    <string name="adb_hint_code">Код сопряжения</string>
+    <string name="adb_btn_pair">Сопрячь</string>
+    <string name="adb_pairing">Сопряжение…</string>
+    <string name="adb_enter_port">Введите порт сопряжения.</string>
+    <string name="adb_enter_code">Введите код сопряжения.</string>
+    <string name="adb_paired_ok">Сопряжено. Теперь можно запускать раздачу.</string>
+    <string name="adb_pair_failed">Не удалось сопрячь: %1$s</string>
+    <string name="adb_pair_refused">Сопряжение отклонено (неверный код или порт?)</string>
+    <string name="adb_allow_notifications">Разрешите уведомления и нажмите снова.</string>
+    <string name="adb_waiting_dialog">Теперь откройте «Подключить устройство по коду сопряжения». Появится уведомление с полем для кода.</string>
+    <string name="adb_channel">Сопряжение adb</string>
+    <string name="adb_notif_title">Сопряжение adb</string>
+    <string name="adb_notif_searching">Поиск окна сопряжения…</string>
+    <string name="adb_notif_enter">Введите код сопряжения, показанный в настройках</string>
+    <string name="adb_notif_reopen">Снова откройте «Подключить устройство по коду сопряжения»</string>
+    <string name="adb_notif_action_code">Ввести код</string>
+    <string name="adb_notif_label_code">Код сопряжения</string>
+    <string name="adb_notif_cancel">Отмена</string>
+    <string name="adb_notif_discovery_failed">Поиск не удался (%1$s)</string>
+    <string name="adb_notif_closed">Окно сопряжения закрыто (его код недействителен). Откройте его снова и повторите.</string>
+    <string name="adb_notif_no_code">Код не введён.</string>
 </resources>
