@@ -94,6 +94,11 @@ dependencies {
     // androidx.annotation is annotations only (nothing at runtime): excluded, androidx.webkit brings what it needs.
     implementation('dev.rikka.shizuku:api:13.1.5') { exclude group: 'androidx.annotation' }
     implementation('dev.rikka.shizuku:provider:13.1.5') { exclude group: 'androidx.annotation' }
+    // Share proxy without Shizuku: on-device adb pairing / Wireless debugging client (JitPack, see settings.gradle).
+    // CHECK the tag exists on JitPack when you sync; 3.1.1 is the one the pairing issue #40 was reported against.
+    implementation 'com.github.MuntashirAkon:libadb-android:3.1.1'
+    // libadb's same-device pairing needs the hidden Conscrypt.exportKeyingMaterial (see HiddenApi.java).
+    implementation 'org.lsposed.hiddenapibypass:hiddenapibypass:4.3'
 }
 
 // The APK doubles as a flashable module zip (rename .apk -> .zip). Magisk,

@@ -278,6 +278,22 @@ public final class HotspotService extends IHotspotService.Stub {
         }
     }
 
+    /**
+     * app_process mode (HotspotMain): hands this Binder to the app with an explicit broadcast sent
+     * as the shell user. Shizuku does this job itself in the other mode.
+     */
+    void sendBinderToApp(String packageName, String nonce) {
+        android.content.Intent i = new android.content.Intent(HotspotMain.ACTION);
+        i.setComponent(new android.content.ComponentName(packageName, packageName + ".HotspotBinderReceiver"));
+        android.os.Bundle b = new android.os.Bundle();
+        b.putBinder(HotspotMain.KEY_BINDER, this);
+        i.putExtra(HotspotMain.EXTRA_BUNDLE, b);
+        i.putExtra(HotspotMain.EXTRA_NONCE, nonce);
+        i.addFlags(android.content.Intent.FLAG_RECEIVER_FOREGROUND
+                | android.content.Intent.FLAG_INCLUDE_STOPPED_PACKAGES);
+        shell().sendBroadcast(i);
+    }
+
     /** Reserved Shizuku transaction: the app unbound with remove=true, or it died. */
     @Override
     public void destroy() {

@@ -106,6 +106,19 @@
         </service>
 
         <!-- Daily background update check (App settings -> Auto update check). -->
+        <!-- adb pairing from a notification (code typed in the notification, see AdbPairingService). -->
+        <service
+            android:name=".AdbPairingService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="adb_pairing_notification" />
+        </service>
+        <receiver
+            android:name=".AdbPairReplyReceiver"
+            android:exported="false" />
+
         <service
             android:name=".UpdateJobService"
             android:exported="false"
@@ -129,6 +142,18 @@
             android:name=".ExternalApiProvider"
             android:authorities="com.huskydg.magicv2ray.api"
             android:exported="true" />
+
+        <!-- Share proxy without Shizuku: the app_process helper (HotspotMain) delivers its Binder here.
+             Exported because the sender is the shell user; the sender is authenticated by a one-time nonce. -->
+        <receiver
+            android:name=".HotspotBinderReceiver"
+            android:exported="true" />
+
+        <!-- One-time adb pairing for the no-Shizuku hotspot helper. -->
+        <activity
+            android:name=".AdbPairActivity"
+            android:exported="false"
+            android:label="adb pairing" />
 
         <!-- "Turn off proxy" button of the status notification. -->
         <receiver

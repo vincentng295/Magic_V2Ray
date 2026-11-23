@@ -681,6 +681,13 @@ final class KsuBridge {
         ShizukuHotspot.openShizuku(activity.getApplicationContext());
     }
 
+    /** Opens the one-time adb pairing screen (the no-Shizuku way to start the hotspot helper). */
+    @JavascriptInterface
+    public void hotspotOpenAdbPairing() {
+        android.content.Intent i = new android.content.Intent(activity, AdbPairActivity.class);
+        activity.startActivity(i);
+    }
+
     /** options: {"wifi":bool,"usb":bool}. Callback gets (errno, stdout, "code|detail"). */
     @JavascriptInterface
     public void hotspotStart(String options, String callback) {

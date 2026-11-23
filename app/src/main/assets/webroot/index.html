@@ -413,11 +413,15 @@
 
                 <!-- Share proxy via Shizuku (non-root mode only, shown by initShizukuShare in main.js) -->
                 <div class="settings-group-box" id="shizuku-share-box" style="display:none">
-                    <h4 data-i18n="group_shizuku_share">Share proxy via Shizuku</h4>
+                    <h4 data-i18n="group_shizuku_share">Share proxy via Shizuku or adb</h4>
                     <p class="lan-bypass-desc" data-i18n="desc_shizuku_share">Lets hotspot and USB-tethering clients use the proxy without root. Needs Shizuku running, Android 13+ (Android 11-12 only with an updated tethering module) and the proxy running.</p>
                     <div class="setting-item-row">
                         <label><span data-i18n="lbl_shizuku_status">Status</span><small id="shizuku-status-text">-</small></label>
                         <button type="button" class="btn btn-secondary" id="shizuku-action-btn" onclick="shizukuShareAction()" data-i18n="btn_shizuku_start">Start sharing</button>
+                    </div>
+                    <div class="setting-item-row" id="adb-pair-row" style="display:none">
+                        <label><span data-i18n="lbl_adb_pair">adb pairing (no Shizuku)</span><small id="adb-status-text">-</small></label>
+                        <button type="button" class="btn btn-secondary" id="adb-pair-btn" onclick="adbPairAction()" data-i18n="btn_adb_pair">Pair</button>
                     </div>
                     <div class="setting-item-row toggle-row">
                         <label for="set-shizuku-wifi"><span data-i18n="lbl_shizuku_wifi">Wi-Fi hotspot</span></label>

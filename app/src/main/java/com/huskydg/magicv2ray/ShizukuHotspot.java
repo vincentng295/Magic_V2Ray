@@ -87,6 +87,9 @@ final class ShizukuHotspot {
     private static volatile JSONObject remote = new JSONObject();
 
     private static IHotspotService service;
+    /** true: the helper was started over adb (AdbHelper / HotspotMain) instead of by Shizuku. */
+    private static volatile boolean viaAdb;
+    private static IBinder.DeathRecipient adbDeath;
     private static ServiceConnection connection;
     private static Shizuku.UserServiceArgs serviceArgs;
     /** The helper watches this Binder: when this process dies, the helper ends the session by itself. */
@@ -109,6 +112,8 @@ final class ShizukuHotspot {
             o.put("sdk", Build.VERSION.SDK_INT);
             o.put("shizuku", shizukuState(c));
             o.put("shizukuUid", shizukuUid());
+            o.put("adbPaired", AdbHelper.isPaired(c));
+            o.put("backend", viaAdb ? "adb" : "shizuku");
             o.put("engineRunning", VpnController.isRunning());
             o.put("state", state);
             o.put("detail", detail);
@@ -207,7 +212,7 @@ final class ShizukuHotspot {
         EXEC.execute(() -> {
             JSONObject st = NonRootEnv.settings(app);
             if (!st.optBoolean("shizukuShareAuto", false) || ACTIVE.equals(state) || STARTING.equals(state)) return;
-            if (!"ready".equals(shizukuState(app))) return;
+            if (!"ready".equals(shizukuState(app)) && !AdbHelper.isPaired(app)) return;
             JSONObject o = new JSONObject();
             try {
                 o.put("wifi", st.optBoolean("shizukuShareWifi", true));
@@ -249,7 +254,11 @@ final class ShizukuHotspot {
                 if (Build.VERSION.SDK_INT < 30) throw new Failure("sdk", "Android 11 or newer is required");
                 if (!VpnController.isRunning()) throw new Failure("engine_off", "the proxy is not running");
                 String sh = shizukuState(app);
-                if (!"ready".equals(sh)) throw new Failure("shizuku_" + sh, "Shizuku is " + sh);
+                // Shizuku when it is ready, otherwise the app_process helper started over Wireless debugging.
+                viaAdb = !"ready".equals(sh);
+                if (viaAdb && !AdbHelper.isPaired(app)) {
+                    throw new Failure("adb_not_paired", "Shizuku is " + sh);
+                }
 
                 NonRootEnv.ensure(app);
                 IHotspotService svc = bind(app);
@@ -345,6 +354,7 @@ final class ShizukuHotspot {
         IHotspotService existing = service;
         if (existing != null && existing.asBinder().pingBinder()) return existing;
         unbind();
+        if (viaAdb) return bindViaAdb(app);
 
         final CountDownLatch latch = new CountDownLatch(1);
         final IHotspotService[] box = new IHotspotService[1];
@@ -380,6 +390,23 @@ final class ShizukuHotspot {
         return box[0];
     }
 
+    private static IHotspotService bindViaAdb(Context app) throws Exception {
+        IHotspotService svc;
+        try {
+            svc = AdbHelper.launch(app);
+        } catch (AdbHelper.AdbFailure f) {
+            throw new Failure(f.code, f.getMessage());
+        }
+        IBinder.DeathRecipient death = ShizukuHotspot::onHelperLost;
+        try {
+            svc.asBinder().linkToDeath(death, 0);
+            adbDeath = death;
+        } catch (Throwable ignored) {
+        }
+        service = svc;
+        return svc;
+    }
+
     @SuppressWarnings("deprecation")
     private static int appVersionCode(Context c) {
         try {
@@ -390,7 +417,21 @@ final class ShizukuHotspot {
     }
 
     private static void unbind() {
+        IHotspotService adbService = service;
         service = null;
+        if (adbService != null && adbDeath != null) {
+            try {
+                adbService.asBinder().unlinkToDeath(adbDeath, 0);
+            } catch (Throwable ignored) {
+            }
+        }
+        adbDeath = null;
+        if (viaAdb && adbService != null) {
+            try {
+                adbService.destroy();                // stops the session and ends the app_process helper
+            } catch (Throwable ignored) {
+            }
+        }
         ServiceConnection conn = connection;
         Shizuku.UserServiceArgs args = serviceArgs;
         connection = null;
