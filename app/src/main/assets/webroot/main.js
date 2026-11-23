@@ -282,6 +282,23 @@ const SYSDNS_MAX_SERVERS = 3;        // servers tried per domain, in system orde
 const SYSDNS_TOTAL_TIMEOUT_MS = 8000; // never hold up connecting for longer than this
 const SYSDNS_DOMAIN_RE = /^(?=.{1,253}$)[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(?:\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*$/;
 
+// Names that are answered by the config itself (dns.hosts) or by the device, and must NEVER
+// be sent to the system / upstream DNS: localhost, localdns, gateway.local, dns-gateway.local
+// and anything under .local / .localhost / .localdomain. They are resolved from dns.hosts
+// (DEFAULT_DNS_HOSTS, injectGatewayLocalHosts, injectLocalDnsHost) or not at all.
+const RESERVED_LOCAL_NAMES = new Set(['localhost', 'localdns', 'gateway.local', 'dns-gateway.local']);
+const RESERVED_LOCAL_SUFFIX_RE = /\.(?:local|localhost|localdomain)$/i;
+function _isReservedLocalName(name) {
+    const h = String(name || '').trim().toLowerCase().replace(/\.$/, '');
+    if (!h) return false;
+    if (RESERVED_LOCAL_NAMES.has(h) || RESERVED_LOCAL_SUFFIX_RE.test(h)) return true;
+    // Constants owned by the gateway / local-dns feature, in case they are renamed.
+    try { if (typeof GATEWAY_LOCAL_HOST === 'string' && h === GATEWAY_LOCAL_HOST.toLowerCase()) return true; } catch (e) {}
+    try { if (typeof LOCAL_DNS_HOST === 'string' && h === LOCAL_DNS_HOST.toLowerCase()) return true; } catch (e) {}
+    try { if (typeof LOCAL_DNS_HOST_DOTTED === 'string' && h === LOCAL_DNS_HOST_DOTTED.toLowerCase()) return true; } catch (e) {}
+    return false;
+}
+
 // System DNS servers, minus anything unusable: 0.0.0.0 / :: (the wildcard address is
 // not a resolver) and non-IP junk. Resolves to [] when the bridge is missing (plain
 // KernelSU WebUI) or the device reports nothing.
@@ -332,7 +349,7 @@ function _collectOutboundDomains(cfg) {
             if (typeof v === 'string' && KEYS.includes(k)) {
                 const h = _hostOf(v).toLowerCase();
                 if (h && SYSDNS_DOMAIN_RE.test(h) && !(typeof isIpAddr === 'function' && isIpAddr(h))
-                    && h.indexOf('.') > 0) found.add(h);
+                    && h.indexOf('.') > 0 && !_isReservedLocalName(h)) found.add(h);
             } else if (v && typeof v === 'object') {
                 walk(v, depth + 1);
             }
@@ -356,7 +373,8 @@ function _collectDnsServerDomains(cfg) {
         if (!addr) return;
         const h = _hostOf(addr).toLowerCase();
         if (h && SYSDNS_DOMAIN_RE.test(h) && !(typeof isIpAddr === 'function' && isIpAddr(h))
-            && h !== 'localhost' && h !== 'fakedns' && h.indexOf('.') > 0) found.add(h);
+            && h !== 'localhost' && h !== 'fakedns' && h.indexOf('.') > 0
+            && !_isReservedLocalName(h)) found.add(h);
     });
     return Array.from(found);
 }
@@ -364,6 +382,7 @@ function _collectDnsServerDomains(cfg) {
 // One `dnsjson` run -> list of IPs (v4 first, then v6), or [] on any failure.
 function _dnsjsonQuery(domain, server) {
     return new Promise(resolve => {
+        if (_isReservedLocalName(domain)) return resolve([]);   // never ask system DNS for these
         execShell(`${shQuote(MODDIR + '/bin/xhuskydg_helper')} dnsjson ${shQuote(domain)} ${shQuote(server)}`, (out) => {
             try {
                 const j = JSON.parse(out);
@@ -377,6 +396,7 @@ function _dnsjsonQuery(domain, server) {
 }
 
 async function _resolveDomainViaServers(domain, servers) {
+    if (_isReservedLocalName(domain)) return [];
     for (const server of servers.slice(0, SYSDNS_MAX_SERVERS)) {
         const ips = await _dnsjsonQuery(domain, server);
         if (ips.length) return Array.from(new Set(ips));
@@ -5355,6 +5375,23 @@ function _nodeProbeTarget(cfg) {
 // the probe that follows); the helper then times a handshake to those IPs. Otherwise — or when
 // nothing could be resolved — the helper resolves the name itself.
 async function _resolveDialHosts(baseCfgStr, target) {
+    // Reserved local names (localdns, gateway.local, ...) are never looked up by the system
+    // resolver, neither here nor by the helper: map them to their known addresses, or to
+    // loopback, and hand the helper an IP only.
+    if (_isReservedLocalName(target.host)) {
+        const name = String(target.host).toLowerCase();
+        let ips = [];
+        try {
+            const cfg = JSON.parse(baseCfgStr);
+            const h = (cfg.dns && cfg.dns.hosts && cfg.dns.hosts[name]) || DEFAULT_DNS_HOSTS[name];
+            ips = (Array.isArray(h) ? h : [h]).filter(x => typeof x === 'string' && /^[0-9a-fA-F:.]+$/.test(x));
+        } catch (e) { /* use the fallbacks below */ }
+        if (!ips.length && (name === 'localdns' || name === 'dns-gateway.local')) ips = _getSystemDnsServers();
+        if (!ips.length && typeof _localAddrCache !== 'undefined' && Array.isArray(_localAddrCache)) {
+            ips = _localAddrCache.map(a => a.addr);
+        }
+        return (ips.length ? ips : ['127.0.0.1']).join(',');
+    }
     try {
         const cfg = JSON.parse(baseCfgStr);
         if (cfg.dns && typeof cfg.dns === 'object') cfg.dns.hosts = { ...DEFAULT_DNS_HOSTS };
