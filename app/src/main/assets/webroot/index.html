@@ -1632,26 +1632,14 @@ extras  uri, name, exclude</pre>
             </header>
             <div class="modal-body" style="padding: 16px; display: flex; flex-direction: column; gap: 18px;">
                 <div class="chain-info-box" data-i18n="proxy_chain_desc">
-                    Traffic flows: Client → Hop 1 → Hop 2 → Internet.<br>
-                    Hop 2's traffic is tunneled inside Hop 1.
+                    Traffic flows: Client → Hop 1 → Hop 2 → … → Hop N → Internet.<br>
+                    Each hop's traffic is tunneled inside the previous hop.
                 </div>
                 <div class="edit-item-field">
                     <label data-i18n="lbl_chain_name">Chain Name</label>
                     <input type="text" id="chain-name" placeholder="My Proxy Chain">
                 </div>
-                <div class="edit-item-field">
-                    <label data-i18n="lbl_hop1">Hop 1 (Outer / Entry)</label>
-                    <select id="chain-hop1">
-                        <option value="" data-i18n="chain_select_node">— Select a node —</option>
-                    </select>
-                </div>
-                <div class="chain-arrow">↓</div>
-                <div class="edit-item-field">
-                    <label data-i18n="lbl_hop2">Hop 2 (Inner / Exit)</label>
-                    <select id="chain-hop2">
-                        <option value="" data-i18n="chain_select_node">— Select a node —</option>
-                    </select>
-                </div>
+                <div id="chain-hop-list" class="chain-hop-list"></div>
                 <div class="chain-arrow">↓</div>
                 <div class="chain-internet-label" data-i18n="chain_internet">🌐 Internet</div>
             </div>

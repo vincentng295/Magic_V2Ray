@@ -107,8 +107,10 @@
         if (!uri) return '(empty)';
         try {
             if (/^chain:\/\//i.test(uri)) {
-                var q = new URL(uri.replace(/^chain:\/\//i, 'https://')).searchParams;
-                return 'chain://\n    hop1 = ' + maskUri(q.get('hop1')) + '\n    hop2 = ' + maskUri(q.get('hop2'));
+                var hops = (typeof parseChainHops === 'function') ? parseChainHops(uri) : [];
+                return 'chain://' + hops.map(function (h, i) {
+                    return '\n    hop' + (i + 1) + ' = ' + maskUri(h);
+                }).join('');
             }
             if (/^vmess:\/\//i.test(uri)) {
                 var body = tryDecodeBase64(uri.slice(8));

@@ -188,6 +188,16 @@ public class ExternalPromptActivity extends Activity {
         try {
             if (uri.regionMatches(true, 0, "chain://", 0, 8)) {
                 Uri u = Uri.parse(uri);
+                String hopList = u.getQueryParameter("hopList");
+                if (hopList != null) {
+                    // chain://localhost/?hopList=<urlencode(JSON array of node URIs)>
+                    org.json.JSONArray arr = new org.json.JSONArray(hopList);
+                    for (int i = 0; i < arr.length(); i++) {
+                        if (isPlain(arr.optString(i, null), scheme)) return true;
+                    }
+                    return false;
+                }
+                // legacy 2-hop form
                 return isPlain(u.getQueryParameter("hop1"), scheme) || isPlain(u.getQueryParameter("hop2"), scheme);
             }
             if (!uri.regionMatches(true, 0, scheme + "://", 0, scheme.length() + 3)) return false;
@@ -197,7 +207,7 @@ public class ExternalPromptActivity extends Activity {
             if (!"vless".equals(scheme)) return plainSec;
             String enc = u.getQueryParameter("encryption");
             return plainSec && (enc == null || enc.isEmpty() || "none".equals(enc));
-        } catch (RuntimeException e) {
+        } catch (RuntimeException | org.json.JSONException e) {
             return false;
         }
     }

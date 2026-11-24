@@ -446,6 +446,42 @@ function normalizeUriIPv6Host(uri) {
 // (socks-test-in 808 -> 50808).
 const NONROOT_PORT_OFFSET = 50000;
 
+// ===========================================================================
+// Proxy chain URI
+//
+//   chain://localhost/?hopList=<urlencode(JSON array of node URIs)>
+//   e.g. hopList = ["vless://...", "vmess://...", "socks://...", ...]
+//
+// hopList[0] is the entry hop (dialed directly from this device), the last item
+// is the exit hop; every hop is tunneled through the previous one. Any number of
+// hops >= 2 is allowed. The old 2-hop form (?hop1=...&hop2=...) is still read.
+// ===========================================================================
+const CHAIN_MIN_HOPS = 2;
+const CHAIN_MAX_HOPS = 16;
+
+// Returns the hop URIs of a chain:// URI as an array of trimmed strings
+// ([] when the string is not a chain URI or cannot be parsed).
+function parseChainHops(uri) {
+    uri = String(uri || '').trim();
+    if (!/^chain:\/\//i.test(uri)) return [];
+    try {
+        const q = new URL(uri.replace(/^chain:\/\//i, 'https://')).searchParams;
+        const raw = q.get('hopList');
+        if (raw !== null) {
+            const arr = JSON.parse(raw);
+            return Array.isArray(arr) ? arr.map(x => String(x == null ? '' : x).trim()) : [];
+        }
+        // Legacy 2-hop form.
+        return [(q.get('hop1') || '').trim(), (q.get('hop2') || '').trim()];
+    } catch (e) {
+        return [];
+    }
+}
+
+function buildChainUri(hops) {
+    return 'chain://localhost/?hopList=' + encodeURIComponent(JSON.stringify(hops));
+}
+
 // True for a vless:// URI (or a chain:// with a vless hop) that has neither
 // TLS/REALITY nor VLESS Encryption — i.e. the data crosses the network in
 // plaintext. Same defaults as convert_uri_to_xray_json(): a missing
@@ -455,8 +491,7 @@ function isPlainVlessUri(uri) {
     uri = String(uri || '').trim();
     try {
         if (/^chain:\/\//i.test(uri)) {
-            const q = new URL(uri.replace(/^chain:\/\//i, 'https://')).searchParams;
-            return isPlainVlessUri(q.get('hop1') || '') || isPlainVlessUri(q.get('hop2') || '');
+            return parseChainHops(uri).some(hop => isPlainVlessUri(hop));
         }
         if (!/^vless:\/\//i.test(uri)) return false;
         const q = new URL(normalizeUriIPv6Host(uri).replace(/^vless:\/\//i, 'https://')).searchParams;
@@ -472,8 +507,7 @@ function isPlainTrojanUri(uri) {
     uri = String(uri || '').trim();
     try {
         if (/^chain:\/\//i.test(uri)) {
-            const q = new URL(uri.replace(/^chain:\/\//i, 'https://')).searchParams;
-            return isPlainTrojanUri(q.get('hop1') || '') || isPlainTrojanUri(q.get('hop2') || '');
+            return parseChainHops(uri).some(hop => isPlainTrojanUri(hop));
         }
         if (!/^trojan:\/\//i.test(uri)) return false;
         const q = new URL(normalizeUriIPv6Host(uri).replace(/^trojan:\/\//i, 'https://')).searchParams;
@@ -484,63 +518,92 @@ function isPlainTrojanUri(uri) {
 }
 
 /**
- * Build an Xray config for a 2-hop proxy chain.
+ * Build an Xray config for an N-hop proxy chain (N >= 2).
  *
  * Data flow:
- *   Client → [proxy-hop1 outbound] → Hop1 server → [proxy-hop2 outbound] → Hop2 server → Internet
+ *   Client → [proxy-hop1] → Hop1 server → [proxy-hop2] → Hop2 server → … → [proxy] → HopN server → Internet
  *
  * Xray mechanism: dialerProxy
- *   - proxy-hop2 has  sockopt.dialerProxy = "proxy-hop1"
- *     → its TCP/UDP connection is made *through* the hop1 outbound
- *   - proxy-hop1 has  sockopt.dialerProxy = "direct"   (normal behaviour)
+ *   - hop 1 has  sockopt.dialerProxy = "direct"        (normal behaviour)
+ *   - hop k has  sockopt.dialerProxy = <tag of hop k-1> → its TCP/UDP connection is made
+ *     *through* the previous hop's outbound
  *
+ * Tags: hop 1..N-1 are "proxy-hop1" .. "proxy-hop<N-1>", the last (exit) hop is "proxy".
  * The resulting outbounds array is:
- *   [ proxy-hop2 (tagged "proxy"),  proxy-hop1 (tagged "proxy-hop1"),  freedom "direct" ]
+ *   [ proxy (hop N), proxy-hop<N-1>, ..., proxy-hop1, freedom "direct", ... ]
  *
- * The routing rule sends all traffic to "proxy" (hop2), which in turn
- * dials through hop1 automatically.
+ * The routing rule sends all traffic to "proxy" (the exit hop), which in turn
+ * dials through the earlier hops automatically.
  */
-function convert_chain_uris_to_xray_json(hop1Uri, hop2Uri, optional_settings, is_nonroot = false) {
+function convert_chain_hops_to_xray_json(hops, optional_settings, is_nonroot = false) {
+    if (!Array.isArray(hops) || hops.length < CHAIN_MIN_HOPS) {
+        return JSON.stringify({ error: "A proxy chain needs at least " + CHAIN_MIN_HOPS + " hops" }, null, 2);
+    }
+    if (hops.length > CHAIN_MAX_HOPS) {
+        return JSON.stringify({ error: "A proxy chain supports at most " + CHAIN_MAX_HOPS + " hops" }, null, 2);
+    }
+
     // Parse each hop individually — reuse existing single-URI logic
-    const hop1ConfigStr = convert_uri_to_xray_json(hop1Uri, optional_settings, is_nonroot);
-    const hop2ConfigStr = convert_uri_to_xray_json(hop2Uri, optional_settings, is_nonroot);
-
-    let hop1Config, hop2Config;
-    try { hop1Config = JSON.parse(hop1ConfigStr); } catch(e) { return hop1ConfigStr; }
-    try { hop2Config = JSON.parse(hop2ConfigStr); } catch(e) { return hop2ConfigStr; }
-
-    if (hop1Config.error) return hop1ConfigStr;
-    if (hop2Config.error) return hop2ConfigStr;
+    const configs = [];
+    for (let i = 0; i < hops.length; i++) {
+        const uri = String(hops[i] || '').trim();
+        if (!uri) return JSON.stringify({ error: "Hop " + (i + 1) + " is empty" }, null, 2);
+        if (/^chain:\/\//i.test(uri)) {
+            return JSON.stringify({ error: "Hop " + (i + 1) + ": a proxy chain cannot be used as a hop" }, null, 2);
+        }
+        const str = convert_uri_to_xray_json(uri, optional_settings, is_nonroot);
+        let cfg;
+        try { cfg = JSON.parse(str); } catch (e) { return str; }
+        if (cfg.error) return str;
+        if (!Array.isArray(cfg.outbounds) || !cfg.outbounds[0]) {
+            return JSON.stringify({ error: "Hop " + (i + 1) + " has no outbound" }, null, 2);
+        }
+        configs.push(cfg);
+    }
 
     // Extract the outbound objects parsed by convert_uri_to_xray_json
     // (first element is always the proxy outbound)
-    const hop1Out = hop1Config.outbounds[0];
-    const hop2Out = hop2Config.outbounds[0];
+    const outs = configs.map(c => c.outbounds[0]);
+    const last = outs.length - 1;
+    outs.forEach((o, i) => {
+        o.tag = (i === last) ? "proxy" : "proxy-hop" + (i + 1);
+        o.streamSettings = o.streamSettings || {};
+        o.streamSettings.sockopt = o.streamSettings.sockopt || {};
+        o.streamSettings.sockopt.mark = 255;
+        // Hop 1 dials the internet directly; hop k dials through hop k-1.
+        o.streamSettings.sockopt.dialerProxy = (i === 0) ? "direct" : outs[i - 1].tag;
+    });
 
-    // Tag the two hops distinctly
-    hop1Out.tag = "proxy-hop1";
-    hop2Out.tag = "proxy";
-
-    // Hop1 dials directly to the internet
-    hop1Out.streamSettings = hop1Out.streamSettings || {};
-    hop1Out.streamSettings.sockopt = hop1Out.streamSettings.sockopt || {};
-    hop1Out.streamSettings.sockopt.mark = 255;
-    hop1Out.streamSettings.sockopt.dialerProxy = "direct";
-
-    // Hop2 dials through hop1
-    hop2Out.streamSettings = hop2Out.streamSettings || {};
-    hop2Out.streamSettings.sockopt = hop2Out.streamSettings.sockopt || {};
-    hop2Out.streamSettings.sockopt.mark = 255;
-    hop2Out.streamSettings.sockopt.dialerProxy = "proxy-hop1";
-
-    // Base the final config on hop2's full config (log/dns/inbounds/routing
-    // are identical between the two single-hop conversions since both were
-    // built from the same optional_settings) and swap in the two-hop
-    // outbound chain ahead of hop2's own direct/block outbounds.
-    const finalConfig = hop2Config;
-    finalConfig.outbounds = [hop2Out, hop1Out, ...hop2Config.outbounds.slice(1)];
+    // Base the final config on the exit hop's full config (log/dns/inbounds/routing
+    // are identical between the single-hop conversions since all were built from
+    // the same optional_settings) and swap in the multi-hop outbound chain ahead of
+    // its own direct/block outbounds.
+    const finalConfig = configs[last];
+    finalConfig.outbounds = [...outs.slice().reverse(), ...finalConfig.outbounds.slice(1)];
 
     return JSON.stringify(finalConfig, null, 2);
+}
+
+// Kept for older callers: the 2-hop form.
+function convert_chain_uris_to_xray_json(hop1Uri, hop2Uri, optional_settings, is_nonroot = false) {
+    return convert_chain_hops_to_xray_json([hop1Uri, hop2Uri], optional_settings, is_nonroot);
+}
+
+// Converts a chain:// URI into its outbounds, exit hop first, with the exit hop
+// tagged `tag` and the earlier hops tagged hopTagFn(k) (k = 0 for the entry hop).
+// Every dialerProxy is re-pointed at the new tags so several chains (or the active
+// chain) never collide. Returns null when the chain cannot be converted.
+function _chainTaggedOutbounds(rawUri, tag, hopTagFn, inner) {
+    const hops = parseChainHops(rawUri);
+    const cfg = JSON.parse(convert_chain_hops_to_xray_json(hops, inner));
+    if (cfg.error) return null;
+    const n = hops.length;
+    const chainOuts = cfg.outbounds.slice(0, n).reverse(); // entry ... exit
+    chainOuts.forEach((o, i) => {
+        o.tag = (i === n - 1) ? tag : hopTagFn(i);
+        o.streamSettings.sockopt.dialerProxy = (i === 0) ? "direct" : chainOuts[i - 1].tag;
+    });
+    return chainOuts.slice().reverse();
 }
 
 // Converts the user-editable Routing Settings list (advSettings.routingRules)
@@ -610,8 +673,8 @@ function _buildCustomRoutingRules(routingRules, nodeTagByRemark, balancerTagById
 // UI fills in (helper.js has no access to the saved profiles); only remarks
 // actually used by an enabled rule are converted. Each node is converted with
 // the same settings as the main proxy (mux/fragment/...), minus the custom
-// routing rules - that also prevents recursion. Chain nodes contribute both
-// hops. Returns { outbounds, tagByRemark }.
+// routing rules - that also prevents recursion. Chain nodes contribute all
+// their hops. Returns { outbounds, tagByRemark }.
 function _buildRuleNodeOutbounds(settings) {
     const result = { outbounds: [], tagByRemark: {} };
     const uris = settings && settings.routeNodeUris;
@@ -633,18 +696,10 @@ function _buildRuleNodeOutbounds(settings) {
         try {
             let cfg, outs;
             if (/^chain:\/\//i.test(rawUri)) {
-                const u = new URL(rawUri.replace(/^chain:\/\//i, 'https://'));
-                cfg = JSON.parse(convert_chain_uris_to_xray_json(
-                    u.searchParams.get('hop1') || '', u.searchParams.get('hop2') || '', inner));
-                if (cfg.error) return;
-                // [hop2 ("proxy"), hop1 ("proxy-hop1"), ...] -> retag both so
+                // Exit hop -> `tag`, earlier hops -> `tag-hop1`, `tag-hop2`, ... so
                 // several chain nodes (or the active chain) never collide.
-                const hop2 = cfg.outbounds[0];
-                const hop1 = cfg.outbounds[1];
-                hop2.tag = tag;
-                hop1.tag = tag + "-hop1";
-                hop2.streamSettings.sockopt.dialerProxy = hop1.tag;
-                outs = [hop2, hop1];
+                outs = _chainTaggedOutbounds(rawUri, tag, k => tag + "-hop" + (k + 1), inner);
+                if (!outs) return;
             } else {
                 cfg = JSON.parse(convert_uri_to_xray_json(rawUri, inner));
                 if (cfg.error || !Array.isArray(cfg.outbounds) || !cfg.outbounds[0]) return;
@@ -674,29 +729,21 @@ function _buildRuleNodeOutbounds(settings) {
 //
 // Member outbounds are tagged `pg-<id>-<n>` and the balancer selector is the
 // prefix `pg-<id>-`. Xray matches selectors by PREFIX, so the trailing dash
-// matters (group "1" must not swallow "11"), and a chain's first hop is tagged
+// matters (group "1" must not swallow "11"), and a chain's earlier hops are tagged
 // `pghop-...` so it never joins the balancer by accident.
 const POLICY_GROUP_PREFIX = "group:";
 const POLICY_GROUP_TYPES = ["random", "roundRobin", "leastPing", "leastLoad"];
 const POLICY_PROBE_URL = "https://www.google.com/generate_204";
 
-// Converts one saved node into 1 outbound (2 for a chain), tagged `tag`.
+// Converts one saved node into 1 outbound (N for an N-hop chain), tagged `tag`.
 // Returns null when the node cannot be converted.
 function _nodeUriToTaggedOutbounds(rawUri, tag, hopTag, inner) {
     rawUri = String(rawUri || '').trim();
     if (!rawUri) return null;
     try {
         if (/^chain:\/\//i.test(rawUri)) {
-            const u = new URL(rawUri.replace(/^chain:\/\//i, 'https://'));
-            const cfg = JSON.parse(convert_chain_uris_to_xray_json(
-                u.searchParams.get('hop1') || '', u.searchParams.get('hop2') || '', inner));
-            if (cfg.error) return null;
-            const hop2 = cfg.outbounds[0];
-            const hop1 = cfg.outbounds[1];
-            hop2.tag = tag;
-            hop1.tag = hopTag;
-            hop2.streamSettings.sockopt.dialerProxy = hopTag;
-            return [hop2, hop1];
+            // Entry hop keeps `hopTag` (as before); further hops get `hopTag-2`, `hopTag-3`, ...
+            return _chainTaggedOutbounds(rawUri, tag, k => k === 0 ? hopTag : `${hopTag}-${k + 1}`, inner);
         }
         const cfg = JSON.parse(convert_uri_to_xray_json(rawUri, inner));
         if (cfg.error || !Array.isArray(cfg.outbounds) || !cfg.outbounds[0]) return null;

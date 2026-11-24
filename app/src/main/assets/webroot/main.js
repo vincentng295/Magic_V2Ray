@@ -1706,11 +1706,7 @@ function _resolveXrayConfig(rawUri) {
         rawUri = members[0].rawUri;
     }
     if (rawUri && rawUri.startsWith('chain://')) {
-        const fakeRawUri = rawUri.replace(/^chain:\/\//i, 'https://');
-        const u = new URL(fakeRawUri);
-        const hop1Uri = u.searchParams.get('hop1') || '';
-        const hop2Uri = u.searchParams.get('hop2') || '';
-        config_json = convert_chain_uris_to_xray_json(hop1Uri, hop2Uri, genSettings, MV_NONROOT);
+        config_json = convert_chain_hops_to_xray_json(parseChainHops(rawUri), genSettings, MV_NONROOT);
     } else {
         config_json = convert_uri_to_xray_json(rawUri, genSettings, MV_NONROOT);
     }
@@ -1972,17 +1968,10 @@ function renderProfiles() {
                 const g = _findPolicyGroup(node.id);
                 metaLine = g ? _policyGroupMeta(g) : '';
             } else if (isChain) {
-                try {
-                    const fakeRawUri = node.rawUri.replace(/^chain:\/\//i, 'https://');
-                    const u = new URL(fakeRawUri);
-                    const hop1Uri = u.searchParams.get('hop1') || '';
-                    const hop2Uri = u.searchParams.get('hop2') || '';
-                    const proto1 = hop1Uri.split('://')[0].toUpperCase();
-                    const proto2 = hop2Uri.split('://')[0].toUpperCase();
-                    metaLine = `⛓ CHAIN: ${proto1} → ${proto2}`;
-                } catch(e) {
-                    metaLine = '⛓ CHAIN';
-                }
+                const chainHops = parseChainHops(node.rawUri);
+                metaLine = chainHops.length
+                    ? `⛓ CHAIN: ${chainHops.map(hop => hop.split('://')[0].toUpperCase()).join(' → ')}`
+                    : '⛓ CHAIN';
             } else {
                 // Assigned via textContent below, so no manual escaping here.
                 metaLine = `${(node.protocol || '').toUpperCase()} | ${bracketIPv6(node.address)}:${node.port}`;
@@ -3617,28 +3606,110 @@ function _getAllNodeOptions() {
     return options;
 }
 
-function _populateChainSelects() {
+// Hop picker state: one "category:id" key per hop (entry hop first, exit hop last);
+// '' = not chosen yet. The rows are rebuilt from this array by _renderChainHops().
+let _chainHopKeys = [];
+
+function _findNodeByKey(key) {
+    if (!key) return null;
+    for (const cat of Object.keys(profiles)) {
+        const node = profiles[cat]?.nodes?.find(n => `${cat}:${n.id}` === key);
+        if (node) return node;
+    }
+    return null;
+}
+
+function _findKeyByRawUri(rawUri) {
+    if (!rawUri) return '';
+    for (const cat of Object.keys(profiles)) {
+        const node = profiles[cat]?.nodes?.find(n => n.rawUri === rawUri && n.protocol !== 'chain');
+        if (node) return `${cat}:${node.id}`;
+    }
+    return '';
+}
+
+function _renderChainHops() {
+    const box = document.getElementById('chain-hop-list');
+    if (!box) return;
+    box.innerHTML = '';
     const opts = _getAllNodeOptions();
-    ['chain-hop1', 'chain-hop2'].forEach(selId => {
-        const sel = document.getElementById(selId);
-        if (!sel) return;
-        const prev = sel.value;
-        sel.innerHTML = `<option value="">${t('chain_select_node')}</option>`;
+    const n = _chainHopKeys.length;
+
+    _chainHopKeys.forEach((key, i) => {
+        const field = document.createElement('div');
+        field.className = 'edit-item-field';
+
+        const head = document.createElement('div');
+        head.className = 'chain-hop-head';
+        const label = document.createElement('label');
+        label.textContent = (i === 0)
+            ? t('lbl_hop_outer', { n: i + 1 })
+            : (i === n - 1 ? t('lbl_hop_inner', { n: i + 1, prev: i }) : t('lbl_hop_middle', { n: i + 1, prev: i }));
+        head.appendChild(label);
+        if (n > CHAIN_MIN_HOPS) {
+            const rm = document.createElement('button');
+            rm.type = 'button';
+            rm.className = 'chain-hop-remove';
+            rm.textContent = '×';
+            rm.title = t('btn_remove_hop');
+            rm.setAttribute('aria-label', t('btn_remove_hop'));
+            rm.addEventListener('click', () => removeChainHop(i));
+            head.appendChild(rm);
+        }
+        field.appendChild(head);
+
+        const sel = document.createElement('select');
+        const ph = document.createElement('option');
+        ph.value = '';
+        ph.textContent = t('chain_select_node');
+        sel.appendChild(ph);
         opts.forEach(o => {
             const opt = document.createElement('option');
             opt.value = o.value;
             opt.textContent = o.label;
             sel.appendChild(opt);
         });
-        if (prev) sel.value = prev;
+        sel.value = key;
+        if (sel.value !== key) { sel.value = ''; _chainHopKeys[i] = ''; }
+        sel.addEventListener('change', () => { _chainHopKeys[i] = sel.value; });
+        field.appendChild(sel);
+        box.appendChild(field);
+
+        if (i < n - 1) {
+            const arrow = document.createElement('div');
+            arrow.className = 'chain-arrow';
+            arrow.textContent = '↓';
+            box.appendChild(arrow);
+        }
     });
+
+    // [+] adds one more hop after the last one (it becomes the new exit hop)
+    if (n < CHAIN_MAX_HOPS) {
+        const add = document.createElement('button');
+        add.type = 'button';
+        add.className = 'chain-add-hop';
+        add.textContent = t('btn_add_hop');
+        add.addEventListener('click', addChainHop);
+        box.appendChild(add);
+    }
+}
+
+function addChainHop() {
+    if (_chainHopKeys.length >= CHAIN_MAX_HOPS) return;
+    _chainHopKeys.push('');
+    _renderChainHops();
+}
+
+function removeChainHop(index) {
+    if (_chainHopKeys.length <= CHAIN_MIN_HOPS) return;
+    _chainHopKeys.splice(index, 1);
+    _renderChainHops();
 }
 
 function openProxyChainModal() {
-    _populateChainSelects();
+    _chainHopKeys = new Array(CHAIN_MIN_HOPS).fill('');
+    _renderChainHops();
     document.getElementById('chain-name').value = '';
-    document.getElementById('chain-hop1').value = '';
-    document.getElementById('chain-hop2').value = '';
     const modal = document.getElementById('proxy-chain-modal');
     delete modal.dataset.editingId;
     delete modal.dataset.editingCat;
@@ -3654,32 +3725,30 @@ function closeProxyChainModal() {
 }
 
 function saveProxyChain() {
-    const hop1Key = document.getElementById('chain-hop1').value;
-    const hop2Key = document.getElementById('chain-hop2').value;
+    const keys = _chainHopKeys.slice();
 
-    if (!hop1Key || !hop2Key) {
+    if (keys.length < CHAIN_MIN_HOPS || keys.some(k => !k)) {
         showToast(t('toast_chain_select_nodes'), 'error');
         return;
     }
-    if (hop1Key === hop2Key) {
+    if (new Set(keys).size !== keys.length) {
         showToast(t('toast_chain_same_node'), 'error');
         return;
     }
 
-    const [cat1, id1] = hop1Key.split(':');
-    const [cat2, id2] = hop2Key.split(':');
-    const hop1Node = profiles[cat1]?.nodes?.find(n => n.id === id1);
-    const hop2Node = profiles[cat2]?.nodes?.find(n => n.id === id2);
-    if (!hop1Node || !hop2Node) return;
+    const hopNodes = keys.map(_findNodeByKey);
+    if (hopNodes.some(n => !n)) return;
 
     // Chain nodes cannot be used as hops inside another chain
-    if (hop1Node.protocol === 'chain' || hop2Node.protocol === 'chain') {
+    if (hopNodes.some(n => n.protocol === 'chain')) {
         showToast(t('toast_chain_no_chain_hop'), 'error');
         return;
     }
 
+    const exitNode = hopNodes[hopNodes.length - 1];
     const chainName = document.getElementById('chain-name').value.trim()
-        || `${hop1Node.name || hop1Node.address} → ${hop2Node.name || hop2Node.address}`;
+        || hopNodes.map(n => n.name || n.address).join(' → ');
+    const chainUri = buildChainUri(hopNodes.map(n => n.rawUri));
 
     // Store chain as a synthetic node in Manual category
     if (!profiles['Manual']) profiles['Manual'] = { url: null, nodes: [] };
@@ -3689,14 +3758,14 @@ function saveProxyChain() {
     const editingCat = document.getElementById('proxy-chain-modal').dataset.editingCat;
 
     const chainEntry = {
-        id: editingId || _hashNodeId({ rawUri: `chain://localhost/?hop1=${encodeURIComponent(hop1Node.rawUri)}&hop2=${encodeURIComponent(hop2Node.rawUri)}` }, new Set((profiles['Manual'].nodes || []).map(n => n.id))),
+        id: editingId || _hashNodeId({ rawUri: chainUri }, new Set((profiles['Manual'].nodes || []).map(n => n.id))),
         name: chainName,
         protocol: 'chain',
-        address: hop2Node.address,
-        port: hop2Node.port,
+        address: exitNode.address,
+        port: exitNode.port,
         uuid: '',
         security: '',
-        rawUri: `chain://localhost/?hop1=${encodeURIComponent(hop1Node.rawUri)}&hop2=${encodeURIComponent(hop2Node.rawUri)}`
+        rawUri: chainUri
     };
 
     if (editingId && editingCat) {
@@ -3725,30 +3794,11 @@ function openProxyChainEditModal(event, category, id) {
     const node = profiles[category]?.nodes?.find(n => n.id === id);
     if (!node || node.protocol !== 'chain') return;
 
-    _populateChainSelects();
-
-    // Pre-fill the modal with existing chain data
+    // Pre-fill the modal with the existing hops (any number, at least 2 rows)
     document.getElementById('chain-name').value = node.name || '';
-
-    // Parse hop URIs out of rawUri to match selects
-    try {
-        const fakeRawUri = node.rawUri.replace(/^chain:\/\//i, 'https://');
-        const u = new URL(fakeRawUri);
-        const hop1Uri = u.searchParams.get('hop1') || '';
-        const hop2Uri = u.searchParams.get('hop2') || '';
-
-        // Match URIs back to category:id keys
-        const opts = _getAllNodeOptions();
-        let hop1Key = '', hop2Key = '';
-        Object.keys(profiles).forEach(cat => {
-            profiles[cat]?.nodes?.forEach(n => {
-                if (n.rawUri === hop1Uri) hop1Key = `${cat}:${n.id}`;
-                if (n.rawUri === hop2Uri) hop2Key = `${cat}:${n.id}`;
-            });
-        });
-        document.getElementById('chain-hop1').value = hop1Key;
-        document.getElementById('chain-hop2').value = hop2Key;
-    } catch(e) {}
+    _chainHopKeys = parseChainHops(node.rawUri).map(_findKeyByRawUri);
+    while (_chainHopKeys.length < CHAIN_MIN_HOPS) _chainHopKeys.push('');
+    _renderChainHops();
 
     // Store editing context on the modal element
     document.getElementById('proxy-chain-modal').dataset.editingId = id;

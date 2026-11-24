@@ -1625,6 +1625,52 @@ textarea::placeholder { color: var(--md-outline); }
     border-radius: var(--md-shape-sm);
 }
 
+.chain-hop-list {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.chain-hop-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.chain-hop-remove {
+    flex: none;
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--md-on-surface-variant);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.chain-hop-remove:active {
+    background: var(--md-surface-2);
+}
+
+.chain-add-hop {
+    align-self: stretch;
+    padding: 10px;
+    border: 1px dashed var(--md-primary);
+    border-radius: var(--md-shape-sm);
+    background: transparent;
+    color: var(--md-primary);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.chain-add-hop:active {
+    background: var(--md-surface-2);
+}
+
 /* ===== Toast Notifications ===== */
 .toast-container {
     position: fixed;
