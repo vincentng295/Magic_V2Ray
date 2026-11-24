@@ -798,6 +798,12 @@ public class MainActivity extends Activity {
     @Override
     @SuppressWarnings("deprecation")
     public void onBackPressed() {
+        // The WebUI keeps one history entry per tab / modal (backnav.js): Back closes the top-most
+        // modal, then goes back through the tabs. Only on the base page does the app go to the background.
+        if (web != null && web.getVisibility() == View.VISIBLE && web.canGoBack()) {
+            web.goBack();
+            return;
+        }
         moveTaskToBack(true);
     }
 
