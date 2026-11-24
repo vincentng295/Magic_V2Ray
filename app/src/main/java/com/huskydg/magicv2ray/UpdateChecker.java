@@ -41,6 +41,9 @@ import java.util.concurrent.TimeUnit;
  * versionCode the version string (x-alpha-build-<hash>) decides: different from the installed one = update.
  * The download is not done in the app: the WebUI hands the APK link to the browser (KsuBridge.openUrl).
  *
+ * No cache: every request carries a changing {@code nocache=<time>} parameter plus no-cache headers, so a fresh
+ * update.json is read each time (see {@link #noCacheUrl}).
+ *
  * Auto check: on app start (at most once per {@link #MIN_INTERVAL_MS}) and by a daily {@link JobScheduler}
  * job ({@link UpdateJobService}) so a new version is announced even when the app is not opened.
  */
@@ -261,13 +264,27 @@ final class UpdateChecker {
         }
     }
 
+    /**
+     * The address with a throw-away query parameter, so no cache between us and GitHub (the CDN of
+     * raw.githubusercontent.com keeps a file for about 5 minutes, and the gh-proxy mirror has its own cache) can
+     * answer with an old update.json: every request is a URL nobody has asked for before.
+     */
+    static String noCacheUrl(String address, long nowMs) {
+        int hash = address.indexOf('#');
+        String base = hash < 0 ? address : address.substring(0, hash);
+        String frag = hash < 0 ? "" : address.substring(hash);
+        return base + (base.indexOf('?') < 0 ? '?' : '&') + "nocache=" + nowMs + frag;
+    }
+
     private static String fetch(String address, int maxBytes) throws IOException {
-        HttpURLConnection conn = (HttpURLConnection) new URL(address).openConnection();
+        HttpURLConnection conn = (HttpURLConnection) new URL(noCacheUrl(address, System.currentTimeMillis())).openConnection();
         try {
             conn.setConnectTimeout(CONNECT_TIMEOUT_MS);
             conn.setReadTimeout(READ_TIMEOUT_MS);
             conn.setUseCaches(false);
-            conn.setRequestProperty("Cache-Control", "no-cache");
+            conn.setDefaultUseCaches(false);
+            conn.setRequestProperty("Cache-Control", "no-cache, no-store, max-age=0");
+            conn.setRequestProperty("Pragma", "no-cache");
             conn.setRequestProperty("Accept", "application/json");
             conn.setRequestProperty("User-Agent", "MagicV2Ray-update-check");
             int code = conn.getResponseCode();
