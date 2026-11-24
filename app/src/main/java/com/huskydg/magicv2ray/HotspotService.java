@@ -358,9 +358,11 @@ public final class HotspotService extends IHotspotService.Stub {
     }
 
     /**
-     * IContentProvider.call differs per release: (pkg, authority, method, arg, extras) on 10,
-     * (pkg, attributionTag, authority, method, arg, extras) on 11-13, (AttributionSource, authority,
-     * method, arg, extras) on 14+. The strings are therefore assigned from the end.
+     * IContentProvider.call differs per release and per ROM. Known AOSP shapes:
+     * 10: (pkg, method, arg, extras); 11: (pkg, tag, method, arg, extras) or with authority;
+     * 12-13: (pkg, tag, authority, method, arg, extras); 14+: (AttributionSource, authority, method, arg, extras).
+     * Because MIUI/HyperOS may differ, the signature is logged and every plausible placement of the
+     * authority is tried until the provider reports "accepted" (a wrong placement only costs a SecurityException).
      */
     private static Object invokeProviderCall(Object provider, String authority, android.os.Bundle extras)
             throws Exception {
@@ -373,28 +375,70 @@ public final class HotspotService extends IHotspotService.Stub {
         }
         if (call == null) throw new NoSuchMethodException("IContentProvider.call");
         Class<?>[] t = call.getParameterTypes();
+        System.err.println("IContentProvider.call = " + call.toGenericString()
+                + " sdk=" + android.os.Build.VERSION.SDK_INT
+                + " release=" + android.os.Build.VERSION.RELEASE);
+
         int stringCount = 0;
-        for (Class<?> c : t) if (c == String.class) stringCount++;
-        Object[] a = new Object[t.length];
-        int seen = 0;
-        for (int k = 0; k < t.length; k++) {
-            Class<?> c = t[k];
-            if (c == String.class) {
-                int fromEnd = stringCount - 1 - seen++;      // 0 = arg, 1 = method, 2 = authority
-                a[k] = fromEnd == 0 ? null
-                        : fromEnd == 1 ? HotspotMain.METHOD_SEND_BINDER
-                        : fromEnd == 2 ? authority
-                        : (seen == 1 ? "com.android.shell" : null);   // callingPkg, then attributionTag
-            } else if (c == android.os.Bundle.class) {
-                a[k] = extras;
-            } else if (c.getName().equals("android.content.AttributionSource")) {
-                Class<?> bc = Class.forName("android.content.AttributionSource$Builder");
-                Object b = bc.getConstructor(int.class).newInstance(android.os.Process.myUid());
-                bc.getMethod("setPackageName", String.class).invoke(b, "com.android.shell");
-                a[k] = bc.getMethod("build").invoke(b);
+        boolean hasAttr = false;
+        for (Class<?> c : t) {
+            if (c == String.class) stringCount++;
+            else if (c.getName().equals("android.content.AttributionSource")) hasAttr = true;
+        }
+        if (stringCount < 2) throw new NoSuchMethodException("unsupported IContentProvider.call: " + call);
+
+        // Candidate authority slot among the strings (method and arg are always the last two).
+        // Start with the AOSP guess (just before method), then try the others.
+        java.util.ArrayList<Integer> authSlots = new java.util.ArrayList<>();
+        if (stringCount >= 3) {
+            authSlots.add(stringCount - 3);
+            for (int i = 0; i < stringCount - 2; i++) if (!authSlots.contains(i)) authSlots.add(i);
+        }
+        authSlots.add(-1);   // layout without any authority (Android 10 and older)
+
+        Throwable last = null;
+        for (int authSlot : authSlots) {
+            Object[] a = new Object[t.length];
+            int si = 0;
+            for (int k = 0; k < t.length; k++) {
+                Class<?> c = t[k];
+                if (c == String.class) {
+                    String v;
+                    if (si == stringCount - 1) v = null;                              // arg
+                    else if (si == stringCount - 2) v = HotspotMain.METHOD_SEND_BINDER; // method
+                    else if (si == authSlot) v = authority;
+                    else if (si == 0 && !hasAttr) v = "com.android.shell";           // callingPkg
+                    else v = null;                                                   // attributionTag / spare
+                    a[k] = v;
+                    si++;
+                } else if (c == android.os.Bundle.class) {
+                    a[k] = extras;
+                } else if (c.getName().equals("android.content.AttributionSource")) {
+                    Class<?> bc = Class.forName("android.content.AttributionSource$Builder");
+                    Object b = bc.getConstructor(int.class).newInstance(android.os.Process.myUid());
+                    bc.getMethod("setPackageName", String.class).invoke(b, "com.android.shell");
+                    a[k] = bc.getMethod("build").invoke(b);
+                }
+            }
+            StringBuilder desc = new StringBuilder();
+            for (Object o : a) {
+                if (o instanceof String || o == null) desc.append(o).append(", ");
+                else desc.append(o.getClass().getSimpleName()).append(", ");
+            }
+            try {
+                Object reply = call.invoke(provider, a);
+                boolean ok = reply instanceof android.os.Bundle && ((android.os.Bundle) reply).getBoolean("accepted");
+                System.err.println("provider call authSlot=" + authSlot + " [" + desc + "] -> "
+                        + (ok ? "accepted" : "not accepted (" + reply + ")"));
+                if (ok) return reply;
+            } catch (Throwable e) {
+                last = e;
+                System.err.println("provider call authSlot=" + authSlot + " [" + desc + "] failed: " + rootMessage(e));
             }
         }
-        return call.invoke(provider, a);
+        if (last instanceof Exception) throw (Exception) last;
+        if (last != null) throw new RuntimeException(last);
+        return null;
     }
 
     /** Calls HotspotBinderProvider as the shell user (getContentProviderExternal + IContentProvider.call). */
