@@ -64,14 +64,14 @@
     <string name="ext_prompt_deny">拒绝</string>
     <string name="ext_nodes_question">允许 %1$s 读取您的节点吗？</string>
     <string name="ext_nodes_level_anon">匿名信息（默认）</string>
-    <string name="ext_nodes_level_anon_desc">应用只获得每个节点的名称和 ID（nodeid://…），看不到服务器、端口和凭据。</string>
+    <string name="ext_nodes_level_anon_desc">应用只获得每个节点的名称和 ID，看不到服务器、端口和凭据。</string>
     <string name="ext_nodes_level_full">完整节点信息</string>
-    <string name="ext_nodes_level_full_desc">应用获得完整的节点链接（vless://…），包括服务器和凭据。</string>
+    <string name="ext_nodes_level_full_desc">应用获得完整的节点链接，包括服务器和凭据。</string>
     <string name="ext_nodes_warn_full">⚠ 仅对您完全信任的应用选择此项：它可以使用或复制您的服务器和凭据。</string>
     <string name="ext_nodes_wants_full">此应用请求完整节点信息。</string>
     <string name="ext_nodes_once_hint">“允许一次”有效期 10 分钟。“始终允许”可在“访问权限”中撤销。</string>
     <string name="ext_prompt_cancel">取消</string>
-    <string name="ext_err_nodeid">此应用无权使用您的节点（nodeid://），需要先申请访问权限。</string>
+    <string name="ext_err_nodeid">此应用无权使用您的节点，需要先申请访问权限。</string>
     <string name="ext_prompt_direct">直连（无代理）</string>
     <string name="ext_prompt_chain">代理链 · %1$d 跳：%2$s</string>
     <string name="ext_prompt_details">详情</string>

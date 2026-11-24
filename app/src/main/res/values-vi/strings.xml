@@ -64,14 +64,14 @@
     <string name="ext_prompt_deny">Từ chối</string>
     <string name="ext_nodes_question">Cho phép %1$s đọc các node của bạn?</string>
     <string name="ext_nodes_level_anon">Thông tin ẩn danh (mặc định)</string>
-    <string name="ext_nodes_level_anon_desc">Ứng dụng nhận tên và ID của từng node (nodeid://…). Không bao giờ thấy máy chủ, cổng hay thông tin đăng nhập.</string>
+    <string name="ext_nodes_level_anon_desc">Ứng dụng nhận tên và ID của từng node. Không bao giờ thấy máy chủ, cổng hay thông tin đăng nhập.</string>
     <string name="ext_nodes_level_full">Thông tin node đầy đủ</string>
-    <string name="ext_nodes_level_full_desc">Ứng dụng nhận toàn bộ liên kết node (vless://…), gồm máy chủ và thông tin đăng nhập.</string>
+    <string name="ext_nodes_level_full_desc">Ứng dụng nhận toàn bộ liên kết node, gồm máy chủ và thông tin đăng nhập.</string>
     <string name="ext_nodes_warn_full">⚠ Chỉ chọn cho ứng dụng bạn hoàn toàn tin tưởng: nó có thể dùng hoặc sao chép máy chủ và thông tin đăng nhập của bạn.</string>
     <string name="ext_nodes_wants_full">Ứng dụng này yêu cầu thông tin node đầy đủ.</string>
     <string name="ext_nodes_once_hint">“Cho phép một lần” có hiệu lực 10 phút. “Vĩnh viễn” có thể thu hồi trong Quyền truy cập.</string>
     <string name="ext_prompt_cancel">Hủy bỏ</string>
-    <string name="ext_err_nodeid">Ứng dụng này không được phép dùng node của bạn (nodeid://). Nó phải xin quyền truy cập trước.</string>
+    <string name="ext_err_nodeid">Ứng dụng này không được phép dùng node của bạn. Nó phải xin quyền truy cập trước.</string>
     <string name="ext_prompt_direct">Kết nối trực tiếp (không proxy)</string>
     <string name="ext_prompt_chain">Chuỗi proxy · %1$d hop: %2$s</string>
     <string name="ext_prompt_details">Chi tiết</string>

@@ -64,14 +64,14 @@
     <string name="ext_prompt_deny">Запретить</string>
     <string name="ext_nodes_question">Разрешить %1$s читать ваши узлы?</string>
     <string name="ext_nodes_level_anon">Анонимные данные (по умолчанию)</string>
-    <string name="ext_nodes_level_anon_desc">Приложение получает имя и ID каждого узла (nodeid://…). Сервер, порт и учётные данные остаются скрытыми.</string>
+    <string name="ext_nodes_level_anon_desc">Приложение получает имя и ID каждого узла. Сервер, порт и учётные данные остаются скрытыми.</string>
     <string name="ext_nodes_level_full">Полные данные узлов</string>
-    <string name="ext_nodes_level_full_desc">Приложение получает полные ссылки узлов (vless://…), включая серверы и учётные данные.</string>
+    <string name="ext_nodes_level_full_desc">Приложение получает полные ссылки узлов, включая серверы и учётные данные.</string>
     <string name="ext_nodes_warn_full">⚠ Выбирайте это только для приложения, которому полностью доверяете: оно сможет использовать и копировать ваши серверы и учётные данные.</string>
     <string name="ext_nodes_wants_full">Это приложение запросило полные данные узлов.</string>
     <string name="ext_nodes_once_hint">«Разрешить один раз» действует 10 минут. «Всегда разрешать» можно отозвать в разделе «Доступ».</string>
     <string name="ext_prompt_cancel">Отмена</string>
-    <string name="ext_err_nodeid">Этому приложению не разрешено использовать ваши узлы (nodeid://). Сначала оно должно запросить доступ.</string>
+    <string name="ext_err_nodeid">Этому приложению не разрешено использовать ваши узлы. Сначала оно должно запросить доступ.</string>
     <string name="ext_prompt_direct">Прямое подключение (без прокси)</string>
     <string name="ext_prompt_chain">Цепочка прокси · %1$d узл.: %2$s</string>
     <string name="ext_prompt_details">Подробности</string>
