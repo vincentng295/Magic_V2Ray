@@ -127,6 +127,10 @@
     <string name="adb_notif_closed">配对对话框已关闭（其配对码已失效）。请重新打开后再试。</string>
     <string name="adb_notif_no_code">未输入配对码。</string>
     <string name="adb_tcp_title">TCP 模式</string>
-    <string name="adb_tcp_desc">让 adb 持续监听 5555 端口，只要手机启动后连接过一次，热点辅助进程就能在没有 Wi-Fi 的情况下重新启动。该端口受已配对密钥保护，但手机加入的任何网络都可以访问到它。</string>
+    <string name="adb_tcp_port_hint">TCP 端口（1024-65535，默认随机）</string>
+    <string name="adb_tcp_port_label">当前端口（默认随机）。修改后可改用 1024 到 65535 之间的其他端口。</string>
+    <string name="adb_tcp_random">随机</string>
+    <string name="adb_tcp_port_invalid">端口必须在 1024 到 65535 之间。</string>
+    <string name="adb_tcp_desc">让 adb 持续监听一个 TCP 端口（默认随机，也可自选 1024 到 65535 之间的任意端口），只要手机启动后连接过一次，热点辅助进程就能在没有 Wi-Fi 的情况下重新启动。该端口受已配对密钥保护，但手机加入的任何网络都可以访问到它。</string>
     <string name="adb_status_paired_desc_tcp">仅在手机开机后的第一次需要开启无线调试（并连接 Wi-Fi）。</string>
 </resources>

@@ -138,6 +138,7 @@
     <string name="adb_notif_no_code">Chưa nhập mã.</string>
     <string name="adb_tcp_title">Chế độ TCP</string>
     <string name="adb_tcp_port_hint">Cổng TCP (1024-65535, mặc định ngẫu nhiên)</string>
+    <string name="adb_tcp_port_label">Cổng hiện tại (mặc định ngẫu nhiên). Sửa để dùng cổng khác từ 1024 đến 65535.</string>
     <string name="adb_tcp_random">Ngẫu nhiên</string>
     <string name="adb_tcp_port_invalid">Cổng phải nằm trong khoảng 1024 đến 65535.</string>
     <string name="adb_tcp_desc">Giữ adb lắng nghe ở một cổng TCP (mặc định ngẫu nhiên, hoặc cổng bất kỳ từ 1024 đến 65535 do bạn chọn) để helper hotspot khởi động lại mà không cần Wi-Fi, miễn là bạn đã kết nối ít nhất một lần kể từ khi máy khởi động. Cổng được bảo vệ bằng khóa đã ghép nối nhưng truy cập được từ mọi mạng mà máy tham gia.</string>

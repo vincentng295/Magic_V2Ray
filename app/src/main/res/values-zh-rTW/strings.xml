@@ -127,6 +127,10 @@
     <string name="adb_notif_closed">配對對話框已關閉（其配對碼已失效）。請重新開啟後再試。</string>
     <string name="adb_notif_no_code">尚未輸入配對碼。</string>
     <string name="adb_tcp_title">TCP 模式</string>
-    <string name="adb_tcp_desc">讓 adb 持續監聽 5555 連接埠，只要手機開機後連線過一次，熱點輔助程序就能在沒有 Wi-Fi 的情況下重新啟動。該連接埠受已配對金鑰保護，但手機加入的任何網路都能連到它。</string>
+    <string name="adb_tcp_port_hint">TCP 連接埠（1024-65535，預設隨機）</string>
+    <string name="adb_tcp_port_label">目前的連接埠（預設隨機）。修改後可改用 1024 到 65535 之間的其他連接埠。</string>
+    <string name="adb_tcp_random">隨機</string>
+    <string name="adb_tcp_port_invalid">連接埠必須介於 1024 到 65535 之間。</string>
+    <string name="adb_tcp_desc">讓 adb 持續監聽一個 TCP 連接埠（預設隨機，也可自選 1024 到 65535 之間的任一連接埠），只要手機開機後連線過一次，熱點輔助程序就能在沒有 Wi-Fi 的情況下重新啟動。該連接埠受已配對金鑰保護，但手機加入的任何網路都能連到它。</string>
     <string name="adb_status_paired_desc_tcp">僅在手機開機後的第一次需要開啟無線偵錯（並連上 Wi-Fi）。</string>
 </resources>
