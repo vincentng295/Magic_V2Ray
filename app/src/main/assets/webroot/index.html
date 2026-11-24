@@ -1309,8 +1309,12 @@ extras  uri, name, exclude</pre>
                     <div class="edit-item-field">
                         <label data-i18n="lbl_masque_http_version">HTTP version</label>
                         <select id="edit-masque-alpn">
-                            <option value="">h3 (HTTP/3, QUIC)</option>
-                            <option value="h2">h2 (HTTP/2, TCP)</option>
+                            <option value="h2,http/1.1">h2,http/1.1</option>
+                            <option value="h2">h2</option>
+                            <option value="http/1.1">http/1.1</option>
+                            <option value="h3,h2,http/1.1">h3,h2,http/1.1</option>
+                            <option value="h3,h2">h3,h2</option>
+                            <option value="h3" selected>h3</option>
                         </select>
                     </div>
                     <div class="edit-item-field">
@@ -1320,12 +1324,17 @@ extras  uri, name, exclude</pre>
                     <div class="edit-item-field">
                         <label data-i18n="lbl_masque_fp">TLS fingerprint (HTTP/2 only)</label>
                         <select id="edit-masque-fp">
+                            <option value="">none</option>
                             <option value="chrome">chrome</option>
                             <option value="firefox">firefox</option>
                             <option value="safari">safari</option>
+                            <option value="ios">ios</option>
+                            <option value="android">android</option>
                             <option value="edge">edge</option>
+                            <option value="360">360</option>
                             <option value="qq">qq</option>
                             <option value="random">random</option>
+                            <option value="randomized">randomized</option>
                         </select>
                     </div>
                     <div class="edit-item-field">
@@ -1555,17 +1564,30 @@ extras  uri, name, exclude</pre>
                     <div class="edit-item-field">
                         <label data-i18n="lbl_fingerprint">Fingerprint</label>
                         <select id="edit-fingerprint">
+                            <option value="">none</option>
                             <option value="chrome">chrome</option>
                             <option value="firefox">firefox</option>
                             <option value="safari">safari</option>
+                            <option value="ios">ios</option>
+                            <option value="android">android</option>
                             <option value="edge">edge</option>
+                            <option value="360">360</option>
                             <option value="qq">qq</option>
                             <option value="random">random</option>
+                            <option value="randomized">randomized</option>
                         </select>
                     </div>
                     <div class="edit-item-field">
                         <label data-i18n="lbl_alpn">ALPN</label>
-                        <input type="text" id="edit-alpn" placeholder="h2,http/1.1">
+                        <select id="edit-alpn">
+                            <option value="">(default)</option>
+                            <option value="h2,http/1.1">h2,http/1.1</option>
+                            <option value="h2">h2</option>
+                            <option value="http/1.1">http/1.1</option>
+                            <option value="h3,h2,http/1.1">h3,h2,http/1.1</option>
+                            <option value="h3,h2">h3,h2</option>
+                            <option value="h3">h3</option>
+                        </select>
                     </div>
                 </div>
 

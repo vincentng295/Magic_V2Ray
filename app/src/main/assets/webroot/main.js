@@ -1061,6 +1061,19 @@ function _pinfoState(text, kind) {
 }
 
 
+// ALPN <select>: a stored value that is not one of the presets is kept as an extra option.
+function _setAlpnSelect(id, val) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    val = String(val || '').trim();
+    if (val && ![...el.options].some(o => o.value === val)) {
+        const o = document.createElement('option');
+        o.value = val; o.textContent = val;
+        el.appendChild(o);
+    }
+    el.value = val;
+}
+
 // ---- Geo-IP sources for the proxy info panel (raced in parallel) ----
 const _GEO_IP_RE = /^[0-9a-fA-F:.]{3,45}$/;
 
@@ -3132,7 +3145,7 @@ function _populateEditModal(node, isNew = false) {
     document.getElementById('edit-security').value = d.security;
     document.getElementById('edit-sni').value = d.sni;
     document.getElementById('edit-fingerprint').value = d.fingerprint;
-    document.getElementById('edit-alpn').value = d.alpn;
+    _setAlpnSelect('edit-alpn', d.alpn);
     document.getElementById('edit-allowinsecure').checked = !!d.allowInsecure;
     document.getElementById('edit-pcs').value = d.pcs || '';
     document.getElementById('edit-ech').value = d.ech || '';
@@ -3159,7 +3172,7 @@ function _populateEditModal(node, isNew = false) {
     // MASQUE
     {
         const mqAlpn = String(d.alpn || '');
-        document.getElementById('edit-masque-alpn').value = (/(^|,)h2(,|$)/.test(mqAlpn) && !/h3/.test(mqAlpn)) ? 'h2' : '';
+        _setAlpnSelect('edit-masque-alpn', mqAlpn || 'h3');
         document.getElementById('edit-masque-sni').value = d.sni || '';
         const mqFp = document.getElementById('edit-masque-fp');
         mqFp.value = [...mqFp.options].some(o => o.value === d.fingerprint) ? d.fingerprint : 'chrome';
