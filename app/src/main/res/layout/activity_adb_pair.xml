@@ -255,6 +255,45 @@
                 android:contentDescription="@string/adb_tcp_title" />
         </LinearLayout>
 
+        <!-- TCP port (1024-65535, default 5555) -->
+        <LinearLayout
+            android:id="@+id/adb_tcp_port_row"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/adb_tcp_port"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:background="@drawable/bg_input"
+                android:hint="@string/adb_tcp_port_hint"
+                android:importantForAutofill="no"
+                android:imeOptions="actionDone"
+                android:inputType="number"
+                android:maxLength="5"
+                android:minHeight="52dp"
+                android:padding="16dp"
+                android:singleLine="true"
+                android:textColor="@color/mv_on_surface"
+                android:textColorHint="@color/mv_on_surface_variant"
+                android:textSize="16sp" />
+
+            <Button
+                android:id="@+id/adb_tcp_random"
+                style="?android:attr/borderlessButtonStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="52dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_btn_tonal"
+                android:paddingHorizontal="20dp"
+                android:text="@string/adb_tcp_random"
+                android:textAllCaps="false" />
+        </LinearLayout>
+
         <!-- Manual entry (fallback) -->
         <Button
             android:id="@+id/adb_btn_manual_toggle"

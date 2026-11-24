@@ -35,6 +35,8 @@ public final class AdbPairActivity extends Activity {
     private EditText codeField;
     private Button pairButton;
     private Switch tcpSwitch;
+    private View tcpPortRow;
+    private EditText tcpPortField;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -54,7 +56,26 @@ public final class AdbPairActivity extends Activity {
         tcpSwitch.setChecked(AdbBridge.isTcpMode(this));
         tcpSwitch.setOnCheckedChangeListener((v, on) -> {
             AdbBridge.setTcpMode(this, on);
+            tcpPortRow.setVisibility(on ? View.VISIBLE : View.GONE);
             refreshStatus();
+        });
+
+        // TCP port: random by default (kept once picked), or any port 1024-65535 typed or re-rolled.
+        tcpPortRow = findViewById(R.id.adb_tcp_port_row);
+        tcpPortField = findViewById(R.id.adb_tcp_port);
+        tcpPortRow.setVisibility(tcpSwitch.isChecked() ? View.VISIBLE : View.GONE);
+        tcpPortField.setText(String.valueOf(AdbBridge.tcpPort(this)));
+        tcpPortField.setOnEditorActionListener((v, actionId, e) -> {
+            saveTcpPort();
+            return false;
+        });
+        tcpPortField.setOnFocusChangeListener((v, hasFocus) -> {
+            if (!hasFocus) saveTcpPort();
+        });
+        findViewById(R.id.adb_tcp_random).setOnClickListener(v -> {
+            int p = AdbBridge.randomTcpPort();
+            tcpPortField.setText(String.valueOf(p));
+            saveTcpPort();
         });
 
         findViewById(R.id.adb_btn_notification).setOnClickListener(v -> startNotificationPairing());
@@ -68,6 +89,12 @@ public final class AdbPairActivity extends Activity {
     protected void onResume() {
         super.onResume();
         refreshStatus();                   // the notification may have paired while we were away
+    }
+
+    @Override
+    protected void onPause() {
+        saveTcpPort();                     // a typed port is kept even if the user leaves without confirming
+        super.onPause();
     }
 
     @Override
@@ -101,6 +128,22 @@ public final class AdbPairActivity extends Activity {
         statusTitle.setText(paired ? R.string.adb_status_paired : R.string.adb_status_unpaired);
         statusDesc.setText(!paired ? R.string.adb_status_unpaired_desc
                 : AdbBridge.isTcpMode(this) ? R.string.adb_status_paired_desc_tcp : R.string.adb_status_paired_desc);
+    }
+
+    /** Saves the port in the field if it is 1024-65535; otherwise shows an error and puts the saved one back. */
+    private void saveTcpPort() {
+        String t = tcpPortField.getText().toString().trim();
+        int port = -1;
+        try {
+            port = Integer.parseInt(t);
+        } catch (NumberFormatException ignored) {
+        }
+        if (AdbBridge.setTcpPort(this, port)) {
+            if (!t.equals(String.valueOf(port))) tcpPortField.setText(String.valueOf(port));
+            return;
+        }
+        if (!t.isEmpty()) showMessage(getString(R.string.adb_tcp_port_invalid), true);
+        tcpPortField.setText(String.valueOf(AdbBridge.tcpPort(this)));
     }
 
     private void showMessage(CharSequence text, boolean error) {

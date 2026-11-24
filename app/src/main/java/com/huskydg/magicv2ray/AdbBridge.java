@@ -28,6 +28,9 @@ final class AdbBridge extends AbsAdbConnectionManager {
     private static final String K_CERT = "cert";
     private static final String K_PAIRED = "paired";
     private static final String K_TCP = "tcp_mode";
+    private static final String K_TCP_PORT = "tcp_port";
+    static final int MIN_TCP_PORT = 1024;
+    static final int MAX_TCP_PORT = 65535;
     private static final long TWENTY_YEARS_MS = 20L * 365 * 24 * 3600 * 1000;
 
     private static AdbBridge instance;
@@ -113,5 +116,41 @@ final class AdbBridge extends AbsAdbConnectionManager {
     static void setTcpMode(Context c, boolean on) {
         c.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit().putBoolean(K_TCP, on).apply();
+    }
+
+    /** True for a port TCP mode may use: 1024-65535 (below 1024 is privileged; adbd would not bind it safely). */
+    static boolean validTcpPort(int port) {
+        return port >= MIN_TCP_PORT && port <= MAX_TCP_PORT;
+    }
+
+    /**
+     * The port TCP mode listens on. By default a random port in 1024-65535, picked the first time it is needed and
+     * then kept (so every later start reconnects to the same port); the user can type another one or re-roll it.
+     */
+    static synchronized int tcpPort(Context c) {
+        android.content.SharedPreferences sp = c.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        int p = sp.getInt(K_TCP_PORT, 0);
+        if (validTcpPort(p)) return p;
+        p = randomTcpPort();
+        sp.edit().putInt(K_TCP_PORT, p).apply();
+        return p;
+    }
+
+    /** @return false (nothing saved) when {@code port} is outside 1024-65535 */
+    static boolean setTcpPort(Context c, int port) {
+        if (!validTcpPort(port)) return false;
+        c.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putInt(K_TCP_PORT, port).apply();
+        return true;
+    }
+
+    /** A random port in 1024-65535 that nothing on this phone is listening on right now. */
+    static int randomTcpPort() {
+        java.security.SecureRandom r = new java.security.SecureRandom();
+        for (int i = 0; i < 50; i++) {
+            int p = MIN_TCP_PORT + r.nextInt(MAX_TCP_PORT - MIN_TCP_PORT + 1);
+            if (!AdbPorts.listening(p)) return p;
+        }
+        return MIN_TCP_PORT + r.nextInt(MAX_TCP_PORT - MIN_TCP_PORT + 1);
     }
 }
