@@ -97,7 +97,7 @@ const ADDR_INFO_FILE = `${STUB_DIR}/run/addr_info`;
 const LOG_DIR = `${STUB_DIR}/logs`;
 // Refreshed by the UI while the Latency tab is visible. The backend probe
 // loop exits on its own once this stops being updated, so closing the WebUI
-// can no longer leave a per-second curl running until reboot.
+// can no longer leave a per-second probe running until reboot.
 const LATENCY_HB_FILE = `${STUB_DIR}/run/latency.hb`;
 // Root mode keeps xray's output in the service (ring buffer in RAM, read with `proxy_control log_read`).
 // Non-root mode has no service: the VpnService appends xray's output to this plain
@@ -549,6 +549,3 @@ const ABOUT_LINKS = {
     openxtun: "https://github.com/vincentng295/openxtun",
     curl: "https://github.com/vvb2060/curl-android"
 };
-
-// Direct (non-socks5) curl calls resolve names over DoH instead of the system resolver.
-const CURL_DOH_ARG = '--doh-url https://1.1.1.1/dns-query';

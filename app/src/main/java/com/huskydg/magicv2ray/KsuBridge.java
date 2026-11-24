@@ -76,6 +76,35 @@ final class KsuBridge {
         });
     }
 
+    /**
+     * ksu.httpRequest(optionsJson, callbackName) -> window[callbackName](code, body, metaJson).
+     * The WebUI's replacement for curl; options and result are described in {@link HttpBridge}.
+     * code 0 = ok, 1 = failed (metaJson.error says why). Runs in the app process, off the UI thread.
+     */
+    @JavascriptInterface
+    public void httpRequest(final String options, final String callback) {
+        if (callback == null || !CB_RE.matcher(callback).matches()) return;
+        POOL.execute(() -> {
+            HttpBridge.Reply r = HttpBridge.request(options);
+            deliver(callback, r.code, r.body, r.meta);
+        });
+    }
+
+    /**
+     * ksu.httpDownload(optionsJson, callbackName) -> window[callbackName](code, path, metaJson).
+     * Like httpRequest, but the body is streamed into a file in the app cache and {@code path} is that
+     * file. The caller moves it into place and removes it.
+     */
+    @JavascriptInterface
+    public void httpDownload(final String options, final String callback) {
+        if (callback == null || !CB_RE.matcher(callback).matches()) return;
+        final Context app = activity.getApplicationContext();
+        POOL.execute(() -> {
+            HttpBridge.Reply r = HttpBridge.download(app, options);
+            deliver(callback, r.code, r.body, r.meta);
+        });
+    }
+
     private String buildScript(String command, String options) {
         StringBuilder sb = new StringBuilder();
         // busybox applets (<moddir>/bin, root or non-root) come after the system tools in PATH

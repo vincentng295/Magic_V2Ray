@@ -430,7 +430,7 @@ const i18n = {
         // Toasts
         toast_empty_import: "Please paste a valid configuration or link.",
         toast_invalid_sub: "Invalid subscription link format.",
-        toast_fetch_failed: "Failed to fetch.\nReason: Network unreachable or curl not available.",
+        toast_fetch_failed: "Failed to fetch.\nReason: Network unreachable.",
         toast_fetch_reason: "Failed to fetch.\nReason: ",
         toast_no_configs_extracted: "No valid configs extracted.\nSupported: vless://, vmess://, trojan://, ss://, wireguard://, hysteria2://, masque://, socks://, http://",
         toast_reload_success: "Reloaded complete! Got {count} node(s) for \"{cat}\".",
@@ -1324,7 +1324,7 @@ const i18n = {
         // Toasts
         toast_empty_import: "请粘贴有效的配置或链接。",
         toast_invalid_sub: "订阅链接格式无效。",
-        toast_fetch_failed: "拉取失败。\n原因：网络不可达或 curl 不可用。",
+        toast_fetch_failed: "拉取失败。\n原因：网络不可达。",
         toast_fetch_reason: "拉取失败。\n原因：",
         toast_no_configs_extracted: "未提取到有效配置。\n支持格式：vless://、vmess://、trojan://、ss://、wireguard://、hysteria2://、masque://、socks://、http://",
         toast_reload_success: "重新加载完成！“{cat}” 获取到 {count} 个节点。",
@@ -2218,7 +2218,7 @@ const i18n = {
         // Toasts
         toast_empty_import: "請貼上有效的設定或連結。",
         toast_invalid_sub: "訂閱連結格式無效。",
-        toast_fetch_failed: "拉取失敗。\n原因：網路無法連線或 curl 無法使用。",
+        toast_fetch_failed: "拉取失敗。\n原因：網路無法連線。",
         toast_fetch_reason: "拉取失敗。\n原因：",
         toast_no_configs_extracted: "未擷取到有效設定。\n支援格式：vless://、vmess://、trojan://、ss://、wireguard://、hysteria2://、masque://、socks://、http://",
         toast_reload_success: "重新載入完成！「{cat}」取得 {count} 個節點。",
@@ -3112,7 +3112,7 @@ const i18n = {
         // Toasts
         toast_empty_import: "Vui lòng dán một liên kết hoặc cấu hình hợp lệ.",
         toast_invalid_sub: "Định dạng liên kết đăng ký không hợp lệ.",
-        toast_fetch_failed: "Tải thất bại.\nLý do: Không có mạng hoặc lệnh curl bị lỗi.",
+        toast_fetch_failed: "Tải thất bại.\nLý do: Không có kết nối mạng.",
         toast_fetch_reason: "Tải thất bại.\nLý do: ",
         toast_no_configs_extracted: "Không trích xuất được cấu hình hợp lệ.\nHỗ trợ: vless://, vmess://, trojan://, ss://, wireguard://, hysteria2://, masque://, socks://, http://",
         toast_reload_success: "Cập nhật thành công! Tìm thấy {count} nút cho nhóm \"{cat}\".",
@@ -3988,7 +3988,7 @@ const i18n = {
         menu_delete: "Удалить",
         toast_empty_import: "Вставьте действительную конфигурацию или ссылку.",
         toast_invalid_sub: "Неверный формат ссылки подписки.",
-        toast_fetch_failed: "Не удалось загрузить.\nПричина: сеть недоступна или curl недоступен.",
+        toast_fetch_failed: "Не удалось загрузить.\nПричина: сеть недоступна.",
         toast_fetch_reason: "Не удалось загрузить.\nПричина: ",
         toast_no_configs_extracted: "Не извлечено действительных конфигураций.\nПоддерживаются: vless://, vmess://, trojan://, ss://, wireguard://, hysteria2://, masque://, socks://, http://",
         toast_reload_success: "Обновление завершено! Получено {count} узел(ов) для «{cat}».",

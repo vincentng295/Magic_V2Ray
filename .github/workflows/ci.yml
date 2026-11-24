@@ -121,8 +121,14 @@ jobs:
             echo "::error::escapeAttr was removed; do not build event handlers as strings"
             fail=1
           fi
-          if grep -nE "curl[^\"'\`]*[[:space:]]-[a-zA-Z]*k" app/src/main/assets/webroot/*.js | grep -v "allowInsecure"; then
-            echo "::error::unconditional 'curl -k' reintroduced"
+          # The WebUI makes its HTTP requests through ksu.httpRequest / ksu.httpDownload (HttpBridge.java);
+          # a curl command must not come back. The only mention allowed is the about-page credit.
+          if grep -nE "curl" app/src/main/assets/webroot/*.js | grep -v "curl-android"; then
+            echo "::error::curl reintroduced in the WebUI, use httpRequest()"
+            fail=1
+          fi
+          if grep -nE "allowInsecureTls:[[:space:]]*true" app/src/main/assets/webroot/*.js; then
+            echo "::error::unconditional allowInsecureTls, it must follow the per-subscription opt-out"
             fail=1
           fi
           exit $fail

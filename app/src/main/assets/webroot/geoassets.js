@@ -196,15 +196,25 @@
         if (btn) btn.disabled = true;
         showToast(t('geo_downloading'), 'success');
         var D = shQuote(GEO_ASSETS_DIR), T = shQuote(GEO_ASSETS_DIR + '/' + target + '.new'), F = shQuote(GEO_ASSETS_DIR + '/' + target);
-        var out = await execShellAsync(
-            'umask 022\n' +
-            'mkdir -p ' + D + ' && chmod 755 ' + D + '\n' +
-            shQuote(MODDIR + '/bin/xhuskydg_helper') + ' curl' + ' ' + CURL_DOH_ARG + ' -fL --max-redirs 5 --connect-timeout 15 --max-time 600 -o ' + T + ' ' + shQuote(url) + ' 2>/dev/null || { rm -f ' + T + '; echo FAIL_DL; exit 0; }\n' +
-            // same sanity checks as the native importer: not tiny, and a protobuf list (first byte 0x0a)
-            '[ "$(stat -c %s ' + T + ' 2>/dev/null || echo 0)" -ge 16 ] || { rm -f ' + T + '; echo FAIL_SIZE; exit 0; }\n' +
-            '[ "$(head -c1 ' + T + ' | od -An -tx1 | tr -d \' \')" = "0a" ] || { rm -f ' + T + '; echo FAIL_FORMAT; exit 0; }\n' +
-            'chmod 644 ' + T + '; chown 0:0 ' + T + ' 2>/dev/null; chcon u:object_r:system_file:s0 ' + T + ' 2>/dev/null\n' +
-            'mv -f ' + T + ' ' + F + ' && echo OK || { rm -f ' + T + '; echo FAIL_MV; }');
+        // The app downloads into its cache (HttpBridge); a shell then moves the file into the geo
+        // directory, which only root can write in root mode.
+        var dl = await httpDownload({ url: url, schemes: 'http,https', maxRedirects: 5, connectTimeoutMs: 15000, timeoutMs: 600000 });
+        var out;
+        if (!dl.ok || !dl.path) {
+            out = 'FAIL_DL';
+        } else {
+            var S = shQuote(dl.path);
+            out = await execShellAsync(
+                'umask 022\n' +
+                'mkdir -p ' + D + ' && chmod 755 ' + D + '\n' +
+                'cp -f ' + S + ' ' + T + ' || { rm -f ' + S + ' ' + T + '; echo FAIL_DL; exit 0; }\n' +
+                'rm -f ' + S + '\n' +
+                // same sanity checks as the native importer: not tiny, and a protobuf list (first byte 0x0a)
+                '[ "$(stat -c %s ' + T + ' 2>/dev/null || echo 0)" -ge 16 ] || { rm -f ' + T + '; echo FAIL_SIZE; exit 0; }\n' +
+                '[ "$(head -c1 ' + T + ' | od -An -tx1 | tr -d \' \')" = "0a" ] || { rm -f ' + T + '; echo FAIL_FORMAT; exit 0; }\n' +
+                'chmod 644 ' + T + '; chown 0:0 ' + T + ' 2>/dev/null; chcon u:object_r:system_file:s0 ' + T + ' 2>/dev/null\n' +
+                'mv -f ' + T + ' ' + F + ' && echo OK || { rm -f ' + T + '; echo FAIL_MV; }');
+        }
         busy = false;
         if (btn) btn.disabled = false;
         if (out.indexOf('OK') >= 0 && out.indexOf('FAIL') < 0) {

@@ -126,6 +126,56 @@ function execShellAsync(cmd) {
         });
     });
 }
+// ---------------------------------------------------------------------------
+// HTTP through the APK bridge (ksu.httpRequest / ksu.httpDownload, see HttpBridge.java).
+// The WebUI makes its HTTP requests in the app itself (system trust store and
+// resolver), so nothing from a URL, a header or a body ever reaches a shell.
+//
+// httpRequest({url, method, headers, body, socks, schemes, maxRedirects, timeoutMs, connectTimeoutMs,
+//              maxBytes, failOnError, allowInsecureTls, encoding}) resolves, never rejects, with
+//   {ok, status, body, finalUrl, ttfbMs, totalMs, size, error}
+// httpDownload(...) takes the same options and puts the body in a cache file: the result's `path`.
+// `socks` ("127.x.y.z:port") sends the request through a loopback SOCKS5 inbound, host name unresolved.
+// ---------------------------------------------------------------------------
+function _bridgeHttp(fn, opts) {
+    return new Promise((resolve) => {
+        const fail = (error) => resolve({
+            ok: false, status: 0, body: '', path: '', finalUrl: '', ttfbMs: null, totalMs: null, size: 0, error
+        });
+        const k = window.ksu;
+        if (!k || typeof k[fn] !== 'function') { fail('HTTP bridge not available'); return; }
+        const cbId = `cb_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+        window[cbId] = (code, body, metaJson) => {
+            delete window[cbId];
+            let meta = {};
+            try { meta = JSON.parse(metaJson || '{}'); } catch (e) { /* keep {} */ }
+            const ok = code === 0 && meta.ok !== false;
+            resolve({
+                ok,
+                status: meta.status || 0,
+                body: fn === 'httpDownload' ? '' : String(body || ''),
+                path: fn === 'httpDownload' && ok ? String(body || '') : '',
+                finalUrl: meta.finalUrl || '',
+                ttfbMs: typeof meta.ttfbMs === 'number' ? meta.ttfbMs : null,
+                totalMs: typeof meta.totalMs === 'number' ? meta.totalMs : null,
+                size: meta.size || 0,
+                error: ok ? '' : (meta.error || 'request failed')
+            });
+        };
+        try { k[fn](JSON.stringify(opts || {}), cbId); }
+        catch (e) { delete window[cbId]; fail(String(e && e.message || e)); }
+    });
+}
+function httpRequest(opts) { return _bridgeHttp('httpRequest', opts); }
+function httpDownload(opts) { return _bridgeHttp('httpDownload', opts); }
+const _sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// While the engine runs, fetches go out through its local SOCKS5 inbound so they use the tunnel;
+// otherwise '' = a direct request.
+async function _socksIfRunning() {
+    const status = await execShellAsync(`${MODDIR}/bin/xhuskydg_helper proxy_control status`);
+    return status === 'running' ? `${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT}` : '';
+}
 
 // ---------------------------------------------------------------------------
 // Shell-safety layer.
@@ -408,7 +458,7 @@ async function _resolveDomainViaServers(domain, servers) {
 // category usually shares a handful of server domains, so lookups are shared between
 // concurrent probes and kept for a short while. Empty answers are never kept.
 const SYSDNS_PROBE_TTL_MS = 30000;
-const SYSDNS_PROBE_TIMEOUT_MS = 4000; // a probe must not wait long for DNS before its own 3s curl
+const SYSDNS_PROBE_TIMEOUT_MS = 4000; // a probe must not wait long for DNS before its own 3s request
 const _sysDnsProbeCache = new Map();  // "domain|servers" -> { at, p }
 
 function _resolveDomainCached(domain, servers) {
@@ -1019,15 +1069,14 @@ async function refreshProxyInfo() {
     if (panel) panel.classList.add('loading');
     _pinfoState(t('pinfo_checking'), 'busy');
     try {
-        const out = await execShellAsync(
-            `${MODDIR}/bin/xhuskydg_helper curl --socks5-hostname ${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT} -s ` +
-            `--max-time 8 -w '\\n__T__%{time_total}' https://api.ip.sb/geoip 2>/dev/null`
-        );
-        const raw = String(out || '');
-        const cut = raw.lastIndexOf('\n__T__');
-        const body = (cut >= 0 ? raw.slice(0, cut) : raw).trim();
-        const secs = cut >= 0 ? parseFloat(raw.slice(cut + 6)) : NaN;
-        const ms = isFinite(secs) ? Math.round(secs * 1000) : null;
+        const res = await httpRequest({
+            url: 'https://api.ip.sb/geoip',
+            socks: `${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT}`,
+            timeoutMs: 8000,
+            failOnError: false
+        });
+        const body = res.body.trim();
+        const ms = res.ok && res.totalMs !== null ? res.totalMs : null;
 
         let d = null;
         try { d = JSON.parse(body); } catch (e) { /* handled below */ }
@@ -1187,42 +1236,40 @@ async function fetchSubscription(category, url, isReload = false) {
     _subFetching.add(category);
     renderProfiles();
 
-    const status = await execShellAsync(`${MODDIR}/bin/xhuskydg_helper proxy_control status`);
-    const viaProxy = (status === 'running') ? `--socks5-hostname ${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT}` : CURL_DOH_ARG;
+    const socks = await _socksIfRunning();
 
     // Certificate validation is ON by default. It used to be disabled
-    // unconditionally (-k), which let any on-path attacker substitute the
+    // unconditionally, which let any on-path attacker substitute the
     // subscription body — and subscription content reaches a root shell.
     // Hosts with a self-signed certificate can opt out per subscription.
     const allowInsecure = profiles[category]?.insecure === true;
-    const tlsArgs = allowInsecure ? "-k" : "";
     if (allowInsecure) {
         showToast(t('toast_sub_insecure_warn'), 'info');
     }
 
     const userAgent = (profiles[category]?.useragent || "").trim() || DEFAULT_SUB_USERAGENT;
 
-    // bin/curl is a symlink to xhuskydg_helper; older installs without it fall back to the subcommand.
-    // The CA directory is passed explicitly: the bundled BoringSSL has no Android default, so
-    // without it every https:// fetch dies with "SSL certificate problem".
-    const curlBin = `$( [ -x ${shQuote(MODDIR + '/bin/curl')} ] && echo ${shQuote(MODDIR + '/bin/curl')} || echo "${MODDIR}/bin/xhuskydg_helper curl" )`;
-    const caArg = allowInsecure ? '' :
-        '$( for d in /apex/com.android.conscrypt/cacerts /system/etc/security/cacerts; do ' +
-        '[ -d "$d" ] && { echo "--capath $d"; break; }; done )';
-    const cmd = `${curlBin} ${viaProxy} ${tlsArgs} ${caArg} -sSL -f --max-redirs 3 ` +
-                `-A ${shQuote(userAgent)} ` +
-                `--proto '=http,https' --proto-redir '=http,https' ` +
-                `--max-time 15 -- ${shQuote(url)}`;
+    // Made by the app (HttpBridge): the system trust store validates https, and the URL, the
+    // user agent and the flag never pass through a shell.
+    const r = await httpRequest({
+        url,
+        socks,
+        headers: { 'User-Agent': userAgent },
+        schemes: 'http,https',
+        maxRedirects: 3,
+        timeoutMs: 15000,
+        maxBytes: 16 * 1024 * 1024,
+        allowInsecureTls: allowInsecure
+    });
 
-    execShell(cmd, (res, stderr, errno) => {
+    {
+        const res = r.ok ? r.body : '';
+        const stderr = r.error || '';
+        const errno = r.ok ? 0 : 1;
         if (!res || res.trim() === "") {
             _endSubFetch(category);
             const why = (stderr || '').split('\n').filter(Boolean).pop() || (errno ? 'exit ' + errno : '');
             return showToast(t('toast_fetch_failed') + (why ? ' — ' + why : ''), "error");
-        }
-        if (res.includes("Failed to connect") || res.includes("Could not resolve")) {
-            _endSubFetch(category);
-            return showToast(t('toast_fetch_reason') + res.split('\n')[0], "error");
         }
 
         // A subscription body is either a plain URI list or one big base64
@@ -1244,7 +1291,7 @@ async function fetchSubscription(category, url, isReload = false) {
             categoryExpandedState[category] = false;
             renderProfiles();
         }
-    });
+    }
 }
  
 function buildNodeKey(node) {
@@ -2890,12 +2937,9 @@ function _warpReservedFromClientId(clientId) {
 // presses Save — running it again just overwrites the form fields with a
 // brand-new account ("Generate new account").
 //
-// Two separate shell round-trips, both plain literal commands (no sed, no
-// shell-side JSON building): (1) run `xray wg genkey` and parse its text
-// output in JS, (2) curl the registration endpoint with the parsed public
-// key — shQuote()'d, since it now round-trips through this file's own
-// string handling before going back to the shell — and parse the JSON
-// response in JS.
+// Two steps: (1) run `xray wg genkey` in the shell and parse its text output in JS,
+// (2) POST the parsed public key to the registration endpoint through the app's HTTP bridge
+// (no shell involved, so nothing needs quoting) and parse the JSON response in JS.
 async function generateWarpAccount() {
     await asyncShowLoading(t('btn_generate_warp_running'));
     try {
@@ -2912,11 +2956,18 @@ async function generateWarpAccount() {
             model: 'Android',
             locale: 'en_US'
         });
-        const jsonText = await execShellAsync(
-            `${MODDIR}/bin/xhuskydg_helper curl -fsSL --max-time 15 -X POST "https://api.cloudflareclient.com/v0a2158/reg" ` +
-            `-H "CF-Client-Version: a-7.21-0721" -H "User-Agent: okhttp/0.7.21" ` +
-            `-H "Content-Type: application/json; charset=UTF-8" -d ${shQuote(body)}`
-        );
+        const regRes = await httpRequest({
+            url: 'https://api.cloudflareclient.com/v0a2158/reg',
+            method: 'POST',
+            headers: {
+                'CF-Client-Version': 'a-7.21-0721',
+                'User-Agent': 'okhttp/0.7.21',
+                'Content-Type': 'application/json; charset=UTF-8'
+            },
+            body,
+            timeoutMs: 15000
+        });
+        const jsonText = regRes.ok ? regRes.body : '';
 
         let reg = null;
         try { reg = JSON.parse(jsonText); } catch (e) { reg = null; }
@@ -5108,7 +5159,7 @@ function closeImportRoutingModal() {
     document.getElementById('import-routing-modal').style.display = 'none';
 }
 
-// Fetches a routing preset JSON array from a URL (same curl path used for
+// Fetches a routing preset JSON array from a URL (same HTTP bridge used for
 // subscriptions, including the local SOCKS5 hop when the proxy is running so
 // the fetch itself doesn't leak outside the tunnel) and drops the raw result
 // into the textarea for review before the user confirms the import.
@@ -5121,24 +5172,24 @@ async function fetchRoutingPresetFromUrl() {
         return showToast(t('toast_invalid_sub'), 'error');
     }
 
-    const status = await execShellAsync(`${MODDIR}/bin/xhuskydg_helper proxy_control status`);
-    const viaProxy = (status === 'running') ? `--socks5-hostname ${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT}` : CURL_DOH_ARG;
+    const socks = await _socksIfRunning();
 
-    // Certificate validation is ON by default, matching fetchSubscription().
-    // Routing presets reach a root shell just like subscription bodies do,
-    // so the same TLS and shell-quoting hardening applies here.
-    const cmd = `${MODDIR}/bin/xhuskydg_helper curl ${viaProxy} -sSL -f --max-redirs 3 ` +
-                `--proto '=http,https' --proto-redir '=http,https' ` +
-                `--max-time 15 ${shQuote(url)}`;
-
+    // Certificate validation is always ON here, matching fetchSubscription(). The request is made
+    // by the app, so the URL never reaches a shell.
     await asyncShowLoading('toast_fetch_sub');
-    execShell(cmd, (res) => {
+    const r = await httpRequest({
+        url,
+        socks,
+        schemes: 'http,https',
+        maxRedirects: 3,
+        timeoutMs: 15000,
+        maxBytes: 8 * 1024 * 1024
+    });
+    {
+        const res = r.ok ? r.body : '';
         hideLoading();
         if (!res || res.trim() === "") {
-            return showToast(t('toast_fetch_failed'), 'error');
-        }
-        if (res.includes("Failed to connect") || res.includes("Could not resolve")) {
-            return showToast(t('toast_fetch_reason') + res.split('\n')[0], 'error');
+            return showToast(t('toast_fetch_failed') + (r.error ? ' — ' + r.error : ''), 'error');
         }
 
         try {
@@ -5149,7 +5200,7 @@ async function fetchRoutingPresetFromUrl() {
         } catch (e) {
             showToast(t('toast_rules_import_invalid'), 'error');
         }
-    });
+    }
 }
 
 function importRoutingRulesFromJson() {
@@ -5417,7 +5468,7 @@ async function _tcpPing(host, port, timeoutMs = TCPING_TIMEOUT_MS) {
 }
 
 // Probe config for one isolated xray.
-// mode 'socks' (Check IP): a throwaway socks-test-in inbound for curl.
+// mode 'socks' (Check IP): a throwaway socks-test-in inbound the app's HTTP bridge goes through.
 // mode 'obs'   (Check HTTP): no inbound at all; xray's gRPC API listens on the same
 //                            testIp:testPort and the observatory probes the node itself.
 function _buildXrayTestInbound(baseCfgStr, slot, mode = 'socks', probeUrl = DELAY_TEST_URL) {
@@ -5488,6 +5539,42 @@ function _buildProbeScript(tmpFile, configB64, innerCmd, settleSec = 1) {
         trap - EXIT
         printf '%s' "$RES"
     `;
+}
+// Probes whose request is made by the app (httpRequest through the probe's SOCKS inbound) only need
+// the throwaway xray running: _startProbeXray() starts it and returns a handle for _stopProbeXray(),
+// or '' when it could not be started. A watchdog kills it and deletes the config after
+// PROBE_XRAY_TTL_S even if the WebUI never gets to _stopProbeXray(), so an interrupted probe cannot
+// leave a root xray running with the node's credentials. The pid is checked against the config
+// path before every kill, so a recycled pid is never hit.
+const PROBE_XRAY_TTL_S = 40;
+async function _startProbeXray(tmpFile, configB64) {
+    const out = await execShellAsync(`
+        umask 077
+        mkdir -p ${shQuote(STUB_DIR + '/run/nodetest')} 2>/dev/null
+        chmod 700 ${shQuote(STUB_DIR + '/run/nodetest')} 2>/dev/null
+        printf '%s' ${shQuote(configB64)} | base64 -d > ${shQuote(tmpFile)}
+        if [ -s ${shQuote(GEO_ASSETS_DIR + '/geoip.dat')} ] && [ -s ${shQuote(GEO_ASSETS_DIR + '/geosite.dat')} ]; then
+            export XRAY_LOCATION_ASSET=${shQuote(GEO_ASSETS_DIR)}
+        else
+            export XRAY_LOCATION_ASSET=${shQuote(MODDIR + '/bin')}
+        fi
+        ${MODDIR}/bin/xray run -c ${shQuote(tmpFile)} >/dev/null 2>&1 &
+        XPID=$!
+        ( sleep ${PROBE_XRAY_TTL_S}
+          grep -qa ${shQuote(tmpFile)} /proc/$XPID/cmdline 2>/dev/null && kill -9 $XPID 2>/dev/null
+          rm -f ${shQuote(tmpFile)} ) >/dev/null 2>&1 &
+        printf '%s %s' "$XPID" "$!"
+    `);
+    return /^\d+ \d+$/.test(out) ? out : '';
+}
+
+async function _stopProbeXray(handle, tmpFile) {
+    const h = /^(\d+) (\d+)$/.exec(handle || '');
+    if (!h) return;
+    await execShellAsync(
+        `grep -qa ${shQuote(tmpFile)} /proc/${h[1]}/cmdline 2>/dev/null && kill -9 ${h[1]} 2>/dev/null; ` +
+        `kill -9 ${h[2]} 2>/dev/null; rm -f ${shQuote(tmpFile)}`
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -5591,7 +5678,7 @@ async function _runRealDelay(node, show, fallback) {
     if (ms >= 0) show(`${ms}ms`, PING_GREEN); else show("?", PING_RED);
 }
 
-// Check IP: the egress address, fetched with curl through a throwaway socks inbound
+// Check IP: the egress address, fetched by the HTTP bridge through a throwaway socks inbound
 // (the observatory cannot return a body).
 async function _runIpCheck(node, show) {
     let baseCfgStr;
@@ -5610,12 +5697,23 @@ async function _runIpCheck(node, show) {
             timeoutMs: SYSDNS_PROBE_TIMEOUT_MS
         });
         const configB64 = utoa(finalConfig);
-        const innerCmd = `RES=$(${MODDIR}/bin/xhuskydg_helper curl --socks5-hostname ${testIp}:${testPort} -s ` +
-            `--max-time 3 https://icanhazip.com 2>/dev/null)`;
-        const output = await execShellAsync(
-            `timeout 15 sh -c ${shQuote(_buildProbeScript(tmpFile, configB64, innerCmd, 1))}`
-        );
-        const ip = output.trim();
+        const probe = await _startProbeXray(tmpFile, configB64);
+        if (!probe) { show("?", PING_RED); return; }
+        let ip = '';
+        try {
+            // xray needs a moment to open its inbound, so a refused connection is retried.
+            for (let i = 0; i < 4 && !ip; i++) {
+                const r = await httpRequest({
+                    url: 'https://icanhazip.com',
+                    socks: `${testIp}:${testPort}`,
+                    timeoutMs: 3000
+                });
+                ip = r.ok ? r.body.trim() : '';
+                if (!ip && i < 3) await _sleep(500);
+            }
+        } finally {
+            await _stopProbeXray(probe, tmpFile);
+        }
         if (/^[0-9a-fA-F:.]{3,45}$/.test(ip)) show(ip, PING_GREEN); else show("?", PING_RED);
     } finally {
         _releaseTestSlot(slot);
@@ -5679,7 +5777,7 @@ async function runNodeTest(event, category, nodeId, mode) {
 
 // ---------------------------------------------------------------------------
 // Country flags. The exit country of a node comes from Cloudflare's trace
-// (https://cloudflare.com/cdn-cgi/trace, field "loc") fetched THROUGH the node with curl, the
+// (https://cloudflare.com/cdn-cgi/trace, field "loc") fetched THROUGH the node with the HTTP bridge, the
 // same way "Check IP" does. The flag is stored on the node (node.loc = lowercase ISO code) and
 // drawn to the left of its name from flag/flags_w40/<code>.png; unknown.png is the fallback for
 // failures and for codes without an image.
@@ -5745,7 +5843,7 @@ async function _fetchNodeLoc(node) {
         target = _nodeProbeTarget(JSON.parse(baseCfgStr));
     } catch (e) { return ''; }
 
-    // A dead server fails fast instead of starting xray and waiting out curl.
+    // A dead server fails fast instead of starting xray and waiting out the request.
     if (target && !target.udp) {
         const host = await _resolveDialHosts(baseCfgStr, target);
         if (await _tcpPing(host, target.port, TCPING_TIMEOUT_MS * 2) < 0) return '';
@@ -5761,18 +5859,25 @@ async function _fetchNodeLoc(node) {
             timeoutMs: SYSDNS_PROBE_TIMEOUT_MS
         });
         const configB64 = utoa(finalConfig);
-        // xray needs a moment to open its inbound, so the request is retried a few times.
-        const innerCmd = `RES=""
-        for i in 1 2 3 4; do
-            RES=$(${MODDIR}/bin/xhuskydg_helper curl --socks5-hostname ${testIp}:${testPort} -s -L --max-redirs 2 ` +
-            `--max-time 4 ${shQuote(FLAG_TRACE_URL)} 2>/dev/null)
-            case "$RES" in *loc=*) break;; esac
-            sleep 1
-        done`;
-        const output = await execShellAsync(
-            `timeout 22 sh -c ${shQuote(_buildProbeScript(tmpFile, configB64, innerCmd, 0))}`
-        );
-        return _parseTraceLoc(output);
+        const probe = await _startProbeXray(tmpFile, configB64);
+        if (!probe) return '';
+        let text = '';
+        try {
+            // xray needs a moment to open its inbound, so the request is retried a few times.
+            for (let i = 0; i < 4; i++) {
+                const r = await httpRequest({
+                    url: FLAG_TRACE_URL,
+                    socks: `${testIp}:${testPort}`,
+                    maxRedirects: 2,
+                    timeoutMs: 4000
+                });
+                if (r.ok && /loc=/.test(r.body)) { text = r.body; break; }
+                if (i < 3) await _sleep(1000);
+            }
+        } finally {
+            await _stopProbeXray(probe, tmpFile);
+        }
+        return _parseTraceLoc(text);
     } catch (e) {
         console.warn('[flag] lookup failed', e);
         return '';
@@ -6844,14 +6949,17 @@ let _latencyBusy = false;
 function pollLatencyNonRoot() {
     if (_latencyBusy) return;
     _latencyBusy = true;
-    execShell(
-        `${shQuote(MODDIR + '/bin/xhuskydg_helper') + ' curl'} --socks5-hostname ${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT} ` +
-        `-s -o /dev/null -w '%{time_starttransfer}' --max-time 3 http://gstatic.com/generate_204 2>/dev/null`,
-        (output) => {
+    httpRequest({
+        url: 'http://gstatic.com/generate_204',
+        socks: `${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT}`,
+        schemes: 'http',
+        maxRedirects: 0,
+        timeoutMs: 3000,
+        failOnError: false
+    }).then((res) => {
             _latencyBusy = false;
             if (!_isLatencyTabActive() || document.hidden) return;   // left the tab meanwhile
-            const num = parseFloat(output);
-            const ms = (!isNaN(num) && num > 0) ? Math.round(num * 1000) : null;
+            const ms = (res.ok && res.ttfbMs > 0) ? res.ttfbMs : null;   // time to first byte
             _latencySamples.push({ ms });
             if (_latencySamples.length > LATENCY_MAX_SAMPLES) _latencySamples.shift();
             const dot = document.getElementById('latency-status-dot');
@@ -6861,8 +6969,7 @@ function pollLatencyNonRoot() {
             let addr = '';              // underlying network from ConnectivityManager (no netlink without root)
             try { addr = String(ksu.networkInfo() || ''); } catch (e) { /* older bridge */ }
             renderNetworkInterfaceInfo(addr);
-        }
-    );
+    });
 }
 
 function pollLatency() {
@@ -6881,8 +6988,8 @@ function pollLatency() {
             const raw = (parts[0] || '').trim();
             const addrRaw = parts[1] || '';
             const num = parseFloat(raw);
-            // service.sh writes seconds (curl's %{time_starttransfer}); empty/0/NaN means
-            // the probe timed out or never completed within curl's --max-time window.
+            // service.sh writes seconds to the first byte; empty/0/NaN means the probe timed out
+            // or never completed within its time window.
             const ms = (raw !== '' && !isNaN(num) && num > 0) ? Math.round(num * 1000) : null;
 
             _latencySamples.push({ ms });
@@ -7520,11 +7627,17 @@ async function refreshProviderInfo(category) {
     _providerInfoBusy.add(category);
     try {
         const site = cat.website;
-        const status = await execShellAsync(`${MODDIR}/bin/xhuskydg_helper proxy_control status`);
-        const viaProxy = (status === 'running') ? `--socks5-hostname ${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT}` : CURL_DOH_ARG;
-        const curl = `${MODDIR}/bin/xhuskydg_helper curl ${viaProxy} -sSL -f --max-redirs 3 --proto '=https' ` +
-                     `--proto-redir '=https' --max-time 15 -A ${shQuote(_PROVIDER_UA)}`;
-        const html = await execShellAsync(`${curl} --max-filesize 3000000 ${shQuote(site)} | head -c 400000`);
+        const socks = await _socksIfRunning();
+        const fetchPage = (u, extra) => httpRequest(Object.assign({
+            url: u,
+            socks,
+            schemes: 'https',
+            maxRedirects: 3,
+            timeoutMs: 15000,
+            headers: { 'User-Agent': _PROVIDER_UA }
+        }, extra));
+        const page = await fetchPage(site, { maxBytes: 3000000 });
+        const html = page.ok ? page.body.slice(0, 400000) : '';
 
         let title = '';
         const cands = [];
@@ -7552,7 +7665,8 @@ async function refreshProviderInfo(category) {
         let icon = '';
         for (const c of cands.slice(0, 4)) {
             if (c.startsWith('data:')) { icon = c; break; }
-            const b64 = ((await execShellAsync(`${curl} --max-filesize 300000 ${shQuote(c)} | base64 | tr -d '\\n'`)) || '').trim();
+            const ico = await fetchPage(c, { maxBytes: 300000, encoding: 'base64' });
+            const b64 = ico.ok ? ico.body.trim() : '';
             const mime = /^[A-Za-z0-9+/=]+$/.test(b64) && b64.length < 420000 ? _iconMime(b64) : null;
             if (mime) { icon = `data:${mime};base64,${b64}`; break; }
         }
