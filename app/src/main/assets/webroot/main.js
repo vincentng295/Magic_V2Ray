@@ -1060,6 +1060,72 @@ function _pinfoState(text, kind) {
     el.hidden = false;
 }
 
+
+// ---- Geo-IP sources for the proxy info panel (raced in parallel) ----
+const _GEO_IP_RE = /^[0-9a-fA-F:.]{3,45}$/;
+
+function _normGeoIpSb(d) {
+    if (!d || typeof d !== 'object' || !_GEO_IP_RE.test(String(d.ip || ''))) return null;
+    return {
+        ip: d.ip, isp: d.isp, organization: d.organization || d.asn_organization,
+        asn: d.asn, country: d.country, country_code: d.country_code,
+        region: d.region, region_code: d.region_code, city: d.city,
+        timezone: d.timezone, postal_code: d.postal_code,
+        continent_code: d.continent_code, latitude: d.latitude, longitude: d.longitude
+    };
+}
+
+function _normGeoIpWho(d) {
+    if (!d || typeof d !== 'object' || d.success === false || !_GEO_IP_RE.test(String(d.ip || ''))) return null;
+    const c = d.connection || {}, tz = d.timezone || {};
+    return {
+        ip: d.ip, isp: c.isp, organization: c.org, asn: c.asn,
+        country: d.country, country_code: d.country_code,
+        region: d.region, region_code: d.region_code, city: d.city,
+        timezone: tz.id, postal_code: d.postal,
+        continent_code: d.continent_code, latitude: d.latitude, longitude: d.longitude
+    };
+}
+
+// "Complete" = enough fields to fill the panel: address, ISP/ASN, country, region/city, coordinates.
+function _geoComplete(d) {
+    return !!(d && d.ip && d.country_code && (d.isp || d.organization) && d.asn &&
+        (d.city || d.region) && d.latitude != null && d.longitude != null);
+}
+
+const _GEO_SOURCES = [
+    { url: 'https://api.ip.sb/geoip', norm: _normGeoIpSb },
+    { url: 'https://ipwho.is/', norm: _normGeoIpWho }
+];
+
+// Resolves { d, ms } with the first complete reply, else the first valid one, else { d: null }.
+function _fetchGeoRace() {
+    return new Promise((resolve) => {
+        let pending = _GEO_SOURCES.length, done = false, partial = null;
+        const finish = (v) => { if (!done) { done = true; resolve(v); } };
+        _GEO_SOURCES.forEach((src) => {
+            (async () => {
+                try {
+                    const res = await httpRequest({
+                        url: src.url,
+                        socks: `${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT}`,
+                        timeoutMs: 8000,
+                        failOnError: false
+                    });
+                    let d = null;
+                    try { d = src.norm(JSON.parse(res.body.trim())); } catch (e) { /* invalid */ }
+                    if (d) {
+                        const ms = res.ok && res.totalMs !== null ? res.totalMs : null;
+                        if (_geoComplete(d)) finish({ d, ms });
+                        else if (!partial) partial = { d, ms };
+                    }
+                } catch (e) { /* this source failed; the other may still answer */ }
+                if (--pending === 0) finish(partial || { d: null, ms: null });
+            })();
+        });
+    });
+}
+
 async function refreshProxyInfo() {
     if (_pinfoBusy) return;
     _pinfoBusy = true;
@@ -1069,24 +1135,17 @@ async function refreshProxyInfo() {
     if (panel) panel.classList.add('loading');
     _pinfoState(t('pinfo_checking'), 'busy');
     try {
-        const res = await httpRequest({
-            url: 'https://api.ip.sb/geoip',
-            socks: `${SOCKS_TEST_ADDR}:${SOCKS_TEST_PORT}`,
-            timeoutMs: 8000,
-            failOnError: false
-        });
-        const body = res.body.trim();
-        const ms = res.ok && res.totalMs !== null ? res.totalMs : null;
-
-        let d = null;
-        try { d = JSON.parse(body); } catch (e) { /* handled below */ }
-        if (!d || typeof d !== 'object' || !d.ip || !/^[0-9a-fA-F:.]{3,45}$/.test(String(d.ip))) {
+        // api.ip.sb and ipwho.is are queried in parallel; the first reply that is
+        // valid AND complete wins. An incomplete reply is only used when the
+        // other source fails or is incomplete too.
+        const { d, ms } = await _fetchGeoRace();
+        if (!d) {
             _PINFO_FIELDS.forEach(f => _pinfoSet(f, null));
             _pinfoState(t('pinfo_failed'), 'error');
             return;
         }
         const isp = d.isp || '';
-        const org = d.organization || d.asn_organization || '';
+        const org = d.organization || '';
         _pinfoSet('ip', d.ip);
         _pinfoSet('isp', isp);
         _pinfoSet('org', org);
