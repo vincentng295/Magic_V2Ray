@@ -36,8 +36,11 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 final class ExternalApi {
 
-    /** Bump when the API gains something an app may need to test for. Level 1: info + state events. */
-    static final int API_LEVEL = 1;
+    /**
+     * Bump when the API gains something an app may need to test for. Level 1: info + state events.
+     * Level 2: nodes (permission-gated, apps only) and freedom:// / chain:// / nodeid:// as the node of a connect.
+     */
+    static final int API_LEVEL = 2;
 
     static final String ACTION_GET_INFO = "com.huskydg.magicv2ray.action.GET_INFO";
     static final String ACTION_STATE_CHANGED = "com.huskydg.magicv2ray.event.STATE_CHANGED";
@@ -130,9 +133,17 @@ final class ExternalApi {
                 .put("overrides", arr("traffic", "network", "exclude", "routing", "hosts"))
                 .put("provider", new JSONObject()
                         .put("authority", ExternalApiProvider.AUTHORITY)
-                        .put("methods", arr(ExternalApiProvider.METHOD_INFO, ExternalApiProvider.METHOD_STATE))
+                        .put("methods", arr(ExternalApiProvider.METHOD_INFO, ExternalApiProvider.METHOD_STATE,
+                                ExternalApiProvider.METHOD_NODES, ExternalApiProvider.METHOD_ACTIVE_NODE,
+                                ExternalApiProvider.METHOD_NODE_ACCESS))
                         .put("uris", arr(ExternalApiProvider.INFO_URI.toString(), ExternalApiProvider.STATE_URI.toString())))
-                .put("features", arr("connect", "disconnect", "overrides", "exclude", "info", "state_events", "state_provider"));
+                .put("nodes", new JSONObject()
+                        .put("requestAction", ExternalNodes.ACTION_REQUEST_ACCESS)
+                        .put("levels", arr(ExternalNodes.LEVEL_ANONYMOUS, ExternalNodes.LEVEL_FULL)))
+                .put("connectUris", arr(ExternalNodes.FREEDOM_URI, ExternalNodes.CHAIN_PREFIX + "<urlencode(JSON array)>",
+                        ExternalNodes.NODEID_PREFIX + "<id>"))
+                .put("features", arr("connect", "disconnect", "overrides", "exclude", "info", "state_events", "state_provider",
+                        "nodes", "node_access_request", "connect_freedom", "connect_chain", "connect_nodeid"));
     }
 
     /**

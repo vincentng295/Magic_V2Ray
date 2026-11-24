@@ -8,7 +8,12 @@
 //   startActivity / sendBroadcast with the action com.huskydg.magicv2ray.action.CONNECT | DISCONNECT
 //     and the extras uri, name, exclude, overrides              (see ExternalSession.java)
 //
-// `uri` is optional when `overrides` is given: the node the user selected keeps being used.
+// `uri` is optional when `overrides` is given: the node the user selected keeps being used. Besides a normal node uri it
+// may be (API level 2):
+//   freedom://localhost                            the built-in "no proxy" node (xray as a pure router)
+//   chain://localhost/?hopList=<urlencode(JSON array of node uris)>     a proxy chain of 2..16 hops, entry hop first
+//   nodeid://<id>                                  one of the user's own nodes, alone or as a hop; only for a verified app that
+//                                                  was allowed to read nodes (ExternalNodes / ExternalNodeAccessActivity)
 //
 // overrides = { traffic: {...}, network: {...}, exclude: {...}, routing: {...}, hosts: {...} }, see
 // ExternalSession.sanitizeOverrides for the exact (whitelisted) keys. They are applied to a COPY of the user's settings.
@@ -143,12 +148,77 @@ function _extIsLocalTarget(address) {
     }
 }
 
-function _extExcludes(req, node) {
+// `entry` = the node the device dials first (the entry hop of a chain), null for freedom://.
+function _extExcludes(req, entry) {
     const set = new Set(Array.isArray(req.exclude) ? req.exclude : []);
     // verified native caller that serves the local SOCKS5: exclude it by itself
-    if (node && req.caller && !req.browser && _extIsLocalTarget(node.address)) set.add(req.caller);
+    if (entry && req.caller && !req.browser && _extIsLocalTarget(entry.address)) set.add(req.caller);
     set.delete(EXT_SELF_PKG);                 // the app itself is never inside its own VPN
     return Array.from(set);
+}
+
+// The user's own node with this id (a policy group is not a node). Same id in two categories = the same node.
+function _extFindNodeById(id) {
+    for (const cat of Object.keys(profiles)) {
+        const n = (profiles[cat]?.nodes || []).find(x => x.id === id && !_isGroupNode(x));
+        if (n) return n;
+    }
+    return null;
+}
+
+// What the request's `uri` stands for -> { ok:true, rawUri, node, entry, text } | { ok:false, error }.
+//   node  = shown node (the exit hop of a chain), entry = node the device dials first (null: nothing to dial, freedom://)
+//   text  = one line for the dialog
+function _extResolveUri(req) {
+    const uri = String(req.uri || '').trim();
+    const native = !!(req.caller && !req.browser);
+    const bad = { ok: false, error: t('ext_err_bad_uri') };
+    // nodeid:// is the user's own node: only a verified app that may read nodes can use it (re-checked here, not only natively)
+    const mayUseNodes = () => native && typeof window.ksu?.nodeAccessLevel === 'function' && !!window.ksu.nodeAccessLevel(req.caller);
+    const one = (u, inChain) => {
+        if (/^nodeid:\/\//i.test(u)) {
+            if (!mayUseNodes()) return { error: t('ext_err_nodeid_denied') };
+            const n = _extFindNodeById(u.slice(9).trim());
+            if (!n) return { error: t('ext_err_nodeid_unknown') };
+            if (inChain && n.protocol === 'chain') return { error: t('ext_err_bad_uri') };
+            return { node: n };
+        }
+        const n = parseProxyUri(u);
+        return n ? { node: n } : { error: t('ext_err_bad_uri') };
+    };
+
+    if (/^freedom:\/\//i.test(uri)) {
+        return { ok: true, rawUri: DIRECT_NODE_URI, node: { protocol: 'freedom', address: '', port: '' }, entry: null, text: t('ext_node_direct') };
+    }
+    if (/^chain:\/\//i.test(uri)) {
+        const hops = parseChainHops(uri);
+        if (hops.length < CHAIN_MIN_HOPS || hops.length > CHAIN_MAX_HOPS) return bad;
+        const nodes = [];
+        for (const h of hops) {
+            if (/^(chain|freedom):\/\//i.test(h)) return bad;
+            const r = one(h, true);
+            if (r.error) return { ok: false, error: r.error };
+            nodes.push(r.node);
+        }
+        return {
+            ok: true, rawUri: buildChainUri(nodes.map(n => n.rawUri)), node: nodes[nodes.length - 1], entry: nodes[0],
+            text: t('ext_node_chain', { n: nodes.length, protos: nodes.map(n => String(n.protocol).toUpperCase()).join(' → ') })
+        };
+    }
+    const r = one(uri, false);
+    if (r.error) return { ok: false, error: r.error };
+    const node = r.node;
+    // a saved chain picked with nodeid:// dials its first hop
+    const entry = node.protocol === 'chain' ? (_extChainEntry(node.rawUri) || node) : node;
+    const text = node.protocol === 'chain'
+        ? t('ext_node_chain', { n: parseChainHops(node.rawUri).length, protos: parseChainHops(node.rawUri).map(h => h.split('://')[0].toUpperCase()).join(' → ') })
+        : `${node.protocol} · ${node.address}:${node.port}`;
+    return { ok: true, rawUri: node.rawUri, node, entry, text };
+}
+
+function _extChainEntry(rawUri) {
+    const first = parseChainHops(rawUri)[0];
+    return first ? parseProxyUri(first) : null;
 }
 
 function _extAppLabels(pkgs) {
@@ -175,7 +245,7 @@ function _extConfirm(info) {
         const deny = $('ext-modal-cancel');
         if (!overlay || !always || !once || !deny) { resolve({ ok: false, trust: false }); return; }   // never connect without asking
 
-        const { req, node, name, excludes, warnings } = info;
+        const { req, node, name, excludes, warnings } = info;   // info.nodeText: line under the name, optional
         const set = (id, text) => { $(id).textContent = text; };
         const native = !!(req.caller && !req.browser);
 
@@ -200,7 +270,7 @@ function _extConfirm(info) {
         });
         set('ext-caller-pkg', native ? req.caller : '');
         $('ext-caller-pkg').style.display = native ? '' : 'none';
-        set('ext-node', node ? `${node.protocol} · ${node.address}:${node.port}` : '');
+        set('ext-node', info.nodeText || (node ? `${node.protocol} · ${node.address}:${node.port}` : ''));
 
         // icon of a verified native app; anything else gets the generic one
         const icon = $('ext-icon'), fallback = $('ext-icon-fallback');
@@ -339,20 +409,23 @@ async function _extHandleConnect(req) {
     const ov = req.overrides && typeof req.overrides === 'object' ? req.overrides : {};
     const hasUri = !!String(req.uri || '').trim();
     // No uri: only settings are overridden and the node the user selected keeps being used.
-    const node = hasUri ? parseProxyUri(String(req.uri)) : null;
-    if (hasUri && !node) { _extMsg(req, t('ext_err_bad_uri'), 'error'); return; }
-    const rawUri = hasUri ? node.rawUri : _extBaseRawUri();
+    // freedom://localhost, chain://localhost/?hopList=..., nodeid://<id> and normal node uris
+    const resolved = hasUri ? _extResolveUri(req) : null;
+    if (resolved && !resolved.ok) { _extMsg(req, resolved.error, 'error'); return; }
+    const node = resolved ? resolved.node : null;
+    const entry = resolved ? resolved.entry : null;
+    const rawUri = resolved ? resolved.rawUri : _extBaseRawUri();
 
     // Built with the overrides applied, so a config that cannot be generated is refused before anything changes.
     const built = await _extWithOverlay(ov, () => _extBuildConfig(rawUri));
     if (!built.ok) { _extMsg(req, t('toast_config_invalid', { reason: built.error }), 'error'); return; }
 
     const name = _extDisplayName(req, node);
-    const excludes = _extExcludes(req, node);
+    const excludes = _extExcludes(req, entry);
     const warnings = [];
     if (hasUri && isPlainVlessUri(rawUri)) warnings.push(t('warn_plain_vless', { name }));
     if (hasUri && isPlainTrojanUri(rawUri)) warnings.push(t('warn_plain_trojan', { name }));
-    if (node && _extIsLocalTarget(node.address) && !excludes.length) warnings.push(t('ext_warn_loop'));
+    if (entry && _extIsLocalTarget(entry.address) && !excludes.length) warnings.push(t('ext_warn_loop'));
     // A trusted app (its own explicit intent, verified) is not asked again while it sends the same overrides it was allowed
     // with (req.trusted); trusted but with different overrides (req.ovChanged) it is asked, with a message that says so.
     if (_extOvSections(ov).length && req.trusted !== true) {
@@ -364,7 +437,7 @@ async function _extHandleConnect(req) {
     const auto = silent || (req.trusted === true && !warnings.length && excludes.every(p => p === req.caller));
     let trust = false;
     if (!auto) {
-        const r = await _extConfirm({ req, node, name, excludes, warnings });
+        const r = await _extConfirm({ req, node, name, excludes, warnings, nodeText: resolved ? resolved.text : '' });
         if (!r.ok) return;
         trust = r.trust;
     }
@@ -592,7 +665,9 @@ function renderAccessTab() {
         const badges = document.createElement('div');
         badges.className = 'access-badges';
         const badge = (cls, txt) => { const b = document.createElement('span'); b.className = 'access-badge ' + cls; b.textContent = txt; badges.appendChild(b); };
-        badge('ok', t('access_badge_allowed'));
+        if (app.connect !== false) badge('ok', t('access_badge_allowed'));
+        if (app.nodes === 'full') badge('warn', t('access_badge_nodes_full'));
+        else if (app.nodes === 'anonymous') badge('ok', t('access_badge_nodes_anonymous'));
         if (app.installed === false) badge('warn', t('access_not_installed'));
         const since = app.since ? new Date(app.since).toLocaleDateString() : '';
         if (since) badge('', t('access_since', { date: since }));

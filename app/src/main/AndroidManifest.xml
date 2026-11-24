@@ -84,6 +84,21 @@
             </intent-filter>
         </activity>
 
+        <!-- Node access (API level 2): "Allow <app> to read your nodes?". Only useful with startActivityForResult, which is
+             how the caller is verified; started any other way it ends at once. -->
+        <activity
+            android:name=".ExternalNodeAccessActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:launchMode="standard"
+            android:theme="@style/Theme.MV.Prompt">
+            <intent-filter>
+                <action android:name="com.huskydg.magicv2ray.action.REQUEST_NODE_ACCESS" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <!-- Mini browser for provider-website categories (sandboxed: no root bridge). -->
         <activity
             android:name=".ProviderBrowserActivity"
@@ -137,7 +152,8 @@
             </intent-filter>
         </receiver>
 
-        <!-- Read-only info / state of the external API (see ExternalApiProvider). No permission: it holds no secrets. -->
+        <!-- Read-only info / state of the external API (see ExternalApiProvider). Info and state hold no secrets. The node
+             methods (level 2) need the user's consent, asked through ExternalNodeAccessActivity. -->
         <provider
             android:name=".ExternalApiProvider"
             android:authorities="com.huskydg.magicv2ray.api"

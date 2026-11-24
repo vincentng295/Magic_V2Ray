@@ -99,15 +99,26 @@ public class ExternalPromptActivity extends Activity {
         final boolean nativeCaller = !caller.isEmpty() && !req.optBoolean("browser");
         final String uri = req.optString("uri", "");
 
+        // nodeid://<id> (alone or as a hop) is the user's own node: only an app that may read nodes can use it
+        String effUri = uri;
+        if (ExternalNodes.hasNodeRefs(uri)) {
+            effUri = nativeCaller ? ExternalNodes.expandRefs(app, caller, uri) : null;
+            if (effUri == null) {
+                Toast.makeText(app, R.string.ext_err_nodeid, Toast.LENGTH_LONG).show();
+                finish();
+                return;
+            }
+        }
+
         // ---- what the request asks for, to warn about (same rules as external.js _extHandleConnect)
         java.util.List<String> warnings = new java.util.ArrayList<>();
-        if (isPlain(uri, "vless")) warnings.add(getString(R.string.ext_prompt_warn_vless));
-        if (isPlain(uri, "trojan")) warnings.add(getString(R.string.ext_prompt_warn_trojan));
+        if (isPlain(effUri, "vless")) warnings.add(getString(R.string.ext_prompt_warn_vless));
+        if (isPlain(effUri, "trojan")) warnings.add(getString(R.string.ext_prompt_warn_trojan));
         java.util.List<String> excludes = new java.util.ArrayList<>();
         JSONArray ex = req.optJSONArray("exclude");
         for (int i = 0; ex != null && i < ex.length(); i++) excludes.add(ex.optString(i));
         excludes.remove(getPackageName());
-        String host = hostOf(uri);
+        String host = ExternalNodes.entryHost(effUri);      // "" for freedom://, the entry hop for a chain
         if (nativeCaller && isLocalTarget(host) && !excludes.contains(caller)) excludes.add(caller);
         if (isLocalTarget(host) && excludes.isEmpty()) warnings.add(getString(R.string.ext_prompt_warn_loop));
 
@@ -127,7 +138,7 @@ public class ExternalPromptActivity extends Activity {
             approve(false);
             return;
         }
-        buildDialog(nativeCaller, caller, host, uri, excludes, warnings, false, ovSummary);
+        buildDialog(nativeCaller, caller, host, uri, serverLine(effUri), excludes, warnings, false, ovSummary);
     }
 
     // ------------------------------------------------------------------ result
@@ -221,6 +232,23 @@ public class ExternalPromptActivity extends Activity {
         }
     }
 
+    /** The line under the app name: the server, "direct" for freedom://, or the protocols of a chain. */
+    private String serverLine(String effUri) {
+        if (ExternalNodes.isFreedom(effUri)) return getString(R.string.ext_prompt_direct);
+        if (ExternalNodes.isChain(effUri)) {
+            java.util.List<String> hops = ExternalNodes.chainHops(effUri);
+            if (hops == null) return "chain";
+            StringBuilder sb = new StringBuilder();
+            for (String h : hops) {
+                if (sb.length() > 0) sb.append(" → ");
+                int i = h.indexOf("://");
+                sb.append((i > 0 ? h.substring(0, i) : "?").toUpperCase(Locale.ROOT));
+            }
+            return getString(R.string.ext_prompt_chain, hops.size(), sb.toString());
+        }
+        return serverOf(effUri);
+    }
+
     private static String serverOf(String uri) {
         try {
             Uri u = Uri.parse(uri);
@@ -294,7 +322,7 @@ public class ExternalPromptActivity extends Activity {
         return b;
     }
 
-    private void buildDialog(boolean nativeCaller, String caller, String host, String uri,
+    private void buildDialog(boolean nativeCaller, String caller, String host, String uri, String server,
                              java.util.List<String> excludes, java.util.List<String> warnings, boolean openDetails, String ovSummary) {
         final int onSurface = getColor(R.color.mv_on_surface);
         final int variant = getColor(R.color.mv_on_surface_variant);
@@ -358,7 +386,6 @@ public class ExternalPromptActivity extends Activity {
             pkg.setGravity(Gravity.CENTER);
             card.addView(pkg);
         }
-        String server = serverOf(uri);
         if (!server.isEmpty()) {
             TextView srv = text(server, 12, variant, true);
             srv.setGravity(Gravity.CENTER);

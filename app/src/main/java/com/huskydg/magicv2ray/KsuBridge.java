@@ -296,6 +296,12 @@ final class KsuBridge {
         return ExternalSession.trust(activity.getApplicationContext(), pkg);
     }
 
+    /** What the verified app {@code pkg} may read of the user's nodes: "" | "anonymous" | "full" (see ExternalNodes). */
+    @JavascriptInterface
+    public String nodeAccessLevel(String pkg) {
+        return ExternalNodes.accessLevel(activity.getApplicationContext(), pkg);
+    }
+
     @JavascriptInterface
     public void trustRemove(String pkg) {
         ExternalSession.untrust(activity.getApplicationContext(), pkg);

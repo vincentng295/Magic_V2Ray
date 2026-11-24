@@ -170,8 +170,8 @@ final class ExternalSession {
             uri = uri == null ? "" : uri.trim();
             JSONObject ov = sanitizeOverrides(overrides);
             // The node is optional when settings are overridden: the node the user selected keeps being used.
-            if (uri.isEmpty() ? ov.length() == 0
-                    : (uri.length() > MAX_URI || !uri.matches("^[A-Za-z][A-Za-z0-9+.-]*://\\S+$"))) return null;
+            // freedom://localhost, chain://localhost/?hopList=<urlencode(JSON array)> and nodeid://<id> are accepted too
+            if (uri.isEmpty() ? ov.length() == 0 : !ExternalNodes.validConnectUri(uri)) return null;
             boolean browser = caller != null && isBrowser(c, caller);
             // Trust is only offered for calls that app code made on purpose (an explicit action):
             // a link can come from anywhere (a chat message, a web page), whichever app opened it.
@@ -617,16 +617,39 @@ final class ExternalSession {
         return trust(c, pkg);
     }
 
+    /** Revokes everything the app was allowed: connecting without a prompt and reading nodes. */
     static void untrust(Context c, String pkg) {
         if (pkg != null) trustSp(c).edit().remove(pkg).apply();
+        ExternalNodes.revoke(c, pkg);
     }
 
-    /** [{pkg,label,since,installed}] for the "Access" tab; entries of uninstalled apps are kept until revoked. */
+    /**
+     * [{pkg,label,since,installed,connect,nodes}] for the "Access" tab: apps trusted to connect (connect) and/or allowed
+     * to read nodes (nodes = "anonymous" | "full", "" = no). Entries of uninstalled apps are kept until revoked.
+     */
     static JSONArray trustedJson(Context c) {
-        JSONArray out = new JSONArray();
+        java.util.Map<String, JSONObject> rows = new java.util.LinkedHashMap<>();
         for (java.util.Map.Entry<String, ?> e : trustSp(c).getAll().entrySet()) {
             try {
                 JSONObject v = new JSONObject(String.valueOf(e.getValue()));
+                rows.put(e.getKey(), new JSONObject().put("since", v.optLong("since")).put("connect", true).put("nodes", ""));
+            } catch (JSONException ignored) {
+            }
+        }
+        for (java.util.Map.Entry<String, JSONObject> e : ExternalNodes.permanentGrants(c).entrySet()) {
+            try {
+                JSONObject r = rows.get(e.getKey());
+                if (r == null) {
+                    r = new JSONObject().put("since", e.getValue().optLong("since")).put("connect", false);
+                    rows.put(e.getKey(), r);
+                }
+                r.put("nodes", e.getValue().optString("level"));
+            } catch (JSONException ignored) {
+            }
+        }
+        JSONArray out = new JSONArray();
+        for (java.util.Map.Entry<String, JSONObject> e : rows.entrySet()) {
+            try {
                 boolean installed;
                 try {
                     c.getPackageManager().getPackageInfo(e.getKey(), 0);
@@ -634,9 +657,8 @@ final class ExternalSession {
                 } catch (PackageManager.NameNotFoundException nf) {
                     installed = false;
                 }
-                out.put(new JSONObject().put("pkg", e.getKey())
+                out.put(e.getValue().put("pkg", e.getKey())
                         .put("label", installed ? labelOf(c, e.getKey()) : e.getKey())
-                        .put("since", v.optLong("since"))
                         .put("installed", installed));
             } catch (JSONException ignored) {
             }

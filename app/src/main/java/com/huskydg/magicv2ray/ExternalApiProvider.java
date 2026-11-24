@@ -2,6 +2,7 @@ package com.huskydg.magicv2ray;
 
 import android.content.ContentProvider;
 import android.content.ContentValues;
+import android.content.Context;
 import android.database.Cursor;
 import android.database.MatrixCursor;
 import android.net.Uri;
@@ -29,6 +30,10 @@ public class ExternalApiProvider extends ContentProvider {
     static final Uri STATE_URI = Uri.parse("content://" + AUTHORITY + "/state");
     static final String METHOD_INFO = "getInfo";
     static final String METHOD_STATE = "getState";
+    /** API level 2, apps only, needs the user's permission: see {@link ExternalNodes}. */
+    static final String METHOD_NODES = "getNodes";
+    static final String METHOD_ACTIVE_NODE = "getActiveNode";
+    static final String METHOD_NODE_ACCESS = "getNodeAccess";
 
     private static final String[] COLUMNS = {"json", "versionName", "versionCode", "apiLevel", "connected", "mode"};
 
@@ -40,6 +45,9 @@ public class ExternalApiProvider extends ContentProvider {
     @Override
     public Bundle call(String method, String arg, Bundle extras) {
         if (getContext() == null || method == null) return null;
+        if (METHOD_NODES.equals(method) || METHOD_ACTIVE_NODE.equals(method) || METHOD_NODE_ACCESS.equals(method)) {
+            return nodeCall(method);
+        }
         if (METHOD_INFO.equals(method)) return bundle(ExternalApi.info(getContext()), true);
         if (METHOD_STATE.equals(method)) {
             JSONObject st = ExternalApi.state(getContext());
@@ -51,6 +59,53 @@ public class ExternalApiProvider extends ContentProvider {
             return b;
         }
         return null;
+    }
+
+    /**
+     * Nodes (level 2). The caller is the package Android reports for this binder call, so only an app can ask and it
+     * can not pretend to be another. {@code status}: ok | permission_required | unknown_caller | unavailable.
+     * Without permission nothing but the status comes back; the app then starts
+     * {@link ExternalNodes#ACTION_REQUEST_ACCESS} with startActivityForResult and asks again.
+     */
+    private Bundle nodeCall(String method) {
+        Context c = getContext();
+        Bundle b = new Bundle();
+        b.putInt("apiLevel", ExternalApi.API_LEVEL);
+        String caller = getCallingPackage();
+        if (caller == null || caller.isEmpty() || caller.equals(c.getPackageName())) {
+            b.putString("status", "unknown_caller");
+            return b;
+        }
+        String level = ExternalNodes.accessLevel(c, caller);
+        b.putString("level", level);
+        if (METHOD_NODE_ACCESS.equals(method)) {
+            b.putString("status", "ok");
+            b.putBoolean("granted", !ExternalNodes.LEVEL_NONE.equals(level));
+            b.putBoolean("persistent", ExternalNodes.isPermanent(c, caller));
+            b.putString("requestAction", ExternalNodes.ACTION_REQUEST_ACCESS);
+            return b;
+        }
+        if (ExternalNodes.LEVEL_NONE.equals(level)) {
+            b.putString("status", "permission_required");
+            b.putString("requestAction", ExternalNodes.ACTION_REQUEST_ACCESS);
+            return b;
+        }
+        JSONObject j = METHOD_NODES.equals(method) ? ExternalNodes.nodesJson(c, level) : ExternalNodes.activeJson(c, level);
+        if (j == null) {
+            b.putString("status", "unavailable");
+            return b;
+        }
+        b.putString("status", "ok");
+        b.putString("json", j.toString());
+        if (METHOD_ACTIVE_NODE.equals(method)) {
+            b.putBoolean("connected", j.optBoolean("connected"));
+            b.putString("source", j.optString("source"));
+        } else {
+            org.json.JSONArray arr = j.optJSONArray("nodes");
+            b.putInt("count", arr == null ? 0 : arr.length());
+            b.putString("activeId", j.optString("activeId"));
+        }
+        return b;
     }
 
     private Bundle bundle(JSONObject info, boolean full) {
