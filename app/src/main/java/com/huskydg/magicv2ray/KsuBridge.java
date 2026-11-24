@@ -669,6 +669,20 @@ final class KsuBridge {
         });
     }
 
+    /**
+     * Downloads the announced update into the app cache and installs it, no browser. The address comes from the
+     * last update check (UpdateChecker), never from the page. Progress: window.mvApkInstall(json), see ApkInstaller.
+     */
+    @JavascriptInterface
+    public void installUpdate() {
+        ApkInstaller.start(activity.getApplicationContext());
+    }
+
+    @JavascriptInterface
+    public void cancelUpdateInstall() {
+        ApkInstaller.cancel();
+    }
+
     /** Opens an http(s) URL in the browser. */
     @JavascriptInterface
     public void openUrl(String url) {

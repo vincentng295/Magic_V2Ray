@@ -1,6 +1,8 @@
 // "Updates" (App settings): auto update check switch, manual check, and the Dashboard banner.
 // The network request is made by the host (ksu.checkUpdate, see UpdateChecker.java): the WebView itself has
-// no network access. The APK link is opened in the browser through ksu.openUrl.
+// no network access. The update itself is downloaded into the app cache and installed by the host
+// (ksu.installUpdate, see ApkInstaller.java); progress comes back in window.mvApkInstall. Without
+// installUpdate (older host) the APK link is opened in the browser through ksu.openUrl.
 (function () {
     'use strict';
     var k = window.ksu;
@@ -133,6 +135,65 @@
         }
     }
 
+    // ---- in-app download + install (progress comes from ApkInstaller through MainActivity.apkEvent)
+    var DL_IDS = ['app-update-dl', 'update-banner-dl', 'update-modal-dl'];
+    var installing = false;
+    function setBusy(label) {
+        installing = true;
+        DL_IDS.forEach(function (id) {
+            var b = $(id);
+            if (!b) return;
+            b.disabled = true;
+            b.textContent = label;
+        });
+        var status = $('app-update-status');
+        if (status) status.textContent = label;
+    }
+    function setIdle() {
+        installing = false;
+        DL_IDS.forEach(function (id) {
+            var b = $(id);
+            if (!b) return;
+            b.disabled = false;
+            var key = b.getAttribute('data-i18n');
+            if (key) b.textContent = t(key);
+        });
+        render();
+    }
+    function toast(msg, kind) {
+        if (typeof showToast === 'function') showToast(msg, kind);
+    }
+    window.mvApkInstall = function (json) {
+        var r = parse(json);
+        if (!r) return;
+        switch (r.state) {
+            case 'downloading':
+                setBusy(t('apk_dl_progress', { percent: r.percent || 0 }));
+                break;
+            case 'verifying':
+                setBusy(t('apk_verifying'));
+                break;
+            case 'installing':
+                setBusy(t('apk_installing'));
+                break;
+            case 'confirm':
+                setIdle();
+                toast(t('apk_confirm'));
+                break;
+            case 'need_permission':
+                setIdle();
+                toast(t('apk_need_perm'));
+                break;
+            case 'error':
+                setIdle();
+                if (r.code === 'aborted') toast(t('apk_cancelled'));
+                else toast(t('apk_failed', { error: r.error || '' }), 'error');
+                break;
+            default:       // 'done' (rare: the app is replaced by the new version)
+                setIdle();
+        }
+    };
+
     // called by the host when a background check finished (MainActivity.updateChanged)
     window.onUpdateInfo = function () { loadInfo(); render(); maybeShowModal(); };
 
@@ -190,7 +251,16 @@
         });
 
         // ---- actions (settings row + dashboard banner)
-        function download() { var u = newer(); if (u) openUrl(u.url); }
+        function download() {
+            var u = newer();
+            if (!u || installing) return;
+            if (typeof k.installUpdate === 'function') {
+                setBusy(t('apk_dl_progress', { percent: 0 }));
+                try { k.installUpdate(); } catch (e) { setIdle(); openUrl(u.url); }
+            } else {
+                openUrl(u.url);          // host without in-app install: the browser downloads it
+            }
+        }
         $('app-update-dl').addEventListener('click', download);
         $('update-modal-dl').addEventListener('click', function () { download(); hideModal(); });
         function dismiss() {

@@ -184,6 +184,16 @@ public class MainActivity extends Activity {
         });
     }
 
+    /** Progress / result of the in-app update (ApkInstaller): window.mvApkInstall(json). */
+    static void apkEvent(final String json) {
+        final MainActivity a = current;
+        if (a == null) return;
+        final String js = "window.mvApkInstall&&window.mvApkInstall(" + org.json.JSONObject.quote(json) + ")";
+        a.runOnUiThread(() -> {
+            if (a.web != null) a.web.evaluateJavascript(js, null);
+        });
+    }
+
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
@@ -206,6 +216,7 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         ExternalSession.sweepStale(this);       // leftover of a session that did not survive a reboot / crash
         UpdateChecker.maybeAutoCheck(this);     // background, at most every 12 h; no-op when switched off
+        ApkInstaller.cleanupAsync(this);        // drops a downloaded update that is already installed
         current = this;
         // not on recreate() / process-death restore: the same intent must not ask again
         if (savedInstanceState == null) handleExternal(getIntent());
@@ -757,6 +768,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         resumed = true;
+        ApkInstaller.resumeAfterPermission(this);   // back from "install unknown apps": continue the update
         ExternalSession.clearPendingNotification(this);
         UpdateChecker.clearNotification(this);
         // Back from the provider mini browser with a sync request: let the WebUI import it.

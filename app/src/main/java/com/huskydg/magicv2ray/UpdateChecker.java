@@ -192,6 +192,35 @@ final class UpdateChecker {
         return !version.isEmpty() && !name.isEmpty() && !version.equals(name);
     }
 
+    /**
+     * APK addresses of the last good check, best first: the one for this device's ABI, then the universal one.
+     * Used by {@link ApkInstaller}, so the WebUI never passes a download address itself.
+     */
+    static String[] apkUrls(Context c) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        try {
+            String last = sp(c).getString(K_LAST_RESULT, "");
+            if (last.isEmpty()) return new String[0];
+            JSONObject r = new JSONObject(last);
+            String a = httpsOrEmpty(r.optString("url", ""));
+            String b = httpsOrEmpty(r.optString("universalUrl", ""));
+            if (!a.isEmpty()) out.add(a);
+            if (!b.isEmpty() && !b.equals(a)) out.add(b);
+        } catch (JSONException ignored) {
+        }
+        return out.toArray(new String[0]);
+    }
+
+    /** versionCode announced by the last good check, 0 when unknown. */
+    static long lastVersionCode(Context c) {
+        try {
+            String last = sp(c).getString(K_LAST_RESULT, "");
+            return last.isEmpty() ? 0 : new JSONObject(last).optLong("versionCode", 0);
+        } catch (JSONException e) {
+            return 0;
+        }
+    }
+
     /** What the WebUI shows on open: the installed version plus the last good check (if any). */
     static String info(Context c) {
         JSONObject out = new JSONObject();

@@ -15,6 +15,8 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Lets the daily update-check job survive a reboot (JobInfo.setPersisted). -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- In-app update: install the downloaded APK through PackageInstaller (ApkInstaller). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:allowBackup="false"
@@ -132,6 +134,12 @@
         </service>
         <receiver
             android:name=".AdbPairReplyReceiver"
+            android:exported="false" />
+
+        <!-- Result of the in-app update install session (see ApkInstaller). Only the system sends to it,
+             through the PendingIntent the app handed to PackageInstaller. -->
+        <receiver
+            android:name=".ApkInstallReceiver"
             android:exported="false" />
 
         <service
