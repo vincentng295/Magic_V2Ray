@@ -366,11 +366,26 @@ public final class HotspotService extends IHotspotService.Stub {
      */
     private static Object invokeProviderCall(Object provider, String authority, android.os.Bundle extras)
             throws Exception {
+        // IContentProvider has several "call" overloads. Since Android 12 a deprecated default
+        // overload (pkg, method, arg, extras) is kept that forwards with authority "unknown", which the
+        // provider rejects. Pick the real one: AttributionSource variant first, else most parameters.
         Method call = null;
         for (Method m : Class.forName("android.content.IContentProvider").getMethods()) {
-            if (m.getName().equals("call")) {
+            if (!m.getName().equals("call")) continue;
+            boolean mAttr = false;
+            for (Class<?> c : m.getParameterTypes()) {
+                if (c.getName().equals("android.content.AttributionSource")) mAttr = true;
+            }
+            boolean bestAttr = false;
+            if (call != null) {
+                for (Class<?> c : call.getParameterTypes()) {
+                    if (c.getName().equals("android.content.AttributionSource")) bestAttr = true;
+                }
+            }
+            if (call == null
+                    || (mAttr && !bestAttr)
+                    || (mAttr == bestAttr && m.getParameterTypes().length > call.getParameterTypes().length)) {
                 call = m;
-                break;
             }
         }
         if (call == null) throw new NoSuchMethodException("IContentProvider.call");
