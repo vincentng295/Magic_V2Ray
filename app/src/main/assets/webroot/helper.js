@@ -1606,9 +1606,13 @@ function convert_uri_to_xray_json(uri, optional_settings, is_nonroot = false) {
         else if (uri.startsWith('masque://')) {
             // MASQUE CONNECT-IP (RFC 9484): an IP tunnel over HTTP/3 (QUIC) or
             // HTTP/2 (TCP). URI shape:
-            //   masque://[user[:pass]@]host:port?sni=&alpn=&fp=&host=&path=
-            //            &headers=<json>&dns=&pcs=&vcn=&finalmask=
-            //            &wpk=&wpub=&address=      (Cloudflare WARP device)#name
+            // v2rayNG-compatible shape:
+            //   masque://<warp-private-key>@host:port?type=masque&security=tls
+            //            &sni=&alpn=h3&host=&path=&headers=<json>&dns=&pcs=&vcn=
+            //            &publickey=<warp-public-key>&address=&fm=<json>
+            //            &insecure=0&allowInsecure=0#remark
+            // With `publickey` (or legacy `wpk`) present the userinfo is the
+            // WARP device private key; otherwise it is Basic auth user[:pass].
             const fakeHttpUri = uri.replace(/^masque:\/\//i, 'https://');
             const u = new URL(fakeHttpUri);
             const p = new URLSearchParams(u.search);
@@ -1622,13 +1626,14 @@ function convert_uri_to_xray_json(uri, optional_settings, is_nonroot = false) {
             if (p.get('host')) masqueSettings.host = p.get('host');
             if (p.get('path')) masqueSettings.path = p.get('path');
 
-            const wpk = p.get('wpk');
+            const wpub = p.get('publickey') || p.get('wpub') || '';
+            const wpk = p.get('wpk') || (wpub && u.username ? decodeURIComponent(u.username) : '');
             if (wpk) {
                 // WARP device: user/pass can no longer be set and the tunnel
                 // addresses come from warp.address, not from the server.
                 masqueSettings.warp = {
                     privateKey: wpk,
-                    ...(p.get('wpub') ? { publicKey: p.get('wpub') } : {}),
+                    ...(wpub ? { publicKey: wpub } : {}),
                     address: (p.get('address') || '172.16.0.2/32').split(',').map(s => s.trim()).filter(Boolean)
                 };
             } else {
@@ -1658,10 +1663,7 @@ function convert_uri_to_xray_json(uri, optional_settings, is_nonroot = false) {
                 protocol: "masque",
                 settings: mqSettings,
                 streamSettings: {
-                    // masque.md writes the transport selector as "method";
-                    // the rest of this project uses "network". Emit both.
                     network: "masque",
-                    method: "masque",
                     security: "tls",
                     tlsSettings: mqTls,
                     masqueSettings,
@@ -2440,16 +2442,19 @@ function convert_outbound_to_uri(outbound) {
             const tls = ss.tlsSettings || {};
             const mq  = ss.masqueSettings || {};
             const q = {};
+            q.type = 'masque';
+            q.security = 'tls';
             if (mq.host) q.host = mq.host;
             if (mq.path) q.path = mq.path;
             if (mq.headers && Object.keys(mq.headers).length) q.headers = JSON.stringify(mq.headers);
             if (mq.warp) {
-                if (mq.warp.privateKey) q.wpk = mq.warp.privateKey;
-                if (mq.warp.publicKey)  q.wpub = mq.warp.publicKey;
+                if (mq.warp.publicKey)  q.publickey = mq.warp.publicKey;
                 if (mq.warp.address?.length) q.address = mq.warp.address.join(',');
             }
             if (tls.serverName) q.sni = tls.serverName;
-            if (tls.alpn?.length) q.alpn = tls.alpn.join(',');
+            q.alpn = tls.alpn?.length ? tls.alpn.join(',') : 'h3';
+            q.insecure = tls.allowInsecure ? '1' : '0';
+            q.allowInsecure = tls.allowInsecure ? '1' : '0';
             if (tls.fingerprint) q.fp = tls.fingerprint;
             if (tls.pinnedPeerCertSha256) q.pcs = tls.pinnedPeerCertSha256;
             if (tls.verifyPeerCertByName) q.vcn = tls.verifyPeerCertByName;
@@ -2458,7 +2463,9 @@ function convert_outbound_to_uri(outbound) {
             if (fmStr) q.fm = fmStr;
 
             let auth = '';
-            if (!mq.warp && (mq.user || mq.pass)) {
+            if (mq.warp && mq.warp.privateKey) {
+                auth = pct(mq.warp.privateKey) + '@';
+            } else if (mq.user || mq.pass) {
                 auth = pct(mq.user || '');
                 if (mq.pass) auth += ':' + pct(mq.pass);
                 auth += '@';

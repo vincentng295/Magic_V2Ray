@@ -2533,14 +2533,19 @@ function getFullNodeDetails(node) {
             const p = new URLSearchParams(u.search);
             d.uuid = "";
             d.security = 'tls';
-            d.proxyUsername = u.username ? decodeURIComponent(u.username) : "";
-            d.proxyPassword = u.password ? decodeURIComponent(u.password) : "";
+            // v2rayNG shape: with `publickey` (or legacy wpk/wpub) the userinfo
+            // is the WARP private key, otherwise it is Basic auth user[:pass].
+            const mqWpub = p.get('publickey') || p.get('wpub') || "";
+            const mqWpk = p.get('wpk') || (mqWpub && u.username ? decodeURIComponent(u.username) : "");
+            const mqIsWarp = !!mqWpk;
+            d.proxyUsername = (!mqIsWarp && u.username) ? decodeURIComponent(u.username) : "";
+            d.proxyPassword = (!mqIsWarp && u.password) ? decodeURIComponent(u.password) : "";
             d.masqueHost = p.get('host') || "";
             d.masquePath = p.get('path') || "";
             d.masqueHeaders = p.get('headers') || "";
             d.masqueDns = p.get('dns') || "";
-            d.masqueWarpPrivateKey = p.get('wpk') || "";
-            d.masqueWarpPublicKey = p.get('wpub') || "";
+            d.masqueWarpPrivateKey = mqWpk;
+            d.masqueWarpPublicKey = mqWpub;
             d.masqueAddress = p.get('address') || "";
             d.sni = p.get('sni') || "";
             d.alpn = p.get('alpn') || "";
@@ -2678,24 +2683,30 @@ function serializeNodeDetailsToUri(d, protocol) {
     // MASQUE
     if (protocol === 'masque') {
         const params = new URLSearchParams();
+        params.set('type', 'masque');
+        params.set('security', 'tls');
         if (d.masqueHost) params.set('host', d.masqueHost);
         if (d.masquePath) params.set('path', d.masquePath);
         if (d.masqueHeaders) params.set('headers', d.masqueHeaders);
         if (d.masqueDns) params.set('dns', d.masqueDns);
         if (d.masqueWarpPrivateKey) {
-            params.set('wpk', d.masqueWarpPrivateKey);
-            if (d.masqueWarpPublicKey) params.set('wpub', d.masqueWarpPublicKey);
+            if (d.masqueWarpPublicKey) params.set('publickey', d.masqueWarpPublicKey);
             if (d.masqueAddress) params.set('address', d.masqueAddress);
         }
         if (d.sni) params.set('sni', d.sni);
-        if (d.alpn) params.set('alpn', d.alpn);
+        params.set('alpn', d.alpn || 'h3');
         if (d.fingerprint && d.fingerprint !== 'chrome') params.set('fp', d.fingerprint);
         if (d.pcs) params.set('pcs', d.pcs);
         if (d.vcn) params.set('vcn', d.vcn);
+        params.set('insecure', '0');
+        params.set('allowInsecure', '0');
         if (d.finalMask) params.set('fm', d.finalMask);
-        // user/pass cannot be combined with a WARP device.
+        // The WARP private key is the userinfo (v2rayNG); user/pass cannot be
+        // combined with a WARP device.
         let auth = "";
-        if (!d.masqueWarpPrivateKey && (d.proxyUsername || d.proxyPassword)) {
+        if (d.masqueWarpPrivateKey) {
+            auth = encodeURIComponent(d.masqueWarpPrivateKey) + "@";
+        } else if (d.proxyUsername || d.proxyPassword) {
             auth = encodeURIComponent(d.proxyUsername || "");
             if (d.proxyPassword) auth += ":" + encodeURIComponent(d.proxyPassword);
             auth += "@";
