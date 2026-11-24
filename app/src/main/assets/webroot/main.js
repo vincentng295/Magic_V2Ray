@@ -3731,10 +3731,6 @@ function saveProxyChain() {
         showToast(t('toast_chain_select_nodes'), 'error');
         return;
     }
-    if (new Set(keys).size !== keys.length) {
-        showToast(t('toast_chain_same_node'), 'error');
-        return;
-    }
 
     const hopNodes = keys.map(_findNodeByKey);
     if (hopNodes.some(n => !n)) return;
