@@ -229,6 +229,18 @@ jobs:
           go-version-file: core/xray-core/go.mod
           cache-dependency-path: core/xray-core/go.sum
 
+      # xray-rs is built from core/xray-rs; rustup installs the toolchain pinned by its
+      # rust-toolchain.toml, build.sh adds the Android targets.
+      - name: Cache cargo registry + xray-rs target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            core/xray-rs/target
+          key: cargo-xrayrs-${{ hashFiles('core/xray-rs/Cargo.lock', 'core/xray-rs/rust-toolchain.toml') }}
+          restore-keys: cargo-xrayrs-
+
       # setup-gradle caches ~/.gradle (dependencies, wrapper, build cache).
       # By default only the default branch writes the cache; main and alpha
       # both write it here, PRs and other branches only read it.
@@ -240,15 +252,17 @@ jobs:
       # build.sh skips the xray and helper builds when the binaries in
       # module/bin/<arch>/ match their .version stamps, so restoring those files is
       # all that is needed. The key hashes the sources they are built from.
-      - name: Cache xray + helper binaries
+      - name: Cache xray + xray-rs + helper binaries
         uses: actions/cache@v4
         with:
           path: |
             module/bin/*/xray
             module/bin/*/xray.version
+            module/bin/*/xray-rs
+            module/bin/*/xray-rs.version
             module/bin/*/xhuskydg_helper
             module/bin/*/xhuskydg_helper.version
-          key: bins-xray-${{ hashFiles('core/xray-core/**') }}-helper-${{ hashFiles('native/**') }}
+          key: bins-xray-${{ hashFiles('core/xray-core/**') }}-xrayrs-${{ hashFiles('core/xray-rs/**/*.rs', 'core/xray-rs/**/Cargo.*') }}-helper-${{ hashFiles('native/**') }}
 
       # Secret MV2R_KEYSTORE_ENV = the whole content of MV2R_KEYSTORE.env
       # (MV_KEYSTORE_BASE64, MV_KEYSTORE_PASSWORD, MV_KEY_ALIAS, MV_KEY_PASSWORD);
