@@ -5,3 +5,7 @@
 [submodule "native/curl"]
 	path = native/curl
 	url = https://github.com/vincentng295/curl-android-build.git
+[submodule "core/xray-rs"]
+	path = core/xray-rs
+	url = https://github.com/vincentng295/xray-rust
+	branch = huskydg/xhuskydg
