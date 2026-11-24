@@ -25,6 +25,8 @@ public final class HotspotMain {
     static final String EXTRA_BUNDLE = "bundle";
     static final String EXTRA_NONCE = "nonce";
     static final String KEY_BINDER = "binder";
+    static final String METHOD_SEND_BINDER = "sendBinder";
+    static final String AUTHORITY_SUFFIX = ".hotspot";
 
     private static final long NOBODY_CAME_MS = 90_000;
     private static final long POLL_MS = 2_000;

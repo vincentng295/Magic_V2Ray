@@ -47,12 +47,19 @@ public final class HotspotBinderReceiver extends BroadcastReceiver {
         if (nonce == null || bundle == null) return;
         IBinder binder = bundle.getBinder(HotspotMain.KEY_BINDER);
         if (binder == null) return;
+        offer(nonce, binder);
+    }
+
+    /** Shared by the broadcast receiver and {@link HotspotBinderProvider}. True when the nonce matched. */
+    static boolean offer(String nonce, IBinder binder) {
+        if (nonce == null || binder == null) return false;
         synchronized (LOCK) {
-            if (pending == null || expectedNonce == null) return;
+            if (pending == null || expectedNonce == null) return false;
             if (!MessageDigest.isEqual(expectedNonce.getBytes(StandardCharsets.UTF_8),
-                    nonce.getBytes(StandardCharsets.UTF_8))) return;
+                    nonce.getBytes(StandardCharsets.UTF_8))) return false;
             pending.complete(binder);
             expectedNonce = null;           // one binder per launch
+            return true;
         }
     }
 }

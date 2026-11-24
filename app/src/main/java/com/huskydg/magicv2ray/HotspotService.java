@@ -291,12 +291,22 @@ public final class HotspotService extends IHotspotService.Stub {
         i.putExtra(HotspotMain.EXTRA_NONCE, nonce);
         i.addFlags(android.content.Intent.FLAG_RECEIVER_FOREGROUND
                 | android.content.Intent.FLAG_INCLUDE_STOPPED_PACKAGES);
+        // 1st choice: a synchronous ContentProvider call (what Shizuku does); it reports its failures.
+        try {
+            if (callProvider(packageName, nonce)) {
+                System.err.println("binder delivered via content provider");
+                return;
+            }
+            System.err.println("content provider did not accept the binder");
+        } catch (Throwable t) {
+            System.err.println("content provider hand-over failed: " + rootMessage(t));
+        }
         // A bare app_process has no ApplicationThread registered with ActivityManager, so
         // Context.sendBroadcast() is rejected ("Unable to find app for caller") or dropped. Go to
         // IActivityManager directly with a null caller, exactly like `am broadcast` does as shell.
         try {
-            broadcastAsShell(i);
-            System.err.println("binder broadcast sent via IActivityManager");
+            Object rc = broadcastAsShell(i);
+            System.err.println("binder broadcast sent via IActivityManager, result " + rc);
             return;
         } catch (Throwable t) {
             System.err.println("IActivityManager broadcast failed: " + rootMessage(t));
@@ -305,7 +315,7 @@ public final class HotspotService extends IHotspotService.Stub {
         System.err.println("binder broadcast sent via Context");
     }
 
-    private static void broadcastAsShell(android.content.Intent intent) throws Exception {
+    private static Object broadcastAsShell(android.content.Intent intent) throws Exception {
         IBinder amBinder = (IBinder) Class.forName("android.os.ServiceManager")
                 .getMethod("getService", String.class).invoke(null, "activity");
         if (amBinder == null) throw new IllegalStateException("the activity service is unavailable");
@@ -344,7 +354,104 @@ public final class HotspotService extends IHotspotService.Stub {
                 args[k] = null;
             }
         }
-        target.invoke(am, args);
+        return target.invoke(am, args);
+    }
+
+    /**
+     * IContentProvider.call differs per release: (pkg, authority, method, arg, extras) on 10,
+     * (pkg, attributionTag, authority, method, arg, extras) on 11-13, (AttributionSource, authority,
+     * method, arg, extras) on 14+. The strings are therefore assigned from the end.
+     */
+    private static Object invokeProviderCall(Object provider, String authority, android.os.Bundle extras)
+            throws Exception {
+        Method call = null;
+        for (Method m : Class.forName("android.content.IContentProvider").getMethods()) {
+            if (m.getName().equals("call")) {
+                call = m;
+                break;
+            }
+        }
+        if (call == null) throw new NoSuchMethodException("IContentProvider.call");
+        Class<?>[] t = call.getParameterTypes();
+        int stringCount = 0;
+        for (Class<?> c : t) if (c == String.class) stringCount++;
+        Object[] a = new Object[t.length];
+        int seen = 0;
+        for (int k = 0; k < t.length; k++) {
+            Class<?> c = t[k];
+            if (c == String.class) {
+                int fromEnd = stringCount - 1 - seen++;      // 0 = arg, 1 = method, 2 = authority
+                a[k] = fromEnd == 0 ? null
+                        : fromEnd == 1 ? HotspotMain.METHOD_SEND_BINDER
+                        : fromEnd == 2 ? authority
+                        : (seen == 1 ? "com.android.shell" : null);   // callingPkg, then attributionTag
+            } else if (c == android.os.Bundle.class) {
+                a[k] = extras;
+            } else if (c.getName().equals("android.content.AttributionSource")) {
+                Class<?> bc = Class.forName("android.content.AttributionSource$Builder");
+                Object b = bc.getConstructor(int.class).newInstance(android.os.Process.myUid());
+                bc.getMethod("setPackageName", String.class).invoke(b, "com.android.shell");
+                a[k] = bc.getMethod("build").invoke(b);
+            }
+        }
+        return call.invoke(provider, a);
+    }
+
+    /** Calls HotspotBinderProvider as the shell user (getContentProviderExternal + IContentProvider.call). */
+    private boolean callProvider(String pkg, String nonce) throws Exception {
+        final String authority = pkg + HotspotMain.AUTHORITY_SUFFIX;
+        IBinder amBinder = (IBinder) Class.forName("android.os.ServiceManager")
+                .getMethod("getService", String.class).invoke(null, "activity");
+        if (amBinder == null) throw new IllegalStateException("the activity service is unavailable");
+        Class<?> amClass = Class.forName("android.app.IActivityManager");
+        Object am = Class.forName("android.app.IActivityManager$Stub")
+                .getMethod("asInterface", IBinder.class).invoke(null, amBinder);
+
+        int userId = 0;
+        try {
+            userId = (Integer) Class.forName("android.app.ActivityManager").getMethod("getCurrentUser").invoke(null);
+        } catch (Throwable ignored) {
+        }
+
+        Method get = null;
+        for (Method m : amClass.getMethods()) {
+            if (m.getName().equals("getContentProviderExternal")) {
+                get = m;
+                break;
+            }
+        }
+        if (get == null) throw new NoSuchMethodException("getContentProviderExternal");
+        final IBinder token = new Binder();
+        Class<?>[] gt = get.getParameterTypes();
+        Object[] ga = new Object[gt.length];
+        int strings = 0;
+        for (int k = 0; k < gt.length; k++) {
+            if (gt[k] == String.class) ga[k] = (strings++ == 0) ? authority : "mv-hotspot";
+            else if (gt[k] == int.class) ga[k] = userId;
+            else if (gt[k] == IBinder.class) ga[k] = token;
+        }
+        Object holder = get.invoke(am, ga);
+        if (holder == null) throw new IllegalStateException("provider " + authority + " not found");
+        try {
+            Object provider = holder.getClass().getField("provider").get(holder);
+            if (provider == null) throw new IllegalStateException("provider " + authority + " is not running");
+
+            android.os.Bundle extras = new android.os.Bundle();
+            extras.putString(HotspotMain.EXTRA_NONCE, nonce);
+            extras.putBinder(HotspotMain.KEY_BINDER, this);
+            Object reply = invokeProviderCall(provider, authority, extras);
+            return reply instanceof android.os.Bundle && ((android.os.Bundle) reply).getBoolean("accepted");
+        } finally {
+            try {
+                for (Method m : amClass.getMethods()) {
+                    if (m.getName().equals("removeContentProviderExternalAsUser")) {
+                        m.invoke(am, authority, token, userId);
+                        break;
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     /** Reserved Shizuku transaction: the app unbound with remove=true, or it died. */

@@ -187,28 +187,62 @@ final class AdbHelper {
         }
     }
 
+    /** How long {@link #run} waits for the shell to answer before it gives up (and carries on). */
+    private static final long RUN_TIMEOUT_MS = 8_000;
+
+    /**
+     * Runs a shell command over adb and returns what it printed. It does NOT wait for the stream to
+     * close: adbd keeps a `shell:` stream open while a background child still holds the pty, so a
+     * detached helper ("... &") used to block this read forever and the UI sat on "Starting..." with
+     * the helper already up. It stops as soon as the reply line "launched uid=..." is complete, or
+     * after {@link #RUN_TIMEOUT_MS}; the real proof that the helper runs is its Binder, not this reply.
+     */
     private static String run(AdbBridge b, String cmd) {
-        ByteArrayOutputStream o = new ByteArrayOutputStream();
+        final ByteArrayOutputStream o = new ByteArrayOutputStream();
+        final java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
         AdbStream s = null;
         try {
             s = b.openStream("shell:" + cmd);
-            InputStream in = s.openInputStream();
-            byte[] buf = new byte[1024];
-            int n;
-            while (o.size() < 8192 && (n = in.read(buf)) > 0) o.write(buf, 0, n);
-        } catch (java.io.IOException closed) {
-            // "Stream closed" is how the library reports the shell ending: not an error here
+            final InputStream in = s.openInputStream();
+            Thread t = new Thread(() -> {
+                byte[] buf = new byte[1024];
+                int n;
+                try {
+                    while (o.size() < 8192 && (n = in.read(buf)) > 0) {
+                        String text;
+                        synchronized (o) {
+                            o.write(buf, 0, n);
+                            text = o.toString("UTF-8");
+                        }
+                        int at = text.indexOf("launched uid=");
+                        if (at >= 0 && text.indexOf('\n', at) >= 0) break;
+                    }
+                } catch (Exception closedOrFailed) {
+                    // "Stream closed" is how the library reports the shell ending: not an error here
+                } finally {
+                    done.countDown();
+                }
+            }, "mv-adb-run");
+            t.setDaemon(true);
+            t.start();
+            try {
+                done.await(RUN_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         } catch (Exception ignored) {
         } finally {
             if (s != null) {
                 try {
-                    s.close();
+                    s.close();                  // also unblocks the reader thread
                 } catch (Throwable ignored) {
                 }
             }
         }
         try {
-            return o.toString("UTF-8");
+            synchronized (o) {
+                return o.toString("UTF-8");
+            }
         } catch (java.io.UnsupportedEncodingException e) {
             return "";
         }

@@ -173,6 +173,13 @@
             android:name=".HotspotBinderReceiver"
             android:exported="true" />
 
+        <!-- Same hand-over through a synchronous provider call (cannot be dropped like a broadcast). -->
+        <provider
+            android:name=".HotspotBinderProvider"
+            android:authorities="${applicationId}.hotspot"
+            android:exported="true"
+            android:multiprocess="false" />
+
         <!-- One-time adb pairing for the no-Shizuku hotspot helper. -->
         <activity
             android:name=".AdbPairActivity"
