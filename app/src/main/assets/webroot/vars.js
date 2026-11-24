@@ -110,6 +110,8 @@ let profiles = {};
 let customConfigText = "";
 let activeConfig = null;
 let advSettings = {
+    // Core engine: "xray" (default) | "xray-rs". Read by the service at every (soft) start and by NonRootEnv.
+    core: "xray",
     loglevel: "info",
     sniffing: true,
     routeOnly: false,

@@ -25,8 +25,8 @@ import java.util.regex.Pattern;
  * Payload layout inside the APK (zip root, same files a flashed module zip uses):
  *   {service.sh, uninstall.sh, action.sh, module.prop}
  *   bin/{geoip.dat, geosite.dat}
- *   lib/<abi>/{libxray.so, libxhuskydg_helper.so}   (real executables,
- *       extracted to nativeLibraryDir at install; installed as bin/xray etc.)
+ *   lib/<abi>/{libxray.so, libxrayrs.so, libxhuskydg_helper.so}   (real executables,
+ *       extracted to nativeLibraryDir at install; installed as bin/xray, bin/xray-rs etc.)
  *
  * Besides the payload, the app copies its own APK to $MODDIR/app.apk, so the
  * module's Action button (action.sh) can reinstall the app if it gets removed.
@@ -81,6 +81,7 @@ final class ModuleInstaller {
     // lib file in nativeLibraryDir -> path inside the module
     private static final String[][] NATIVE_BINS = {
             {"libxray.so", "bin/xray"},
+            {"libxrayrs.so", "bin/xray-rs"},
             {"libxhuskydg_helper.so", "bin/xhuskydg_helper"}};
 
     private ModuleInstaller() {
@@ -119,7 +120,7 @@ final class ModuleInstaller {
                         + "  echo \"VC=$(sed -n 's/^versionCode=//p' \"$M/module.prop\" | head -n 1 | tr -d '\\r')\"\n"
                         + "  echo \"VER=$(sed -n 's/^version=//p' \"$M/module.prop\" | head -n 1 | tr -d '\\r')\"\n"
                         + "fi\n"
-                        + "if [ -s \"$M/module.prop\" ] && [ -x \"$M/bin/xray\" ] && [ -x \"$M/bin/xhuskydg_helper\" ] && [ -x \"$M/bin/curl\" ] \\\n"
+                        + "if [ -s \"$M/module.prop\" ] && [ -x \"$M/bin/xray\" ] && [ -x \"$M/bin/xray-rs\" ] && [ -x \"$M/bin/xhuskydg_helper\" ] && [ -x \"$M/bin/curl\" ] \\\n"
                         + "   && [ -s \"$M/bin/geoip.dat\" ] && [ -s \"$M/bin/geosite.dat\" ] \\\n"
                         + "   && [ -x \"$M/service.sh\" ] && [ -s \"$M/app.apk\" ]; then\n"
                         + "  :\n"
@@ -239,6 +240,7 @@ final class ModuleInstaller {
                         + "  mv -f \"$MOD/$1.new\" \"$MOD/$1\"\n"
                         + "}\n"
                         + "put bin/xray 0755 || fail bin/xray\n"
+                        + "put bin/xray-rs 0755 || fail bin/xray-rs\n"
                         + "put bin/xhuskydg_helper 0755 || fail bin/xhuskydg_helper\n"
                         // curl is an applet of the helper: bin/curl -> xhuskydg_helper (argv[0] dispatch)
                         + "rm -f \"$MOD/bin/curl\"; ln -s xhuskydg_helper \"$MOD/bin/curl\" || fail bin/curl\n"

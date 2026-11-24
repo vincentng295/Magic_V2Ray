@@ -12,6 +12,7 @@
 #   ./build.sh --update-helper     -> force rebuild of xhuskydg_helper even if up to date
 #   ./build.sh --update-xray-rs    -> force rebuild of xray-rs even if up to date
 #   ./build.sh --xray-rs-only      -> build only xray-rs (module/bin/<arch>/xray-rs), no APK/Gradle needed
+#                                     (a normal ./build.sh also packs it into the APK/module as the selectable "xray-rs" core)
 #
 # Needs JDK 17, Gradle 8.7+, curl + unzip (BoringSSL download), Go (version from core/xray-core/go.mod) and an
 # Android SDK (see check_apk_tools below).
@@ -35,7 +36,8 @@
 # nghttp2/nghttp3/ngtcp2) compiled with the NDK and linked against BoringSSL, which build.sh downloads (Maven
 # Central AAR, cached in native/curl/.deps; MV_BORINGSSL_DIR / MV_BORINGSSL_VERSION override it).
 #
-# APK: build_apk stages xray/helper/busybox as app/src/main/jniLibs/<abi>/lib*.so and runs
+# APK: build_apk stages xray/xray-rs/helper/busybox as app/src/main/jniLibs/<abi>/lib*.so (xray-rs ->
+# libxrayrs.so; the module installs it back as bin/xray-rs, the Dashboard picks the core) and runs
 # `gradle assembleRelease` (or ./gradlew if present). Output: dist/<id>-<version>-<abi>.apk.
 # Set MV_KEYSTORE, MV_KEYSTORE_PASSWORD, MV_KEY_ALIAS, MV_KEY_PASSWORD to sign with your
 # own key, or put them (plus MV_KEYSTORE_BASE64) in MV2R_KEYSTORE.env (see
@@ -359,9 +361,10 @@ fetch_busybox() {
 stage_jnilibs() {
     local arch="$1"
     local dst="app/src/main/jniLibs/${arch}"
-    need "module/bin/${arch}/xray" "module/bin/${arch}/xhuskydg_helper" "module/bin/${arch}/busybox"
+    need "module/bin/${arch}/xray" "module/bin/${arch}/xray-rs" "module/bin/${arch}/xhuskydg_helper" "module/bin/${arch}/busybox"
     mkdir -p "$dst"
     install -m 0755 "module/bin/${arch}/xray"             "$dst/libxray.so"
+    install -m 0755 "module/bin/${arch}/xray-rs"          "$dst/libxrayrs.so"
     install -m 0755 "module/bin/${arch}/xhuskydg_helper"  "$dst/libxhuskydg_helper.so"
     install -m 0755 "module/bin/${arch}/busybox"          "$dst/libbusybox.so"
     echo "    staged $dst"
@@ -444,7 +447,7 @@ verify_flashable() {
         *)           abis="arm64-v8a x86_64" ;;
     esac
     for abi in $abis; do
-        for lib in libxray.so libxhuskydg_helper.so libbusybox.so; do
+        for lib in libxray.so libxrayrs.so libxhuskydg_helper.so libbusybox.so; do
             grep -q " lib/${abi}/${lib}\$" <<<"$list" || { echo "!! $f is missing lib/${abi}/${lib}" >&2; exit 1; }
         done
     done
@@ -486,7 +489,7 @@ for a in "$@"; do
     esac
 done
 
-# Only xray-rs: no JDK/Gradle/Go needed, nothing is packaged into the APK yet.
+# Only xray-rs: no JDK/Gradle/Go needed, no APK is built.
 if [[ "$XRAYRS_ONLY" == "1" ]]; then
     check_xrayrs_tools
     for a in arm64-v8a x86_64; do build_xrayrs "$a"; done

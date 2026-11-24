@@ -21,6 +21,20 @@ static pid_t g_xray;
 
 static void bin(char *out, size_t n, const char *name) { snprintf(out, n, "%s/bin/%s", g_moddir, name); }
 
+/* Which core runs: settings key "core" = "xray" (default) | "xray-rs". Read at every spawn, so a soft restart
+ * (restart_xray: only the process and the tun are recreated) is all it takes to switch. An unknown value, or
+ * an xray-rs binary missing from an older install, means xray. */
+static const char *core_bin_name(void)
+{
+    char v[24], p[300];
+    if (settings_query("core", v, sizeof v) && !strcmp(v, "xray-rs")) {
+        bin(p, sizeof p, "xray-rs");
+        if (access(p, X_OK) == 0) return "xray-rs";
+        log_msg("core xray-rs selected but %s is not executable: using xray", p);
+    }
+    return "xray";
+}
+
 /* Tell the app that xray started / stopped, so it can announce it to other apps (README "State events").
  * Fire and forget on a helper thread: `am` takes a second to start and must never hold up the control loop.
  * Bursts (hard_restart = stop + reaper + start) are merged. The app does not trust anything in this broadcast,
@@ -233,7 +247,8 @@ static int location_assets_open(void)
 static pid_t spawn_xray(void)
 {
     char xray[300], cfg[300], envfd[32], envasset[64];
-    bin(xray, sizeof xray, "xray");
+    const char *core = core_bin_name();
+    bin(xray, sizeof xray, core);
     u_ov_path(cfg, sizeof cfg, CONFIG_NAME, DATADIR "/" CONFIG_NAME);   /* override session first */
     int tun = open_tun_retry();
     if (tun < 0) return -1;
@@ -252,7 +267,13 @@ static pid_t spawn_xray(void)
     env[m++] = envfd;
     if (assetfd >= 0) env[m++] = envasset;
     env[m] = NULL;
-    char *argv[] = { xray, "run", "-c", "stdin:", "-format", "json", NULL };
+    /* xray:    xray run -c stdin: -format json
+     * xray-rs: xray-rust run -config <file>; the config is the memfd that is fd 0, reached by path (works for
+     *          any uid, nothing secret is written to disk) */
+    char *argv_x[]  = { xray, "run", "-c", "stdin:", "-format", "json", NULL };
+    char *argv_rs[] = { xray, "run", "-config", "/proc/self/fd/0", NULL };
+    char **argv = strcmp(core, "xray-rs") ? argv_x : argv_rs;
+    log_msg("core: %s", core);
     int out = log_fd();
 
     mv_priv pv;
@@ -335,10 +356,11 @@ static void kill_stale_pidfile(void)
             char link[64], want[300], got[300];
             snprintf(link, sizeof link, "/proc/%d/exe", (int)p);
             bin(want, sizeof want, "xray");
+            char want_rs[300]; bin(want_rs, sizeof want_rs, "xray-rs");
             ssize_t n = readlink(link, got, sizeof got - 1);
             if (n > 0) {
                 got[n] = 0;
-                if (!strcmp(got, want)) { log_msg("killing untracked xray pid %d from pidfile", (int)p); kill_and_wait(p); }
+                if (!strcmp(got, want) || !strcmp(got, want_rs)) { log_msg("killing untracked xray pid %d from pidfile", (int)p); kill_and_wait(p); }
                 else log_msg("pidfile pid %d is %s, not xray: left alone", (int)p, got);
             }
         }

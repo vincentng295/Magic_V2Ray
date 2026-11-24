@@ -4580,7 +4580,32 @@ function syncQueryStrategyHint() {
     hint.innerHTML = t(key);
 }
 
+// Core engine picker (Dashboard). The service reads advSettings.core at every spawn, so a running
+// engine is switched with a soft reload (process + tun recreated, firewall rules untouched); a stopped
+// engine simply uses the new core at the next start.
+function changeCore(value) {
+    const core = value === 'xray-rs' ? 'xray-rs' : 'xray';
+    const sel = document.getElementById('set-core');
+    if (core === (advSettings.core === 'xray-rs' ? 'xray-rs' : 'xray')) { if (sel) sel.value = core; return; }
+    advSettings.core = core;
+    writeFileB64(SETTINGS_FILE, utoa(JSON.stringify(advSettings)), () => {
+        execShell(`${MODDIR}/bin/xhuskydg_helper proxy_control status`, (status) => {
+            if (status !== 'running') {
+                showToast(t('toast_core_next_start', { core }), 'info');
+                return;
+            }
+            showLoading(t('toast_reload_xray'));
+            execShell(`${MODDIR}/bin/xhuskydg_helper proxy_control reload`, () => {
+                hideLoading();
+                _markStatusPending();
+                showToast(t('toast_core_switched', { core }), 'success');
+            });
+        });
+    });
+}
+
 function bindSettingsToFormView() {
+    { const cs = document.getElementById('set-core'); if (cs) cs.value = advSettings.core === 'xray-rs' ? 'xray-rs' : 'xray'; }
     migrateDnsSettings();
     currentLang = resolveLanguage();
     applyI18n();
