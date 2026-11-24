@@ -33,7 +33,7 @@
 #define OVERRIDE_DIR   RUN_DIR "/override"
 #define EXCLUDE_SESSION_FILE OVERRIDE_DIR "/excludelist.session.txt"
 #define SETTINGS_FILE  DATADIR "/settings.base64"
-#define SUB_LOOP_PID_FILE DATADIR "/.sub_loop.pid"   /* service.sh subscription updater */
+#define SUB_LOOP_PID_FILE DATADIR "/.sub_loop.pid"   /* pid file of the old shell updater (see kill_sub_loop) */
 
 #define PIDFILE        RUN_DIR "/xray.pid"
 #define TIME_RES_FILE  RUN_DIR "/time_res"

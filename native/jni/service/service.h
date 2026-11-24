@@ -78,6 +78,10 @@ int  xlog_set_max(size_t n);                /* lines kept (default 1000) */
 int  xlog_dump(const char *path, size_t n); /* newest n lines (0 = all) into path; 0 or -errno */
 void xlog_save(const char *path);           /* xlog_dump(path, 0), errors ignored */
 
+/* subupdate.c - subscription auto-update worker (hourly; writes pending_sublist.txt for the WebUI) */
+void sub_update_start(void);
+void sub_update_stop(void);
+
 /* control.c */
 int  control_run_prepare(void);        /* create + open the FIFO */
 int  control_run(void);                /* blocks: FIFO command loop */

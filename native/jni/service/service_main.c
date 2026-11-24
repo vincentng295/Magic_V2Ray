@@ -109,6 +109,8 @@ static void prepare_stub_dir(void)
     chmod(RUN_DIR, 0700); chmod(LOG_DIR, 0700);
 }
 
+static void kill_sub_loop(void);
+
 static void *boot_thread(void *arg)
 {
     (void)arg;
@@ -116,6 +118,8 @@ static void *boot_thread(void *arg)
     while (!u_exists(RT_TABLES_PATH) && waited < 300) { sleep(1); waited++; }   /* netd publishes the table map */
     if (!u_exists(RT_TABLES_PATH)) log_msg("rt_tables never appeared after %ds; continuing anyway", waited);
 
+    kill_sub_loop();                         /* a shell updater of an older version must not run beside ours */
+    sub_update_start();
     ensure_exclude_app_chain();
     traffic_ctl_apply();                     /* blocked / limited devices stay that way across restarts */
     traffic_autostart();                     /* per-device counting comes back if it was on */
@@ -153,7 +157,8 @@ static void cleanup_stub_dirs(void)
     u_rm_rf(STUB_DIR);
 }
 
-/* The subscription updater is a shell subshell started by service.sh, outside our process. */
+/* Older module versions ran the subscription updater as a shell subshell started by service.sh, outside our
+ * process (it is a worker thread now, see subupdate.c). Kill one that an older service left behind. */
 static void kill_sub_loop(void)
 {
     char b[32], c[64], cmd[512];
@@ -178,6 +183,7 @@ void service_shutdown(void)
     log_msg("stop_svc: shutting down (moddir=%s)", g_moddir);
     bool was_enabled = u_exists(ENABLED_FLAG);       /* stop_xray() clears it; keep the user's intent */
 
+    sub_update_stop();
     iface_monitor_stop();
     latency_monitor_stop();
     apps_monitor_stop();

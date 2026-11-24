@@ -16,6 +16,7 @@ Only your own helper `bin/xhuskydg_helper` is still used.
 | `src/exclude.c` | Exclude Apps + apps monitor (inotify instead of `inotifyd`); the monitor always runs and tracks the app uid that may reach the proxy inbound |
 | `src/latency.c` | latency monitor (built-in SOCKS5 client instead of `curl`) |
 | `src/traffic.c` | Traffic Monitor tab: per-source-IP counters of what enters `xraytun0` (see below) |
+| `subupdate.c` | the hourly subscription auto-update loop of `service.sh` (`sub_loop`): a worker thread that runs our own `curl` applet (direct, then through the SOCKS5 inbound), decodes the body, and writes `pending_sublist.txt` for the WebUI |
 | `src/xray.c` | start/stop/reload, native `openxtun` (open tun, `TUNSETIFF`, `XRAY_TUN_FD`, exec) |
 | `src/control.c`, `main.c` | FIFO command loop (queue + request/reply), boot sequencer |
 | `proxy_control.cpp` | `proxy_control.sh`: client side of the control pipe |
