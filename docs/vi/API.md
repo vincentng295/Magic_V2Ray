@@ -1,75 +1,8 @@
-# Magic V2Ray
+# Magic V2Ray API
 
-[English](./README.md) | [Tiếng Việt](./README_vi.md) | [Русский](./README_ru.md) | [简体中文](./README_zh-CN.md) | [繁體中文（台灣）](./README_zh-TW.md) | [繁體中文（香港）](./README_zh-HK.md)
+[English](../API.md) | [Tiếng Việt](./API.md) | [Русский](../ru/API.md) | [简体中文](../zh-CN/API.md) | [繁體中文（台灣）](../zh-TW/API.md) | [繁體中文（香港）](../zh-HK/API.md)
 
-![screenshot_1](images/screenshot_1.jpg)
-
-Một ứng dụng quản lý proxy Internet mạnh mẽ và hiện đại cho Android (hỗ trợ cả thiết bị **Root** và **Chưa Root / Non-Root**). Dự án giúp bạn định tuyến toàn bộ lưu lượng mạng của hệ thống và ứng dụng qua proxy để bảo mật kết nối, vượt tường lửa và chia sẻ mạng cho các thiết bị khác.
-
----
-
-## Magic V2Ray là gì?
-
-**Magic V2Ray** là giải pháp mạng nâng cao dành cho Android. Được thiết kế lại thành một ứng dụng Android độc lập, ứng dụng đóng gói sẵn toàn bộ các binary và tài nguyên quản lý proxy để tạo ra trải nghiệm mượt mà nhất.
-
-Từ phiên bản **v2.0**, Magic V2Ray chính thức hỗ trợ **Chế độ Non-Root (VpnService)**, cho phép người dùng máy chưa root sử dụng lõi proxy an toàn và tiện lợi. Đối với máy đã root, ứng dụng vẫn giữ nguyên sức mạnh với cơ chế định tuyến tiến trình daemon cấp hệ thống.
-
-Đi kèm với ứng dụng là một giao diện Web UI tối giản, giúp bạn dễ dàng tổ chức các cấu hình proxy, quản lý liên kết đăng ký (subscription) và kiểm soát mạng chỉ với vài thao tác.
-
----
-
-## Các chế độ hoạt động chính
-
-### 1. Chế độ Root (Daemon Engine)
-Dành cho máy đã root (Magisk, KernelSU, APatch) với hiệu năng tối đa:
-* **Kết nối bền vững, không lo văng app:** Hoạt động như một tiến trình hệ thống (system daemon). Trình quản lý bộ nhớ RAM (Low Memory Killer) của Android sẽ không tự ý tắt ứng dụng khi thiếu RAM.
-* **Định tuyến toàn diện:** Đánh nhãn gói tin ngay tại tầng Netfilter, hỗ trợ định tuyến cho cả các ứng dụng/tiến trình hệ thống mà API VPN thông thường không thể can thiệp.
-* **Không chiếm dụng ô VPN mặc định:** Hoạt động độc lập mà không bật biểu tượng chìa khóa VPN trên thanh trạng thái, không lo xung đột khi dùng chung với ứng dụng VPN khác.
-* **Phát Hotspot / Tethering trực tiếp:** Đánh chặn lưu lượng tại chuỗi `PREROUTING`, tự động định tuyến toàn bộ các thiết bị bắt Wi-Fi Hotspot hoặc USB Tethering qua đường hầm proxy.
-* **Chuyển mạng siêu tốc:** Phát hiện sự kiện chuyển đổi giữa Wi-Fi ↔ 4G/5G trực tiếp từ kernel (`ip monitor`) để áp dụng ngay lập tức các quy tắc mạng.
-
-### 2. Chế độ Non-Root (VpnService)
-Từ phiên bản **v2.0**, các thiết bị chưa root có thể chạy Magic V2Ray dễ dàng thông qua API `VpnService` tích hợp sẵn của Android:
-* Chạy an toàn ở không gian người dùng (user-space).
-* Dễ dàng cài đặt và sử dụng ngay mà không cần quyền Root hay module kernel.
-
----
-
-## Tính năng nổi bật khác
-
-- **Phím tắt Quick Settings (Quick Settings Tile):** Bật/tắt nhanh proxy ngay từ thanh thông báo Quick Settings. Nhấn giữ phím tắt để mở nhanh ứng dụng.
-- **Cập nhật Module trực tiếp (Live Module Update):** Hỗ trợ cập nhật trực tiếp cho phiên bản 176 trở lên, giúp nâng cấp service mượt mà mà không cần khởi động lại thiết bị.
-- **Quản lý danh mục (Category Organizing):** Gom nhóm các proxy server vào các thư mục hoặc danh mục tùy chỉnh.
-- **Nhập liên kết thông minh (Smart Subscription Import):** Dán nhanh các URL đăng ký, chuỗi cấu hình thô hoặc đoạn mã hỗn hợp.
-- **Cập nhật 1-Click (Auto-Reload):** Lưu liên kết đăng ký để cập nhật lại toàn bộ server chỉ bằng một thao tác.
-- **Chia sẻ điểm phát sóng không cần root:** Ở chế độ không cần root (Non-Root mode), Shizuku có thể chia sẻ proxy với các thiết bị kết nối qua điểm phát sóng hoặc cáp USB (Android 13 trở lên).
-- **Chia sẻ Hotspot Native:** Chia sẻ kết nối proxy cho máy tính, console hoặc điện thoại khác qua Wi-Fi Hotspot với đầy đủ hỗ trợ IPv4 và IPv6.
-- **Website nhà cung cấp:** Thêm website bán VPN thành một danh mục, mở bằng mini trình duyệt tích hợp, nhấn nút Đồng bộ để nhập node và ghim phím tắt ra màn hình chính. Xem [Deep Link](#deep-link-cho-nhà-cung-cấp).
-
----
-
-## Cài đặt & Sử dụng
-
-File APK phát hành của Magic V2Ray vừa là ứng dụng Android độc lập, vừa đóng vai trò là một file zip module có thể flash qua bộ quản lý Root.
-
-> [!IMPORTANT]
-> File `.zip` tải từ [modules.kernelsu.org](https://modules.kernelsu.org) **chỉ là trình cài đặt**, không phải file APK. Hãy tải APK tại [trang Releases của repo](https://github.com/vincentng295/Magic_V2Ray/releases).
-
-### Dành cho máy Chưa Root (Non-Root)
-1. Tải và cài đặt file `magic_v2ray-*-arm64-v8a.apk` (hoặc `-x86_64.apk`).
-2. Mở app, chọn **Chế độ Non-Root (VpnService)**, cấp quyền VPN và bắt đầu sử dụng.
-
-### Dành cho máy Đã Root (Magisk / KernelSU / APatch)
-**Cách A: Flash qua Root Manager (Cài cả Module + App)**
-1. Đổi tên file `magic_v2ray-*.apk` thành `magic_v2ray-*.zip`.
-2. Flash file zip trong Magisk / KernelSU / APatch (Modules → Install from storage). Hệ thống sẽ cài module nền và tự động gọi `pm install` để cài ứng dụng.
-3. Khởi động lại máy hoặc mở trực tiếp ứng dụng.
-
-**Cách B: Cài file APK thông thường**
-1. Cài đặt `magic_v2ray-*-arm64-v8a.apk` rồi mở app.
-2. Cấp quyền Root. Ứng dụng sẽ tự động kiểm tra và cài đặt/cập nhật module daemon tại `/data/adb/modules/magic_v2ray` (cài đặt cá nhân được giữ tại `/data/adb/magic_v2ray`).
-
-*Lưu ý: Nút **Action** của module (Magisk 27+ / KernelSU / APatch) cho phép mở nhanh ứng dụng và tự động cài `app.apk` nếu thiết bị chưa cài đặt.*
+[← README](README.md)
 
 ---
 
@@ -175,14 +108,14 @@ Android 11+: thêm `<queries><package android:name="com.huskydg.magicv2ray"/></q
 
 ```json
 { "app": "Magic V2Ray", "package": "com.huskydg.magicv2ray", "versionName": "v2.5-alpha", "versionCode": 192, "mode": "root",
-  "api": { "level": 1,
+  "api": { "level": 2,
            "actions": ["com.huskydg.magicv2ray.action.CONNECT", "...DISCONNECT", "...GET_INFO"],
            "schemes": ["magicv2ray://connect", "magicv2ray://disconnect"],
            "events": ["com.huskydg.magicv2ray.event.STATE_CHANGED"],
            "extras": ["uri", "name", "exclude", "overrides"],
            "overrides": ["traffic", "network", "exclude", "routing", "hosts"],
-           "provider": { "authority": "com.huskydg.magicv2ray.api", "methods": ["getInfo", "getState"], "uris": ["..."] },
-           "features": ["connect", "disconnect", "overrides", "exclude", "info", "state_events", "state_provider"] },
+           "provider": { "authority": "com.huskydg.magicv2ray.api", "methods": ["getInfo", "getState", "getNodes", "getActiveNode", "getNodeAccess"], "uris": ["..."] },
+           "features": ["connect", "disconnect", "overrides", "exclude", "info", "state_events", "state_provider", "nodes", "node_access_request", "connect_freedom", "connect_chain", "connect_nodeid"] },
   "state": { "connected": true, "known": true, "mode": "root",
              "session": { "active": true, "name": "My server", "caller": "com.example.app", "startedAt": 1731670000000 } } }
 ```
@@ -227,6 +160,52 @@ registerReceiver(new BroadcastReceiver() {
 - **Root mode**: root service gọi `am broadcast ... ENGINE_CHANGED` tới app, app đọc lại trạng thái thật rồi mới phát sự kiện. Nội dung broadcast đó không được tin, nên app khác gửi giả cũng chỉ khiến app kiểm tra lại trạng thái. Cách này cũng bắt được crash và lệnh dừng từ shell.
 - **Giới hạn**: ở non-root, nếu tiến trình Magic V2Ray bị hệ thống kill thì VPN chết theo và không gửi được sự kiện nào. Khi việc này quan trọng, hãy gọi `getState` định kỳ.
 - **Riêng tư**: sự kiện và info chỉ có trạng thái, không có địa chỉ server, uri node hay cài đặt.
+
+### Node và các uri connect đặc biệt (API level 2, chỉ dành cho ứng dụng)
+
+`api.level` là `2` khi có các feature `nodes`, `node_access_request`, `connect_freedom`, `connect_chain` và `connect_nodeid`.
+
+**1. Quyền truy cập.** Ứng dụng chỉ đọc được node sau khi người dùng cho phép. Người gọi là package mà chính Android báo cho lệnh gọi đó, nên website, liên kết hay broadcast không bao giờ đọc được node và không ai giả danh được ứng dụng khác. Người dùng chọn ứng dụng thấy **gì** và **trong bao lâu**:
+
+| Lựa chọn | Ý nghĩa |
+|---|---|
+| Thông tin ẩn danh (mặc định) | tên, giao thức và một id; node là `nodeid://<id>` thay vì `vless://...`. Không có máy chủ, cổng hay thông tin đăng nhập. |
+| Thông tin node đầy đủ | liên kết node thật (`vless://...`), gồm cả máy chủ và thông tin đăng nhập. |
+| Cho phép một lần | có hiệu lực 10 phút, chỉ lưu trong bộ nhớ. |
+| Vĩnh viễn | giữ đến khi bị thu hồi trong tab **Quyền truy cập**; gắn với chứng chỉ ký của ứng dụng. |
+| Hủy bỏ | không cấp gì cả. |
+
+```java
+// 1) ask. status: ok | permission_required | unknown_caller | unavailable
+Uri api = Uri.parse("content://com.huskydg.magicv2ray.api");
+Bundle b = getContentResolver().call(api, "getNodes", null, null);
+if ("permission_required".equals(b.getString("status"))) {
+    // 2) the permission dialog: MUST be startActivityForResult (that is how the caller is verified)
+    Intent i = new Intent("com.huskydg.magicv2ray.action.REQUEST_NODE_ACCESS").setPackage("com.huskydg.magicv2ray");
+    i.putExtra("level", "full");          // optional: what the app would like; the dialog still starts on "anonymous"
+    startActivityForResult(i, 42);        // result: granted, level ("anonymous" | "full"), persistent
+}
+// 3) read (after RESULT_OK, or any time later)
+String json = getContentResolver().call(api, "getNodes", null, null).getString("json");
+```
+
+| Phương thức | Trả về |
+|---|---|
+| `getNodeAccess` | `granted`, `level`, `persistent`; không bao giờ hiện hộp thoại |
+| `getNodes` | `json` = `{level, activeId, nodes:[{id, name, protocol, uri, (chỉ mức đầy đủ: category, address, port)}]}`, kèm `count`, `activeId` |
+| `getActiveNode` | `json` = `{connected, known, source, session?, node}`, kèm `connected`, `source` |
+
+`source` là `session` (một ứng dụng đặt node tạm thời), `selected` (node người dùng tự chọn) hoặc `direct` (node không proxy dựng sẵn). Ứng dụng ở mức ẩn danh không bao giờ thấy uri của node do ứng dụng đặt mà không phải node của người dùng: nó trả về dạng `<scheme>://hidden`. Chain luôn hiện dưới dạng `chain://localhost/?hopList=...`.
+
+**2. Uri connect.** `uri` của một yêu cầu connect (liên kết, intent hoặc broadcast) còn có thể là:
+
+| uri | Ý nghĩa |
+|---|---|
+| `freedom://localhost` | node "không proxy" dựng sẵn: xray chỉ làm bộ định tuyến, mọi quy tắc định tuyến vẫn áp dụng |
+| `chain://localhost/?hopList=<urlencode(JSON array of node uris)>` | chuỗi proxy 2 đến 16 hop: `["vless://...", "vmess://...", "socks://...", ...]`. Mục đầu tiên được thiết bị quay số trực tiếp, mỗi hop sau đi qua đường hầm của hop trước, mục cuối là hop thoát. |
+| `nodeid://<id>` | một node của chính người dùng, đứng riêng hoặc làm hop của chain. Chỉ dành cho ứng dụng đã xác minh và đã được phép đọc node (mức nào cũng được), nên ứng dụng ở mức ẩn danh vẫn dùng được node mà nó không bao giờ nhìn thấy. |
+
+Vẫn có hộp thoại xác nhận như thường lệ: nó hiện các giao thức của chain (hoặc "trực tiếp"), và hop đầu quyết định ứng dụng có phải bị loại khỏi VPN hay không (`freedom://` không có máy chủ nào để lưu lượng quay vòng).
 
 ### Dùng từ Termux (hoặc shell bất kỳ)
 
@@ -293,35 +272,3 @@ Ngoài node, `connect` có thể kèm tham số `overrides` để **đổi tạm
 - Yêu cầu chờ xác nhận chỉ nằm trong RAM; phiên chỉ lưu metadata (tên, app gọi, danh sách loại trừ), không lưu server hay giá trị nào bị đổi.
 - Phiên **không tự chạy lại sau khi khởi động lại** (root: `/mnt/runtime` bị xóa và service dọn thư mục phiên khi khởi động; non-root: VpnService là `START_NOT_STICKY`, phiên cũ bị bỏ khi app mở lại). App cần dùng tiếp thì phải gửi lại yêu cầu `connect` sau mỗi lần khởi động. Một phiên tạm cũng không đổi cờ `enabled` quyết định cái gì chạy lại khi boot.
 - Yêu cầu có `overrides` được hỏi xác nhận (hộp thoại nêu rõ các mục bị đổi). App đã "luôn tin" thì **không bị hỏi lại khi gửi đúng `overrides` như lần được cho phép trước**. Nếu `overrides` khác (mới hoặc đã đổi), hộp thoại hiện lại với thông báo "ứng dụng đang muốn áp dụng thiết lập MỚI". Chọn **Luôn cho phép** để ghi nhớ bộ `overrides` mới; **Cho phép một lần** thì không ghi nhớ. Chỉ lưu dấu vân tay (SHA-256) của `overrides`, không lưu giá trị nào. Liên kết và trình duyệt không bao giờ được "luôn tin".
-
-## Build từ mã nguồn
-
-```sh
-./build.sh          # Xuất các file APK (arm64-v8a, x86_64, universal) vào thư mục dist/
-                    # (Mỗi file APK có thể đổi đuôi sang .zip để làm bộ cài module)
-
-```
-
-**Yêu cầu môi trường:**
-
-* JDK 17+
-* Gradle 8.7+ (Khuyến nghị 8.9)
-* Android SDK (`ANDROID_HOME`, platform `android-35`)
-* Android NDK (dành cho phần native helper)
-
-Mã nguồn Web UI nằm tại `app/src/main/assets/webroot`. Ứng dụng cung cấp sẵn cầu nối tương thích với `window.ksu` (`exec`, `listPackages`, `getPackagesInfo`).
-
----
-
-## Ghi nhận & Đóng góp
-
-* **[Xray-core](https://github.com/XTLS/Xray-core):** Lõi xử lý proxy thế hệ mới (VLESS, VMess, Trojan, v.v.).
-* **[curl-android](https://github.com/vvb2060/curl-android):** Công cụ `curl` và thư viện tĩnh `libcurl` biên dịch cho Android.
-
----
-
-## Giấy phép (License)
-
-Dự án này được phát hành dưới giấy phép **GNU General Public License v3.0 (GPL-3.0)**. Bằng cách sử dụng dự án này, bạn đồng ý với các điều khoản và điều kiện được quy định trong giấy phép. Để biết thêm chi tiết, vui lòng xem tệp [LICENSE](LICENSE) trong kho lưu trữ này.
-
-Về cơ bản, bạn được tự do sử dụng, sửa đổi và phân phối phần mềm này, miễn là bạn giữ nguyên giấy phép và công khai mã nguồn trong dự án của chính bạn. Thêm nữa, việc sử dụng mã nguồn hoặc sao chép các tính năng của Magic V2Ray trong phần mềm nguồn đóng có thể vi phạm điều khoản giấy phép.

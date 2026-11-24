@@ -1,75 +1,8 @@
-# Magic V2Ray
+# Magic V2Ray API
 
-[English](./README.md) | [Tiếng Việt](./README_vi.md) | [Русский](./README_ru.md) | [简体中文](./README_zh-CN.md) | [繁體中文（台灣）](./README_zh-TW.md) | [繁體中文（香港）](./README_zh-HK.md)
+[English](../API.md) | [Tiếng Việt](../vi/API.md) | [Русский](../ru/API.md) | [简体中文](./API.md) | [繁體中文（台灣）](../zh-TW/API.md) | [繁體中文（香港）](../zh-HK/API.md)
 
-![screenshot_1](images/screenshot_1.jpg)
-
-一款强大、现代的 Android 互联网代理管理器（同时支持**已 Root** 和**未 Root** 设备）。它通过高性能代理内核转发系统与应用的流量，保护你的连接安全、绕过网络限制，并将网络共享给其他设备。
-
----
-
-## 什么是 Magic V2Ray？
-
-**Magic V2Ray** 是一款面向 Android 的高级网络客户端。它以独立 Android 应用的形式发布，内置管理工具和代理内核，为整台设备提供流畅的网络连接体验。
-
-从 **v2.0** 开始，Magic V2Ray 新增了基于 Android `VpnService` 的**非 Root 模式**，让未 Root 的用户也能顺畅运行代理引擎。已 Root 的用户则继续享有内核级守护进程路由、持久后台运行以及底层数据包标记。
-
-应用附带简洁的 Web UI，可以轻松整理代理配置、管理订阅并监控网络。
-
----
-
-## 主要特性与运行模式
-
-### 1. Root 模式（守护进程引擎）
-专为已 Root 设备（Magisk、KernelSU、APatch）设计，追求最高稳定性和高级网络路由：
-- **不死连接：** 以 Root 级系统守护进程运行。即使内存压力很大，系统的低内存杀手（LMK）也不会杀掉该进程。
-- **深度路由覆盖：** 在 Netfilter 层拦截流量，可对普通 VPN 无法触及的系统 UID 进行透明代理。
-- **不占用系统 VPN 槽位：** 无需占用 Android 标准 VPN 槽位，状态栏不会出现常驻的 VPN 钥匙图标，也不会与按应用分流的 VPN 冲突。
-- **原生热点 / 网络共享：** 在 `PREROUTING` 链拦截流量，自动让通过 Wi-Fi 热点或 USB 共享上网的设备走代理隧道。
-- **动态重连：** 直接监听内核网络事件（`ip monitor`），Wi-Fi ↔ 移动网络切换时即时响应。
-
-### 2. 非 Root 模式（VpnService）
-从 **v2.0** 开始，没有 Root 权限的设备也可以通过 Android 原生 `VpnService` 引擎顺畅运行 Magic V2Ray：
-- 安全、标准的用户空间代理路由。
-- 无需 Root，也无需自定义内核模块。
-
----
-
-## 其他特性
-
-- **快速设置磁贴（Quick Settings Tile）：** 直接在通知栏中开关代理引擎。长按磁贴可打开应用。
-- **模块热更新：** 完整支持 176 及更高版本——无需重启设备即可即时升级服务。
-- **分类整理：** 将代理服务器归入自定义文件夹 / 分类。
-- **智能订阅导入：** 轻松粘贴订阅链接、原始配置或混合文本。
-- **一键自动刷新：** 轻点一下即可保持订阅为最新状态。
-- **无需 Root 的热点共享：** 在非 Root 模式下，Shizuku 可将代理共享给热点 / USB 客户端（Android 13+）。
-- **热点共享：** 通过 IPv4/IPv6 Wi-Fi 热点，将代理后的连接分享给笔记本电脑、游戏主机或其他手机。
-- **服务商网站：** 将 VPN 商家的网站添加为分类，在内置迷你浏览器中打开，点击其“同步”按钮即可导入节点，并可将其快捷方式固定到主屏幕。参见[深度链接](#服务商深度链接)。
-
----
-
-## 安装与使用
-
-Magic V2Ray 以独立的 Android 应用（`.apk`）形式发布，同时也可作为可刷入的 Root 模块 zip 使用。
-
-> [!IMPORTANT]
-> 从 [modules.kernelsu.org](https://modules.kernelsu.org) 下载的 `.zip` 文件**仅是安装器**，并不是 APK。请前往[仓库的 Releases 页面](https://github.com/vincentng295/Magic_V2Ray/releases)下载 APK。
-
-### 未 Root 用户
-1. 下载并安装 `magic_v2ray-*-arm64-v8a.apk`（或 `-x86_64.apk`）。
-2. 打开应用，选择 **Non-Root (VpnService) Mode**，授予 VPN 权限，然后启动连接。
-
-### 已 Root 用户（Magisk / KernelSU / APatch）
-**方式 A：通过 Root 管理器安装（模块 + 应用）**
-1. 将 `magic_v2ray-*.apk` 重命名为 `magic_v2ray-*.zip`。
-2. 在 Magisk / KernelSU / APatch 中刷入（Modules → Install from storage）。它会安装后台模块，并执行 `pm install` 安装应用界面。
-3. 重启设备，或直接打开应用。
-
-**方式 B：常规 APK 安装**
-1. 安装 `magic_v2ray-*-arm64-v8a.apk` 并打开。
-2. 授予 Root 权限。应用会自动检查并在 `/data/adb/modules/magic_v2ray` 中部署 Root 守护进程引擎（用户设置保存在 `/data/adb/magic_v2ray`）。
-
-*注：模块的 **Action** 按钮（Magisk 27+ / KernelSU / APatch）会直接启动应用；如果尚未安装，会自动安装 `app.apk`。*
+[← README](README.md)
 
 ---
 
@@ -175,14 +108,14 @@ Android 11+：请在调用方应用的 manifest 中添加 `<queries><package and
 
 ```json
 { "app": "Magic V2Ray", "package": "com.huskydg.magicv2ray", "versionName": "v2.5-alpha", "versionCode": 192, "mode": "root",
-  "api": { "level": 1,
+  "api": { "level": 2,
            "actions": ["com.huskydg.magicv2ray.action.CONNECT", "...DISCONNECT", "...GET_INFO"],
            "schemes": ["magicv2ray://connect", "magicv2ray://disconnect"],
            "events": ["com.huskydg.magicv2ray.event.STATE_CHANGED"],
            "extras": ["uri", "name", "exclude", "overrides"],
            "overrides": ["traffic", "network", "exclude", "routing", "hosts"],
-           "provider": { "authority": "com.huskydg.magicv2ray.api", "methods": ["getInfo", "getState"], "uris": ["..."] },
-           "features": ["connect", "disconnect", "overrides", "exclude", "info", "state_events", "state_provider"] },
+           "provider": { "authority": "com.huskydg.magicv2ray.api", "methods": ["getInfo", "getState", "getNodes", "getActiveNode", "getNodeAccess"], "uris": ["..."] },
+           "features": ["connect", "disconnect", "overrides", "exclude", "info", "state_events", "state_provider", "nodes", "node_access_request", "connect_freedom", "connect_chain", "connect_nodeid"] },
   "state": { "connected": true, "known": true, "mode": "root",
              "session": { "active": true, "name": "My server", "caller": "com.example.app", "startedAt": 1731670000000 } } }
 ```
@@ -227,6 +160,52 @@ registerReceiver(new BroadcastReceiver() {
 - **Root 模式**：Root 服务通过 `am broadcast ... ENGINE_CHANGED` 通知应用，应用重新读取真实状态后再发出事件。该广播的内容不被信任，因此其他应用伪造发送也只会让应用重新检查状态。这样同样能捕获崩溃以及来自 shell 的停止命令。
 - **限制**：在非 Root 模式下，如果 Magic V2Ray 进程被系统杀掉，VPN 也会随之终止，无法发送任何事件。若此事很重要，请定期调用 `getState`。
 - **隐私**：事件和 info 只包含状态，不含服务器地址、节点 uri 或设置。
+
+### 节点与特殊 connect uri（API level 2，仅限应用）
+
+当存在 features `nodes`、`node_access_request`、`connect_freedom`、`connect_chain` 和 `connect_nodeid` 时，`api.level` 为 `2`。
+
+**1. 权限。** 应用必须经用户允许后才能读取节点。调用者是 Android 为该调用本身报告的包名，因此网站、链接或广播永远无法读取节点，也没有任何东西能冒充其他应用。用户决定应用能看到**什么**以及**多长时间**：
+
+| 选项 | 含义 |
+|---|---|
+| 匿名信息（默认） | 名称、协议和 id；节点显示为 `nodeid://<id>` 而不是 `vless://...`。没有服务器、端口和凭据。 |
+| 完整节点信息 | 真实的节点链接（`vless://...`），包含服务器和凭据。 |
+| 允许一次 | 有效期 10 分钟，仅保存在内存中。 |
+| 始终允许 | 保留到在“访问权限”标签页中撤销；与应用的签名证书绑定。 |
+| 取消 | 不授予任何权限。 |
+
+```java
+// 1) ask. status: ok | permission_required | unknown_caller | unavailable
+Uri api = Uri.parse("content://com.huskydg.magicv2ray.api");
+Bundle b = getContentResolver().call(api, "getNodes", null, null);
+if ("permission_required".equals(b.getString("status"))) {
+    // 2) the permission dialog: MUST be startActivityForResult (that is how the caller is verified)
+    Intent i = new Intent("com.huskydg.magicv2ray.action.REQUEST_NODE_ACCESS").setPackage("com.huskydg.magicv2ray");
+    i.putExtra("level", "full");          // optional: what the app would like; the dialog still starts on "anonymous"
+    startActivityForResult(i, 42);        // result: granted, level ("anonymous" | "full"), persistent
+}
+// 3) read (after RESULT_OK, or any time later)
+String json = getContentResolver().call(api, "getNodes", null, null).getString("json");
+```
+
+| 方法 | 返回 |
+|---|---|
+| `getNodeAccess` | `granted`、`level`、`persistent`；从不弹出对话框 |
+| `getNodes` | `json` = `{level, activeId, nodes:[{id, name, protocol, uri, (仅完整级别：category, address, port)}]}`，另有 `count`、`activeId` |
+| `getActiveNode` | `json` = `{connected, known, source, session?, node}`，另有 `connected`、`source` |
+
+`source` 为 `session`（应用临时设置的节点）、`selected`（用户自己选的节点）或 `direct`（内置的无代理节点）。匿名读取者永远看不到由应用设置、且不属于用户自己节点的 uri：它会返回为 `<scheme>://hidden`。链始终显示为 `chain://localhost/?hopList=...`。
+
+**2. Connect uri。** connect 请求（链接、intent 或广播）的 `uri` 还可以是：
+
+| uri | 含义 |
+|---|---|
+| `freedom://localhost` | 内置的“无代理”节点：xray 仅作为路由器，所有路由规则仍然生效 |
+| `chain://localhost/?hopList=<urlencode(JSON array of node uris)>` | 2 到 16 跳的代理链：`["vless://...", "vmess://...", "socks://...", ...]`。第一项由设备直接拨出，之后每一跳都通过前一跳的隧道，最后一项是出口。 |
+| `nodeid://<id>` | 用户自己的某个节点，可单独使用，也可作为链中的一跳。仅限已验证且获准读取节点（任一级别）的应用，因此匿名级别的应用也能使用它从未见过的节点。 |
+
+照常需要确认：对话框会显示链的协议（或“直连”），由第一跳决定是否要让该应用绕过 VPN（`freedom://` 没有可供流量回环的服务器）。
 
 ### 在 Termux（或任意 shell）中使用
 
@@ -293,35 +272,3 @@ echo "Magic V2Ray 已断开"
 - 待确认的请求只保存在内存中；会话仅保存元数据（名称、调用方、排除列表），既不保存服务器，也不保存任何被覆盖的值。
 - 会话**重启后不会恢复**（Root：`/mnt/runtime` 会被清空，且服务在启动时清理该目录；非 Root：VpnService 为 `START_NOT_STICKY`，应用打开时会丢弃过期会话）。需要再次使用的应用必须在每次开机后重新发送 `connect`。临时会话也不会改变决定开机时恢复什么的 `enabled` 标志。
 - 带有 `overrides` 的请求需要确认（对话框会列出将更改的内容）。设为“始终信任”的应用，只要发送的 `overrides` 与上次获准时相同，**就不会再次询问**。如果不同（新增或已更改），对话框会再次出现，提示该应用想要应用新的设置。**始终允许**会记住新的一组；**仅允许一次**则不会。只保存 `overrides` 的 SHA-256 指纹，绝不保存其值。链接和浏览器永远不能被信任。
-
-## 从源码构建
-
-```sh
-./build.sh          # 输出 APK（arm64-v8a、x86_64、universal）-> dist/
-                    # （每个 APK 也可以重命名为 .zip，用作模块安装包）
-
-```
-
-**环境要求：**
-
-* JDK 17+
-* Gradle 8.7+（推荐 8.9）
-* Android SDK（`ANDROID_HOME`，目标平台 `android-35`）
-* Android NDK（用于原生辅助组件）
-
-Web UI 资源位于 `app/src/main/assets/webroot`。应用提供了兼容 `window.ksu` 的桥接接口（`exec`、`listPackages`、`getPackagesInfo`）。
-
----
-
-## 致谢与贡献
-
-* **[Xray-core](https://github.com/XTLS/Xray-core)：** 负责处理新一代代理协议（VLESS、VMess、Trojan 等）的底层引擎。
-* **[curl-android](https://github.com/vvb2060/curl-android)：** 为 Android 预编译的 `curl` 命令行工具和 `libcurl` 静态库 prefab。
-
----
-
-## 许可证
-
-本项目采用 **GNU General Public License v3.0（GPL-3.0）** 发布。使用本项目即表示你同意许可证中规定的条款和条件。更多详情请参阅本仓库中的 [LICENSE](LICENSE) 文件。
-
-简而言之，你可以自由使用、修改和分发本软件，前提是在你自己的项目中保留相同的许可证并公开源代码。此外，在闭源软件中使用其源代码或复刻 Magic V2Ray 的功能，可能违反许可证条款。
