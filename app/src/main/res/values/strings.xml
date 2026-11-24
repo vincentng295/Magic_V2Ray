@@ -124,4 +124,7 @@
     <string name="adb_notif_discovery_failed">Discovery failed (%1$s)</string>
     <string name="adb_notif_closed">The pairing dialog is closed (its code is void). Open it again and retry.</string>
     <string name="adb_notif_no_code">No code entered.</string>
+    <string name="adb_tcp_title">TCP mode</string>
+    <string name="adb_tcp_desc">Keeps adb listening on port 5555, so the hotspot helper can restart without Wi-Fi as long as you connected once since the phone booted. The port is protected by your paired key but is reachable from any network the phone joins.</string>
+    <string name="adb_status_paired_desc_tcp">Wireless debugging (and Wi-Fi) is only needed the first time after the phone boots.</string>
 </resources>

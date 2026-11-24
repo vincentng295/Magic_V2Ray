@@ -8148,7 +8148,7 @@ function refreshShizukuShare() {
         adbRow.style.display = has ? '' : 'none';
         if (has) {
             document.getElementById('adb-status-text').textContent =
-                t(info.adbPaired ? 'adb_state_paired' : 'adb_state_unpaired');
+                t(info.adbPaired ? (info.adbTcp ? 'adb_state_paired_tcp' : 'adb_state_paired') : 'adb_state_unpaired');
             document.getElementById('adb-pair-btn').textContent =
                 t(info.adbPaired ? 'btn_adb_repair' : 'btn_adb_pair');
         }

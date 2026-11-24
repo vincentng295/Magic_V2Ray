@@ -114,4 +114,7 @@
     <string name="adb_notif_discovery_failed">尋找失敗（%1$s）</string>
     <string name="adb_notif_closed">配對對話框已關閉（其配對碼已失效）。請重新開啟後再試。</string>
     <string name="adb_notif_no_code">尚未輸入配對碼。</string>
+    <string name="adb_tcp_title">TCP 模式</string>
+    <string name="adb_tcp_desc">讓 adb 持續監聽 5555 連接埠，只要手機開機後連線過一次，熱點輔助程序便可在沒有 Wi-Fi 的情況下重新啟動。該連接埠受已配對的金鑰保護，但手機加入的任何網絡都可以連到它。</string>
+    <string name="adb_status_paired_desc_tcp">只有手機開機後第一次需要開啟無線偵錯（並連接 Wi-Fi）。</string>
 </resources>

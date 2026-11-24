@@ -214,6 +214,47 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
+        <!-- TCP mode -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/bg_mode_card"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="20dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/adb_tcp_title"
+                    android:textColor="@color/mv_on_surface"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="@string/adb_tcp_desc"
+                    android:textColor="@color/mv_on_surface_variant"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <Switch
+                android:id="@+id/adb_tcp_switch"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:contentDescription="@string/adb_tcp_title" />
+        </LinearLayout>
+
         <!-- Manual entry (fallback) -->
         <Button
             android:id="@+id/adb_btn_manual_toggle"

@@ -27,6 +27,7 @@ final class AdbBridge extends AbsAdbConnectionManager {
     private static final String K_KEY = "key";
     private static final String K_CERT = "cert";
     private static final String K_PAIRED = "paired";
+    private static final String K_TCP = "tcp_mode";
     private static final long TWENTY_YEARS_MS = 20L * 365 * 24 * 3600 * 1000;
 
     private static AdbBridge instance;
@@ -101,5 +102,16 @@ final class AdbBridge extends AbsAdbConnectionManager {
     static void markPaired(Context c, boolean paired) {
         c.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit().putBoolean(K_PAIRED, paired).apply();
+    }
+
+    /** TCP mode (default on): keep adbd listening on a classic port so the helper restarts without Wi-Fi. */
+    static boolean isTcpMode(Context c) {
+        return c.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getBoolean(K_TCP, true);
+    }
+
+    static void setTcpMode(Context c, boolean on) {
+        c.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putBoolean(K_TCP, on).apply();
     }
 }

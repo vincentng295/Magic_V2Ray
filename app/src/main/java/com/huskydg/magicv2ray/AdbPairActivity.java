@@ -9,6 +9,7 @@ import android.provider.Settings;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.Switch;
 import android.widget.TextView;
 
 import java.util.concurrent.ExecutorService;
@@ -33,6 +34,7 @@ public final class AdbPairActivity extends Activity {
     private EditText portField;
     private EditText codeField;
     private Button pairButton;
+    private Switch tcpSwitch;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -48,6 +50,12 @@ public final class AdbPairActivity extends Activity {
         portField = findViewById(R.id.adb_port);
         codeField = findViewById(R.id.adb_code);
         pairButton = findViewById(R.id.adb_btn_pair);
+        tcpSwitch = findViewById(R.id.adb_tcp_switch);
+        tcpSwitch.setChecked(AdbBridge.isTcpMode(this));
+        tcpSwitch.setOnCheckedChangeListener((v, on) -> {
+            AdbBridge.setTcpMode(this, on);
+            refreshStatus();
+        });
 
         findViewById(R.id.adb_btn_notification).setOnClickListener(v -> startNotificationPairing());
         findViewById(R.id.adb_btn_open_dev).setOnClickListener(v -> openDeveloperOptions());
@@ -91,7 +99,8 @@ public final class AdbPairActivity extends Activity {
         statusBadge.setBackgroundResource(paired ? R.drawable.bg_status_ok : R.drawable.bg_status_off);
         statusBadge.setTextColor(getColor(paired ? R.color.mv_on_primary_container : R.color.mv_error));
         statusTitle.setText(paired ? R.string.adb_status_paired : R.string.adb_status_unpaired);
-        statusDesc.setText(paired ? R.string.adb_status_paired_desc : R.string.adb_status_unpaired_desc);
+        statusDesc.setText(!paired ? R.string.adb_status_unpaired_desc
+                : AdbBridge.isTcpMode(this) ? R.string.adb_status_paired_desc_tcp : R.string.adb_status_paired_desc);
     }
 
     private void showMessage(CharSequence text, boolean error) {

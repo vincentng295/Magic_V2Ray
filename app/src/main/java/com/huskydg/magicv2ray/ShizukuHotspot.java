@@ -113,6 +113,7 @@ final class ShizukuHotspot {
             o.put("shizuku", shizukuState(c));
             o.put("shizukuUid", shizukuUid());
             o.put("adbPaired", AdbHelper.isPaired(c));
+            o.put("adbTcp", AdbBridge.isTcpMode(c));
             o.put("backend", viaAdb ? "adb" : "shizuku");
             o.put("engineRunning", VpnController.isRunning());
             o.put("state", state);

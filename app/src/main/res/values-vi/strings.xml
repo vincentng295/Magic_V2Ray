@@ -124,4 +124,7 @@
     <string name="adb_notif_discovery_failed">Tìm kiếm thất bại (%1$s)</string>
     <string name="adb_notif_closed">Hộp thoại ghép nối đã đóng (mã đã hết hiệu lực). Hãy mở lại rồi thử lại.</string>
     <string name="adb_notif_no_code">Chưa nhập mã.</string>
+    <string name="adb_tcp_title">Chế độ TCP</string>
+    <string name="adb_tcp_desc">Giữ adb lắng nghe ở cổng 5555 để helper hotspot khởi động lại mà không cần Wi-Fi, miễn là bạn đã kết nối ít nhất một lần kể từ khi máy khởi động. Cổng được bảo vệ bằng khóa đã ghép nối nhưng truy cập được từ mọi mạng mà máy tham gia.</string>
+    <string name="adb_status_paired_desc_tcp">Chỉ cần bật Gỡ lỗi không dây (và Wi-Fi) ở lần đầu sau khi máy khởi động.</string>
 </resources>

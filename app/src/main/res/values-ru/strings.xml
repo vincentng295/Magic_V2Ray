@@ -114,4 +114,7 @@
     <string name="adb_notif_discovery_failed">Поиск не удался (%1$s)</string>
     <string name="adb_notif_closed">Окно сопряжения закрыто (его код недействителен). Откройте его снова и повторите.</string>
     <string name="adb_notif_no_code">Код не введён.</string>
+    <string name="adb_tcp_title">Режим TCP</string>
+    <string name="adb_tcp_desc">adb остаётся доступным на порту 5555, поэтому помощник раздачи перезапускается без Wi-Fi, если с момента загрузки телефона вы подключались хотя бы раз. Порт защищён вашим сопряжённым ключом, но доступен из любой сети, к которой подключён телефон.</string>
+    <string name="adb_status_paired_desc_tcp">Отладка по Wi-Fi (и Wi-Fi) нужна только в первый раз после загрузки телефона.</string>
 </resources>
