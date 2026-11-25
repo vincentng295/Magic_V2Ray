@@ -6,6 +6,8 @@
 #include <fcntl.h>
 #include <linux/if_tun.h>
 #include <net/if.h>
+#include <poll.h>
+#include <time.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -244,6 +246,107 @@ static int location_assets_open(void)
 /* Everything async-unsafe happens BEFORE fork; the child only dup2()s, drops privileges (system calls
  * only) and execs. If the drop (or the exec) fails, the child tells the parent through a CLOEXEC pipe:
  * a successful exec closes it, so EOF there means "xray is running". */
+/* Runs the selected core's own config check on the config that is about to be used, BEFORE anything is stopped
+ * or started:
+ *   xray:    xray run -test -c stdin: -format json
+ *   xray-rs: xray-rs config check --config <fd 0> --json
+ * Everything the command prints (stdout + stderr) is saved to CONFIG_ERROR_FILE when it fails, which the app shows
+ * in its "Configuration error" popup; a passing test removes the file. Callers must not start (or swap) the core
+ * when this returns -1. */
+#define CONFIG_TEST_TIMEOUT_MS 20000
+#define CONFIG_TEST_MAX_OUT    (16 * 1024)
+
+int config_test(void)
+{
+    char xray[300], cfg[300];
+    const char *core = core_bin_name();
+    bin(xray, sizeof xray, core);
+    u_ov_path(cfg, sizeof cfg, CONFIG_NAME, DATADIR "/" CONFIG_NAME);
+    unlink(CONFIG_ERROR_FILE);
+
+    int cfgfd = config_to_fd(cfg);
+    if (cfgfd < 0) {
+        u_write(CONFIG_ERROR_FILE, "cannot read the configuration file\n");
+        return -1;
+    }
+    int assetfd = location_assets_open();
+    int op[2];
+    if (pipe2(op, O_CLOEXEC) < 0) {
+        log_msg("config test: pipe2 failed: %s", strerror(errno));
+        close(cfgfd); if (assetfd >= 0) close(assetfd);
+        return 0;                                     /* cannot test: do not block the start on our own failure */
+    }
+    char *argv_x[]  = { xray, "run", "-test", "-c", "stdin:", "-format", "json", NULL };
+    char *argv_rs[] = { xray, "config", "check", "--config", "/proc/self/fd/0", "--json", NULL };
+    char **argv = strcmp(core, "xray-rs") ? argv_x : argv_rs;
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        dup2(cfgfd, 0);
+        dup2(op[1], 1);
+        dup2(op[1], 2);
+        if (assetfd >= 0) {
+            char b[64];
+            fcntl(assetfd, F_SETFD, 0);
+            snprintf(b, sizeof b, "/proc/self/fd/%d", assetfd);
+            setenv("XRAY_LOCATION_ASSET", b, 1);
+        }
+        unsetenv("XRAY_TUN_FD");
+        execv(xray, argv);
+        dprintf(2, "cannot execute %s: %s\n", xray, strerror(errno));
+        _exit(127);
+    }
+    close(op[1]); close(cfgfd); if (assetfd >= 0) close(assetfd);
+    if (pid < 0) {
+        log_msg("config test: fork failed: %s", strerror(errno));
+        close(op[0]);
+        return 0;
+    }
+
+    char *out = malloc(CONFIG_TEST_MAX_OUT + 1);
+    size_t n = 0;
+    bool timed_out = false;
+    struct timespec t0; clock_gettime(CLOCK_MONOTONIC, &t0);
+    for (;;) {
+        struct timespec t1; clock_gettime(CLOCK_MONOTONIC, &t1);
+        long left = CONFIG_TEST_TIMEOUT_MS - ((t1.tv_sec - t0.tv_sec) * 1000 + (t1.tv_nsec - t0.tv_nsec) / 1000000);
+        if (left <= 0) { timed_out = true; break; }
+        struct pollfd pf = { .fd = op[0], .events = POLLIN };
+        int pr = poll(&pf, 1, (int)left);
+        if (pr < 0 && errno == EINTR) continue;
+        if (pr <= 0) { timed_out = pr == 0; break; }
+        char tmp[1024];
+        ssize_t r = read(op[0], tmp, sizeof tmp);
+        if (r < 0 && errno == EINTR) continue;
+        if (r <= 0) break;                            /* EOF: the command (and anything it spawned) closed the pipe */
+        size_t take = (size_t)r;
+        if (n + take > CONFIG_TEST_MAX_OUT) take = CONFIG_TEST_MAX_OUT - n;
+        if (take) { memcpy(out + n, tmp, take); n += take; }
+    }
+    close(op[0]);
+    if (timed_out) kill(pid, SIGKILL);
+    int st = 0;
+    while (waitpid(pid, &st, 0) < 0 && errno == EINTR) {}
+    out[n] = 0;
+
+    bool ok = !timed_out && WIFEXITED(st) && WEXITSTATUS(st) == 0;
+    if (!ok) {
+        char tail[96];
+        if (timed_out) snprintf(tail, sizeof tail, "\n[config test timed out after %d s]\n", CONFIG_TEST_TIMEOUT_MS / 1000);
+        else if (WIFEXITED(st)) snprintf(tail, sizeof tail, n ? "" : "[exit code %d, no output]\n", WEXITSTATUS(st));
+        else snprintf(tail, sizeof tail, "\n[config test killed by signal %d]\n", WTERMSIG(st));
+        char *all = malloc(n + strlen(tail) + 1);
+        memcpy(all, out, n); strcpy(all + n, tail);
+        u_write(CONFIG_ERROR_FILE, all);
+        log_msg("config test FAILED (%s), output saved to %s", core, CONFIG_ERROR_FILE);
+        free(all);
+    } else {
+        log_msg("config test passed (%s)", core);
+    }
+    free(out);
+    return ok ? 0 : -1;
+}
+
 static pid_t spawn_xray(void)
 {
     char xray[300], cfg[300], envfd[32], envasset[64];
@@ -387,6 +490,7 @@ int start_xray(void)
 {
     if (proc_running("xray")) { log_msg("xray already running (pid %d)", (int)g_xray); return 0; }
     if (!config_ok()) { log_msg("refusing to start: %s missing or empty", CONFIG_NAME); return -1; }
+    if (config_test() < 0) { log_msg("refusing to start: configuration error"); return -1; }
     xlog_flush();
     g_xray = spawn_xray();
     if (g_xray <= 0) { g_xray = 0; return -1; }
@@ -423,6 +527,8 @@ int stop_xray(void)
 int restart_xray(void)
 {
     if (!config_ok()) { log_msg("refusing to reload: %s missing or empty", CONFIG_NAME); return -1; }
+    /* before anything is touched: a bad config leaves the running core exactly as it is */
+    if (config_test() < 0) { log_msg("refusing to reload: configuration error"); return -1; }
     root_direct_window(true);                   /* uid 0 (dnsjson) keeps the real network while the tun is down */
     install_tun_blackhole();                    /* fail closed for everyone else while the tun is gone */
     kill_tracked_xray();

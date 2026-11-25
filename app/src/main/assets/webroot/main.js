@@ -511,6 +511,33 @@ async function resolveOutboundViaSystemDns(configStr, opts = {}) {
     }
 }
 
+// The service tests the config with the selected core (xray run -test / xray-rs config check) before it starts or
+// swaps the core. On failure it starts nothing and leaves the full command output in config_error.log.
+const CONFIG_ERROR_FILE = `${DATADIR}/config_error.log`;
+
+function showConfigError(text) {
+    const overlay = document.getElementById('config-error-overlay');
+    const pre = document.getElementById('config-error-output');
+    const ok = document.getElementById('config-error-ok');
+    if (!overlay || !pre || !ok) { showToast(text, 'error'); return; }
+    pre.textContent = text;
+    overlay.style.display = 'flex';
+    ok.onclick = () => { overlay.style.display = 'none'; ok.onclick = null; };
+}
+
+// `proxy_control <action>` (start / restart / reload), then show the "Configuration error" popup when the test failed.
+// done(ok) runs afterwards; ok is false for a configuration error.
+function proxyControlChecked(action, done) {
+    execShell(`${MODDIR}/bin/xhuskydg_helper proxy_control ${action}`, (...res) => {
+        if (MV_NONROOT) { if (done) done(true, ...res); return; }
+        execShell(`cat "${CONFIG_ERROR_FILE}" 2>/dev/null`, (txt) => {
+            const failed = !!(txt && txt.trim());
+            if (failed) showConfigError(txt);
+            if (done) done(!failed, ...res);
+        });
+    });
+}
+
 // Regenerates config.json for the currently active node and restarts the
 // engine only if it is already running. Used by every "settings changed"
 // path so the write/validate/restart sequence exists in exactly one place.
@@ -522,11 +549,11 @@ function _forceRestart(options, onDone) {
         if (onDone) onDone(true);
     };
     if (!options.onlyIfRunning) {
-        execShell(`${MODDIR}/bin/xhuskydg_helper proxy_control restart`, done);
+        proxyControlChecked('restart', done);
         return;
     }
     execShell(`${MODDIR}/bin/xhuskydg_helper proxy_control status`, (status) => {
-        if (status === 'running') execShell(`${MODDIR}/bin/xhuskydg_helper proxy_control restart`, done);
+        if (status === 'running') proxyControlChecked('restart', done);
         else done();
     });
 }
@@ -584,7 +611,7 @@ function applyActiveConfig(options = {}) {
                 // Node/config changed but nothing that apply_routing_rules
                 // reads did — swap the xray process only, leave the
                 // iptables/policy routing rules exactly as they are.
-                execShell(`${MODDIR}/bin/xhuskydg_helper proxy_control reload`, () => {
+                proxyControlChecked('reload', () => {
                     hideLoading();
                     _markStatusPending();
                 });
@@ -767,7 +794,7 @@ function writeProConfigAndReload(text, options = {}) {
         }
         execShell(`${MODDIR}/bin/xhuskydg_helper proxy_control status`, (status) => {
             if (status === 'running') {
-                execShell(`${MODDIR}/bin/xhuskydg_helper proxy_control reload`, () => {
+                proxyControlChecked('reload', () => {
                     hideLoading();
                     _markStatusPending();
                 });
@@ -1230,6 +1257,10 @@ async function toggleService(action) {
     }
     if (!PROXY_CONTROL_ACTIONS.includes(action)) {
         console.error('[toggleService] refusing unknown action:', action);
+        return;
+    }
+    if (action === 'start') {
+        proxyControlChecked('start', () => _markStatusPending());
         return;
     }
     execShell(`${MODDIR}/bin/xhuskydg_helper proxy_control ${action}`, () => {
@@ -4585,8 +4616,9 @@ function syncQueryStrategyHint() {
 // engine simply uses the new core at the next start.
 function changeCore(value) {
     const core = value === 'xray-rs' ? 'xray-rs' : 'xray';
+    const prev = advSettings.core === 'xray-rs' ? 'xray-rs' : 'xray';
     const sel = document.getElementById('set-core');
-    if (core === (advSettings.core === 'xray-rs' ? 'xray-rs' : 'xray')) { if (sel) sel.value = core; return; }
+    if (core === prev) { if (sel) sel.value = core; return; }
     advSettings.core = core;
     writeFileB64(SETTINGS_FILE, utoa(JSON.stringify(advSettings)), () => {
         execShell(`${MODDIR}/bin/xhuskydg_helper proxy_control status`, (status) => {
@@ -4595,10 +4627,17 @@ function changeCore(value) {
                 return;
             }
             showLoading(t('toast_reload_xray'));
-            execShell(`${MODDIR}/bin/xhuskydg_helper proxy_control reload`, () => {
+            proxyControlChecked('reload', (ok) => {
                 hideLoading();
                 _markStatusPending();
-                showToast(t('toast_core_switched', { core }), 'success');
+                if (ok) {
+                    showToast(t('toast_core_switched', { core }), 'success');
+                    return;
+                }
+                // The new core rejected the config and nothing was swapped: the old core is still running.
+                advSettings.core = prev;
+                if (sel) sel.value = prev;
+                writeFileB64(SETTINGS_FILE, utoa(JSON.stringify(advSettings)), () => {});
             });
         });
     });

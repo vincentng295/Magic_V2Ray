@@ -1110,6 +1110,18 @@
             </div>
         </div>
     </div>
+    <!-- Configuration error: the core's own config test failed, nothing was started -->
+    <div id="config-error-overlay" class="modal-overlay confirm-overlay" style="display: none;">
+        <div class="modal-window confirm-window">
+            <div class="modal-body confirm-body">
+                <h3 id="config-error-title" data-i18n="title_config_error">Configuration error</h3>
+                <pre id="config-error-output"></pre>
+            </div>
+            <div class="confirm-actions">
+                <button id="config-error-ok" class="btn btn-confirm-ok" data-i18n="confirm_ok">OK</button>
+            </div>
+        </div>
+    </div>
     <!-- Traffic limit input (KSU webui does not support window.prompt()) -->
     <div id="traffic-limit-overlay" class="modal-overlay confirm-overlay" style="display: none;">
         <div class="modal-window confirm-window">

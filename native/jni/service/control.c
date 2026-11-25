@@ -130,7 +130,7 @@ static void do_job(const char *c, out_t *o)
         /* a temporary override session (README "Control from other apps") may be the only config there is */
         if (!config_present()) { o->rc = 1; ERR(o, "no config"); return; }
         LOCKED(start_xray());
-        if (proc_running("xray")) OUT(o, "started"); else { o->rc = 1; ERR(o, "start failed, see service.log"); }
+        if (proc_running("xray")) OUT(o, "started"); else { o->rc = 1; ERR(o, "start failed, see service.log or %s", CONFIG_ERROR_FILE); }
         return;
     }
     if (!strcmp(c, "stop")) { LOCKED(stop_xray()); OUT(o, "stopped"); return; }
@@ -141,7 +141,9 @@ static void do_job(const char *c, out_t *o)
         return;
     }
     if (!strcmp(c, "hard_restart") || !strcmp(c, "restart")) {
-        /* full stop+start with all non-xray traffic held so nothing leaks */
+        /* full stop+start with all non-xray traffic held so nothing leaks. The config is tested first: a bad one
+         * must not stop the core that is running. */
+        if (config_test() < 0) { o->rc = 1; ERR(o, "configuration error, see %s", CONFIG_ERROR_FILE); return; }
         pthread_mutex_lock(&g_lock);
         hold_traffic();
         stop_xray();

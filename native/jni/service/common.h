@@ -20,6 +20,7 @@
 #define CONFIG_NAME    "config.v2.json"
 
 #define XRAY_LOG_FILE  DATADIR "/xray.log"
+#define CONFIG_ERROR_FILE DATADIR "/config_error.log"   /* output of the last failed config test; absent = it passed */
 #define SERVICE_LOG    DATADIR "/service.log"
 #define IP_HUNT_FILE   DATADIR "/ip_hunt.list"
 #define BYPASS_IFACE_FILE DATADIR "/bypassIface.txt"
