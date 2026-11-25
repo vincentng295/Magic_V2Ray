@@ -529,9 +529,12 @@ final class ShizukuHotspot {
         final LocalServerSocket server = new LocalServerSocket(sock);
         final java.lang.Process p;
         try {
-            ProcessBuilder pb = new ProcessBuilder(
-                    NonRootEnv.bin(app, "xhuskydg_helper").getPath(), "vpnrun", sock,
-                    NonRootEnv.bin(app, "xray").getPath(), "run", "-c", cfg.getPath());
+            java.util.List<String> cmd = new java.util.ArrayList<>();
+            cmd.add(NonRootEnv.bin(app, "xhuskydg_helper").getPath());
+            cmd.add("vpnrun");
+            cmd.add(sock);
+            cmd.addAll(NonRootEnv.coreCommand(app, cfg));
+            ProcessBuilder pb = new ProcessBuilder(cmd);
             pb.environment().put("XRAY_LOCATION_ASSET", NonRootEnv.prepareAssets(app).getPath());
             pb.directory(NonRootEnv.root(app));
             pb.redirectErrorStream(true);

@@ -80,6 +80,15 @@
                 </div>
                 <button class="btn btn-stop" onclick="endExternalSession()" data-i18n="ext_btn_disconnect">Disconnect</button>
             </div>
+            <section class="dash-card core-card">
+                <div class="setting-item-row">
+                    <label for="set-core"><span data-i18n="lbl_core">Core engine</span><small data-i18n="desc_core">xray-rs may not support every protocol or feature.</small></label>
+                    <select id="set-core" onchange="changeCore(this.value)">
+                        <option value="xray">xray</option>
+                        <option value="xray-rs">xray-rs</option>
+                    </select>
+                </div>
+            </section>
             <div class="dash-head">
                 <h3 id="dash-title" class="dash-title" data-i18n="categories_title">Connection categories</h3>
                 <div class="dash-more">
@@ -837,6 +846,7 @@
                     <h4 data-i18n="about_credits_title">Credits</h4>
                     <p class="about-intro" data-i18n="about_credits_desc">Built on pre-built binaries from these open-source projects:</p>
                     <a class="about-link" data-about-link="xray" href="#" target="_blank" rel="noopener noreferrer" onclick="openExternalLink(event, this)"><span>Xray-core</span><svg class="about-link-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></a>
+                    <a class="about-link" data-about-link="xrayrs" href="#" target="_blank" rel="noopener noreferrer" onclick="openExternalLink(event, this)"><span>xray-rust</span><svg class="about-link-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></a>
                     <a class="about-link" data-about-link="openxtun" href="#" target="_blank" rel="noopener noreferrer" onclick="openExternalLink(event, this)"><span>openxtun</span><svg class="about-link-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></a>
                     <a class="about-link" data-about-link="curl" href="#" target="_blank" rel="noopener noreferrer" onclick="openExternalLink(event, this)"><span>curl-android</span><svg class="about-link-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></a>
                     <p class="about-license" data-i18n="about_license">Open source under the GNU General Public License v3.0.</p>
@@ -1098,6 +1108,18 @@
             <div class="confirm-actions">
                 <button id="confirm-modal-cancel" class="btn btn-confirm-cancel" data-i18n="confirm_cancel">Cancel</button>
                 <button id="confirm-modal-ok" class="btn btn-confirm-ok" data-i18n="confirm_ok">OK</button>
+            </div>
+        </div>
+    </div>
+    <!-- Configuration error: the core's own config test failed, nothing was started -->
+    <div id="config-error-overlay" class="modal-overlay confirm-overlay" style="display: none;">
+        <div class="modal-window confirm-window">
+            <div class="modal-body confirm-body">
+                <h3 id="config-error-title" data-i18n="title_config_error">Configuration error</h3>
+                <pre id="config-error-output"></pre>
+            </div>
+            <div class="confirm-actions">
+                <button id="config-error-ok" class="btn btn-confirm-ok" data-i18n="confirm_ok">OK</button>
             </div>
         </div>
     </div>

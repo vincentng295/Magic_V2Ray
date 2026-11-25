@@ -25,16 +25,17 @@ esac
 
 # This file is shipped in two layouts:
 #   * the Magic V2Ray APK (flash it renamed to .zip): executables are the app's
-#     native libs, lib/<abi>/lib{xray,xhuskydg_helper}.so
-#   * the headless module zip from build.sh: bin/<abi>/{xray,xhuskydg_helper}
+#     native libs, lib/<abi>/lib{xray,xrayrs,xhuskydg_helper}.so  (libxrayrs.so -> bin/xray-rs)
+#   * the headless module zip from build.sh: bin/<abi>/{xray,xray-rs,xhuskydg_helper}
 # (curl is built into xhuskydg_helper: `xhuskydg_helper curl ...`)
 if unzip -l "$ZIPFILE" 2>/dev/null | grep -q "lib/$ABI/libxray.so"; then
-    ui_print "- Extracting Xray-core for $ABI (from APK)..."
+    ui_print "- Extracting Xray-core + xray-rs for $ABI (from APK)..."
     LIBTMP="${TMPDIR:-/data/local/tmp}/mv_lib"
     rm -rf "$LIBTMP"; mkdir -p "$LIBTMP"
-    unzip -j -o "$ZIPFILE" "lib/$ABI/libxray.so" "lib/$ABI/libxhuskydg_helper.so" \
+    unzip -j -o "$ZIPFILE" "lib/$ABI/libxray.so" "lib/$ABI/libxrayrs.so" "lib/$ABI/libxhuskydg_helper.so" \
         -d "$LIBTMP" >&2 || abort "! Failed to extract $ABI binaries"
     mv -f "$LIBTMP/libxray.so"            "$MODPATH/bin/xray"
+    mv -f "$LIBTMP/libxrayrs.so"          "$MODPATH/bin/xray-rs"
     mv -f "$LIBTMP/libxhuskydg_helper.so" "$MODPATH/bin/xhuskydg_helper"
     rm -rf "$LIBTMP"
 else
@@ -66,7 +67,7 @@ unzip -j -o "$ZIPFILE" "module.prop"      -d "$MODPATH" >&2 || abort "! Failed t
 #    silently at boot with no indication of why.
 # ---------------------------------------------------------------------------
 ui_print "- Verifying payload..."
-for f in bin/xray bin/xhuskydg_helper bin/geoip.dat bin/geosite.dat \
+for f in bin/xray bin/xray-rs bin/xhuskydg_helper bin/geoip.dat bin/geosite.dat \
          service.sh uninstall.sh action.sh; do
     [ -s "$MODPATH/$f" ] || abort "! Missing or empty after extraction: $f"
 done

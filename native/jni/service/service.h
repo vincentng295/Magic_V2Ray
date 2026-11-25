@@ -70,6 +70,7 @@ int  start_xray(void);
 int  stop_xray(void);
 void notify_app_state(void);                /* "xray started / stopped": wakes the app, see xray.c */
 int  restart_xray(void);
+int  config_test(void);   /* 0 = config passes the core's own check; -1 = it does not (full output in CONFIG_ERROR_FILE) */
 
 /* xraylog.c - xray's output: anonymous pipe + reader thread + ring buffer in RAM (replaces the logservice daemon) */
 int  xlog_init(void);                       /* creates the pipe, starts the thread; returns the write end */

@@ -2892,6 +2892,23 @@ textarea.pro-config-input {
     margin-top: 4px;
 }
 
+#config-error-title {
+    margin: 0 0 10px;
+    color: var(--md-sys-color-error, #b3261e);
+}
+
+#config-error-output {
+    margin: 0;
+    max-height: 50vh;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-family: monospace;
+    font-size: 12px;
+    user-select: text;
+    -webkit-user-select: text;
+}
+
 #confirm-modal-message {
     white-space: pre-line;
     word-break: break-all;

@@ -108,6 +108,7 @@ Web UI 資源位於 `app/src/main/assets/webroot`。應用程式提供了相容 
 ## 致謝與貢獻
 
 * **[Xray-core](https://github.com/XTLS/Xray-core)：** 負責處理新一代代理協定（VLESS、VMess、Trojan 等）的底層引擎。
+* **[xray-rust](https://github.com/aimalygin/xray-rust)：** 行動裝置優先的 Rust 實作，支援 VLESS、REALITY、Vision、Trojan、Shadowsocks 2022、VMess AEAD、Hysteria 2、WireGuard，以及 TUN、路由和 DNS，適用於可嵌入的代理客戶端。已作為可選的 `xray-rs` 核心整合到應用程式中。
 * **[curl-android](https://github.com/vvb2060/curl-android)：** 為 Android 預先編譯的 `curl` 命令列工具與 `libcurl` 靜態程式庫 prefab。
 
 ---

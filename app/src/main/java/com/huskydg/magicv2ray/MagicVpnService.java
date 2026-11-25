@@ -404,9 +404,12 @@ public class MagicVpnService extends VpnService {
         final LocalServerSocket server = new LocalServerSocket(sock);
         final Process p;
         try {
-            ProcessBuilder pb = new ProcessBuilder(
-                    NonRootEnv.bin(this, "xhuskydg_helper").getPath(), "vpnrun", sock,
-                    NonRootEnv.bin(this, "xray").getPath(), "run", "-c", cfg.getPath());
+            java.util.List<String> cmd = new java.util.ArrayList<>();
+            cmd.add(NonRootEnv.bin(this, "xhuskydg_helper").getPath());
+            cmd.add("vpnrun");
+            cmd.add(sock);
+            cmd.addAll(NonRootEnv.coreCommand(this, cfg));
+            ProcessBuilder pb = new ProcessBuilder(cmd);
             pb.environment().put("XRAY_LOCATION_ASSET", NonRootEnv.prepareAssets(this).getPath());
             pb.directory(NonRootEnv.root(this));
             pb.redirectErrorStream(true);

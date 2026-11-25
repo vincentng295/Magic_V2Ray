@@ -108,6 +108,7 @@ The Web UI assets are located at `app/src/main/assets/webroot`. The app exposes 
 ## Acknowledgments & Credits
 
 * **[Xray-core](https://github.com/XTLS/Xray-core):** The underlying engine handling next-generation proxy protocols.
+* **[xray-rust](https://github.com/aimalygin/xray-rust):** Mobile-first Rust implementation of VLESS, REALITY, Vision, Trojan, Shadowsocks 2022, VMess AEAD, Hysteria 2, WireGuard, TUN, routing, and DNS for embeddable proxy clients. Built into the app as the optional `xray-rs` core.
 * **[curl-android](https://github.com/vvb2060/curl-android):** Pre-built `curl` command-line tool and `libcurl` static library prefab.
 
 ---

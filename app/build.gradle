@@ -28,7 +28,7 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
-    // xray / xhuskydg_helper (curl is built into it) ship as libxray.so etc. in jniLibs. They are
+    // xray / xray-rs / xhuskydg_helper (curl is built into it) ship as libxray.so, libxrayrs.so etc. in jniLibs. They are
     // real executables, not JNI libraries: keep them byte-for-byte (no strip) and
     // have the package manager extract them so root can copy them out.
     packaging {
@@ -129,7 +129,7 @@ tasks.register('checkNativeLibs') {
     doFirst {
         def missing = []
         ['arm64-v8a', 'x86_64'].each { abi ->
-            ['libxray.so', 'libxhuskydg_helper.so', 'libbusybox.so'].each { lib ->
+            ['libxray.so', 'libxrayrs.so', 'libxhuskydg_helper.so', 'libbusybox.so'].each { lib ->
                 if (!file("src/main/jniLibs/$abi/$lib").isFile()) missing << "$abi/$lib"
             }
         }

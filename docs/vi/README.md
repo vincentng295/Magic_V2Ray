@@ -108,6 +108,7 @@ Mã nguồn Web UI nằm tại `app/src/main/assets/webroot`. Ứng dụng cung 
 ## Ghi nhận & Đóng góp
 
 * **[Xray-core](https://github.com/XTLS/Xray-core):** Lõi xử lý proxy thế hệ mới (VLESS, VMess, Trojan, v.v.).
+* **[xray-rust](https://github.com/aimalygin/xray-rust):** Bản triển khai bằng Rust ưu tiên cho di động của VLESS, REALITY, Vision, Trojan, Shadowsocks 2022, VMess AEAD, Hysteria 2, WireGuard, TUN, định tuyến và DNS, dành cho các ứng dụng proxy nhúng. Được tích hợp trong ứng dụng làm lõi tuỳ chọn `xray-rs`.
 * **[curl-android](https://github.com/vvb2060/curl-android):** Công cụ `curl` và thư viện tĩnh `libcurl` biên dịch cho Android.
 
 ---

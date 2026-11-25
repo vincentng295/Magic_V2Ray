@@ -161,7 +161,7 @@ final class NonRootEnv {
             if (!d.isDirectory() && !d.mkdirs()) throw new IOException("cannot create " + d);
         }
         File lib = new File(c.getApplicationInfo().nativeLibraryDir);
-        String[][] links = {{"xray", "libxray.so"}, {"xhuskydg_helper", "libxhuskydg_helper.so"},
+        String[][] links = {{"xray", "libxray.so"}, {"xray-rs", "libxrayrs.so"}, {"xhuskydg_helper", "libxhuskydg_helper.so"},
                 {"curl", "libxhuskydg_helper.so"}};   // curl -> helper; argv[0] picks the curl applet
         for (String[] l : links) {
             File target = new File(lib, l[1]);
@@ -280,7 +280,7 @@ final class NonRootEnv {
             names.add("busybox");
             for (String a : bo.toString("UTF-8").split("\\s+")) {
                 // plain names only; never replace our own binaries or shell metacharacter lookalikes
-                if (a.matches("[A-Za-z0-9._-]+") && !a.equals("xray") && !a.equals("curl")
+                if (a.matches("[A-Za-z0-9._-]+") && !a.equals("xray") && !a.equals("xray-rs") && !a.equals("curl")
                         && !a.equals("xhuskydg_helper")) names.add(a);
             }
             for (String name : names) {
@@ -304,6 +304,22 @@ final class NonRootEnv {
             }
         } catch (IOException | InterruptedException ignored) {
         }
+    }
+
+    /**
+     * Command line that runs the selected core (settings "core": "xray" default, "xray-rs"):
+     * xray -> {@code xray run -c <cfg>}, xray-rs -> {@code xray-rs run -config <cfg>}.
+     * The result is meant to follow the helper's {@code vpnrun <sock>} arguments.
+     */
+    static java.util.List<String> coreCommand(Context c, File cfg) {
+        boolean rs = "xray-rs".equals(settings(c).optString("core", "xray"))
+                && bin(c, "xray-rs").canExecute();
+        java.util.List<String> l = new java.util.ArrayList<>();
+        l.add(bin(c, rs ? "xray-rs" : "xray").getPath());
+        l.add("run");
+        l.add(rs ? "-config" : "-c");
+        l.add(cfg.getPath());
+        return l;
     }
 
     /** settings.base64 = base64(JSON). Missing or unreadable -> empty object (defaults apply). */

@@ -1,6 +1,8 @@
 /dist
 /module/bin/*/xray
 /module/bin/*/xray.version
+/module/bin/*/xray-rs
+/module/bin/*/xray-rs.version
 /module/bin/*/xhuskydg_helper
 /module/bin/*/xhuskydg_helper.version
 /module/bin/*/busybox
@@ -18,3 +20,6 @@ MV2R_KEYSTORE.env
 # curl applet: downloaded BoringSSL + compiled objects
 /native/curl/.deps/
 /native/curl/.build/
+
+# xray-rs (Rust) build output
+/core/xray-rs/target/
