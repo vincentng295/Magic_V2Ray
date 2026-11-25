@@ -249,7 +249,7 @@ static int location_assets_open(void)
 /* Runs the selected core's own config check on the config that is about to be used, BEFORE anything is stopped
  * or started:
  *   xray:    xray run -test -c stdin: -format json
- *   xray-rs: xray-rs config check --config <fd 0> --json
+ *   xray-rs: xray-rs config check --config stdin: --json
  * Everything the command prints (stdout + stderr) is saved to CONFIG_ERROR_FILE when it fails, which the app shows
  * in its "Configuration error" popup; a passing test removes the file. Callers must not start (or swap) the core
  * when this returns -1. */
@@ -277,7 +277,7 @@ int config_test(void)
         return 0;                                     /* cannot test: do not block the start on our own failure */
     }
     char *argv_x[]  = { xray, "run", "-test", "-c", "stdin:", "-format", "json", NULL };
-    char *argv_rs[] = { xray, "config", "check", "--config", "/proc/self/fd/0", "--json", NULL };
+    char *argv_rs[] = { xray, "config", "check", "--config", "stdin:", "--json", NULL };
     char **argv = strcmp(core, "xray-rs") ? argv_x : argv_rs;
 
     pid_t pid = fork();
@@ -371,10 +371,9 @@ static pid_t spawn_xray(void)
     if (assetfd >= 0) env[m++] = envasset;
     env[m] = NULL;
     /* xray:    xray run -c stdin: -format json
-     * xray-rs: xray-rust run -config <file>; the config is the memfd that is fd 0, reached by path (works for
-     *          any uid, nothing secret is written to disk) */
+     * xray-rs: xray-rust run -config stdin:; the config is the memfd that is fd 0 (nothing secret is written to disk) */
     char *argv_x[]  = { xray, "run", "-c", "stdin:", "-format", "json", NULL };
-    char *argv_rs[] = { xray, "run", "-config", "/proc/self/fd/0", NULL };
+    char *argv_rs[] = { xray, "run", "-config", "stdin:", NULL };
     char **argv = strcmp(core, "xray-rs") ? argv_x : argv_rs;
     log_msg("core: %s", core);
     int out = log_fd();
