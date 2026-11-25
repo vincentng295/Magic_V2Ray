@@ -247,3 +247,10 @@ CGO_ENABLED=0 go build -o xray -trimpath -buildvcs=false -gcflags="-l=4" -ldflag
 ## Stargazers over time
 
 [![Stargazers over time](https://starchart.cc/XTLS/Xray-core.svg)](https://starchart.cc/XTLS/Xray-core)
+
+
+---
+
+## Also bundled: xray-rs
+
+The optional `xray-rs` core (`bin/xray-rs`, selectable in the Dashboard) is built from [aimalygin/xray-rust](https://github.com/aimalygin/xray-rust) - a mobile-first Rust implementation of VLESS, REALITY, Vision, Trojan, Shadowsocks 2022, VMess AEAD, Hysteria 2, WireGuard, TUN, routing, and DNS for embeddable proxy clients.

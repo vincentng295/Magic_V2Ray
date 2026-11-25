@@ -108,6 +108,7 @@ Magic V2Ray распространяется как самостоятельно
 ## Благодарности и авторство
 
 * **[Xray-core](https://github.com/XTLS/Xray-core):** движок, отвечающий за протоколы прокси нового поколения (VLESS, VMess, Trojan и др.).
+* **[xray-rust](https://github.com/aimalygin/xray-rust):** Мобильно-ориентированная реализация на Rust протоколов VLESS, REALITY, Vision, Trojan, Shadowsocks 2022, VMess AEAD, Hysteria 2, WireGuard, а также TUN, маршрутизации и DNS для встраиваемых прокси-клиентов. Встроена в приложение как дополнительное ядро `xray-rs`.
 * **[curl-android](https://github.com/vvb2060/curl-android):** готовая утилита командной строки `curl` и статическая библиотека `libcurl` (prefab) для Android.
 
 ---

@@ -548,6 +548,7 @@ const ABOUT_LINKS = {
     issues: `${ABOUT_REPO_URL}/issues`,
     website: ABOUT_WEBSITE_URL,
     xray: "https://github.com/XTLS/Xray-core",
+    xrayrs: "https://github.com/aimalygin/xray-rust",
     openxtun: "https://github.com/vincentng295/openxtun",
     curl: "https://github.com/vvb2060/curl-android"
 };
