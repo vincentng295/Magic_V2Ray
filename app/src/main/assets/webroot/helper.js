@@ -607,8 +607,13 @@ function _chainTaggedOutbounds(rawUri, tag, hopTagFn, inner) {
 }
 
 // Converts the user-editable Routing Settings list (advSettings.routingRules)
-// into Xray "field" routing rule objects. Only domain/ip matching is supported
-// (no process/package name yet). Disabled rules are skipped entirely.
+// into Xray "field" routing rule objects: domain / ip / port / protocol /
+// network / process. Disabled rules are skipped entirely.
+//
+// process: package names are resolved to UIDs here ("10001", ...); the token
+// __unknown_apps__ becomes "-1". A rule whose process list resolves to nothing
+// (apps not installed) is dropped - it must not widen into a rule without
+// the process condition.
 //
 // outboundTag is either a built-in (proxy / direct / block) or the remark
 // (display name) of a saved node. Node remarks are resolved through
@@ -616,6 +621,37 @@ function _chainTaggedOutbounds(rawUri, tag, hopTagFn, inner) {
 // node that no longer exists is dropped rather than left dangling - traffic it
 // would have matched then simply follows the remaining rules / default proxy.
 const ROUTING_BUILTIN_TAGS = ["proxy", "direct", "block"];
+
+// Package names -> UID strings for the "process" field. Resolution goes through
+// the ksu bridge (getPackagesInfo returns {packageName, uid, ...}).
+const ROUTING_PROCESS_UNKNOWN = "__unknown_apps__";
+
+function _resolveProcessUids(tokens) {
+    const out = [];
+    const pkgs = [];
+    let unknown = false;
+    tokens.forEach(tk => {
+        if (tk === ROUTING_PROCESS_UNKNOWN || tk === "__unknown_app__" || tk === "-1") unknown = true;
+        else if (/^\d+$/.test(tk)) out.push(tk);
+        else pkgs.push(tk);
+    });
+    if (pkgs.length) {
+        const uidByPkg = {};
+        try {
+            const api = (typeof window !== 'undefined') ? window.ksu : null;
+            if (api && typeof api.getPackagesInfo === 'function') {
+                let infos = api.getPackagesInfo(JSON.stringify(pkgs));
+                if (typeof infos === 'string') infos = JSON.parse(infos);
+                if (Array.isArray(infos)) infos.forEach(x => {
+                    if (x && x.packageName && Number.isInteger(x.uid)) uidByPkg[x.packageName] = x.uid;
+                });
+            }
+        } catch (e) { /* unresolved packages are skipped below */ }
+        pkgs.forEach(p => { if (Object.prototype.hasOwnProperty.call(uidByPkg, p)) out.push(String(uidByPkg[p])); });
+    }
+    if (unknown) out.push("-1");          // always last
+    return Array.from(new Set(out));
+}
 
 function _buildCustomRoutingRules(routingRules, nodeTagByRemark, balancerTagById) {
     if (!Array.isArray(routingRules)) return [];
@@ -647,6 +683,13 @@ function _buildCustomRoutingRules(routingRules, nodeTagByRemark, balancerTagById
                 return null; // unknown node remark
             }
 
+            const processTokens = splitCsv(r.process);
+            let processUids = null;
+            if (processTokens.length) {
+                processUids = _resolveProcessUids(processTokens);
+                if (!processUids.length) return null;
+            }
+
             const rule = { "type": "field" };
             const domain = splitCsv(r.domain);
             const ip = splitCsv(r.ip);
@@ -657,6 +700,7 @@ function _buildCustomRoutingRules(routingRules, nodeTagByRemark, balancerTagById
             if (r.port && String(r.port).trim()) rule.port = String(r.port).trim();
             if (r.network && String(r.network).trim()) rule.network = String(r.network).trim();
             if (protocol.length) rule.protocol = protocol;
+            if (processUids) rule.process = processUids;
             if (balancerTag) rule.balancerTag = balancerTag;
             else rule.outboundTag = outTag;
 
@@ -665,7 +709,7 @@ function _buildCustomRoutingRules(routingRules, nodeTagByRemark, balancerTagById
         .filter(Boolean)
         // A rule with no matching conditions at all would be a no-op (or worse,
         // an accidental catch-all) — drop it defensively.
-        .filter(rule => rule.domain || rule.ip || rule.port || rule.protocol);
+        .filter(rule => rule.domain || rule.ip || rule.port || rule.protocol || rule.process);
 }
 
 // Builds the extra outbounds needed by routing rules whose outboundTag is a

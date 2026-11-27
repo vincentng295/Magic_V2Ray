@@ -1750,6 +1750,15 @@ extras  uri, name, exclude</pre>
                 </div>
 
                 <div class="edit-item-field">
+                    <label data-i18n="lbl_process">process</label>
+                    <input type="text" id="rule-process" data-i18n-placeholder="ph_rule_process" placeholder="com.example.app, __unknown_apps__" autocapitalize="off" autocomplete="off" spellcheck="false">
+                    <div class="rule-process-actions">
+                        <button type="button" class="log-filter-chip" onclick="openProcessPicker()" data-i18n="btn_process_pick">Pick apps</button>
+                        <button type="button" class="log-filter-chip" onclick="addUnknownAppsToProcess()" data-i18n="btn_process_unknown">__unknown_apps__</button>
+                    </div>
+                </div>
+
+                <div class="edit-item-field">
                     <label data-i18n="lbl_protocol">protocol</label>
                     <input type="text" id="rule-protocol" placeholder="http,tls,bittorrent">
                 </div>
@@ -1771,6 +1780,32 @@ extras  uri, name, exclude</pre>
                         <option value="block" data-i18n="opt_outbound_block">block</option>
                     </select>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Process (app) picker for routing rules -->
+    <div id="process-picker-modal" class="modal-overlay" style="display: none; z-index: 2100;">
+        <div class="modal-window">
+            <header class="modal-header">
+                <button class="modal-icon-btn" onclick="closeProcessPicker()">←</button>
+                <h2 data-i18n="modal_process_picker_title">Select apps</h2>
+                <button class="modal-icon-btn check-btn" onclick="confirmProcessPicker()">✓</button>
+            </header>
+            <div class="modal-body">
+                <div class="hosts-search-bar">
+                    <input type="text" id="process-picker-search" oninput="onProcessPickerSearch()"
+                           data-i18n-placeholder="ph_exclude_search" placeholder="Search app name or package...">
+                </div>
+                <div id="process-picker-filter" class="log-filter-bar">
+                    <button class="log-filter-chip active" data-filter="user" onclick="setProcessPickerFilter('user')" data-i18n="exclude_filter_user">User</button>
+                    <button class="log-filter-chip" data-filter="system" onclick="setProcessPickerFilter('system')" data-i18n="exclude_filter_system">System</button>
+                    <button class="log-filter-chip" data-filter="all" onclick="setProcessPickerFilter('all')" data-i18n="exclude_filter_all">All</button>
+                    <button class="log-filter-chip" data-filter="picked" onclick="setProcessPickerFilter('picked')" data-i18n="process_filter_picked">Selected</button>
+                </div>
+                <div id="process-picker-loading" style="display:none; padding: 16px; text-align: center;" data-i18n="exclude_loading">Loading apps...</div>
+                <div id="process-picker-empty" style="display:none; padding: 16px; text-align: center;" data-i18n="exclude_empty">No apps found</div>
+                <div id="process-picker-list" class="exclude-list-container" onscroll="onProcessPickerScroll()"></div>
             </div>
         </div>
     </div>

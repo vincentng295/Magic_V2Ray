@@ -4947,6 +4947,7 @@ function _summarizeRoutingRule(rule) {
     if (rule.domain && rule.domain.trim()) parts.push(`domain: ${rule.domain.trim()}`);
     if (rule.ip && rule.ip.trim()) parts.push(`ip: ${rule.ip.trim()}`);
     if (rule.port && String(rule.port).trim()) parts.push(`port: ${String(rule.port).trim()}`);
+    if (rule.process && String(rule.process).trim()) parts.push(`process: ${String(rule.process).trim()}`);
     if (rule.protocol && rule.protocol.trim()) parts.push(`protocol: [${rule.protocol.trim()}]`);
     if (rule.network && rule.network.trim()) parts.push(`network: [${rule.network.trim()}]`);
     return parts.join('  ·  ') || t('rule_no_conditions');
@@ -5132,6 +5133,7 @@ function openAddRoutingRuleModal() {
     document.getElementById('rule-domain').value = '';
     document.getElementById('rule-ip').value = '';
     document.getElementById('rule-port').value = '';
+    document.getElementById('rule-process').value = '';
     document.getElementById('rule-protocol').value = '';
     document.getElementById('rule-network').value = '';
     _populateRuleOutboundSelect('proxy');
@@ -5149,6 +5151,7 @@ function editRoutingRule(index) {
     document.getElementById('rule-domain').value = rule.domain || '';
     document.getElementById('rule-ip').value = rule.ip || '';
     document.getElementById('rule-port').value = rule.port || '';
+    document.getElementById('rule-process').value = rule.process || '';
     document.getElementById('rule-protocol').value = rule.protocol || '';
     document.getElementById('rule-network').value = rule.network || '';
     _populateRuleOutboundSelect(rule.outboundTag || 'proxy');
@@ -5165,8 +5168,14 @@ function saveRoutingRule() {
     const ip = document.getElementById('rule-ip').value.trim();
     const port = document.getElementById('rule-port').value.trim();
     const protocol = document.getElementById('rule-protocol').value.trim();
+    const proc = _normalizeProcessInput(document.getElementById('rule-process').value);
+    if (proc.invalid.length) {
+        showToast(t('toast_rule_process_invalid', { name: proc.invalid[0] }), 'error');
+        return;
+    }
+    const process = proc.tokens.join(',');
 
-    if (!domain && !ip && !port && !protocol) {
+    if (!domain && !ip && !port && !protocol && !process) {
         showToast(t('toast_rule_needs_condition'), 'error');
         return;
     }
@@ -5177,6 +5186,7 @@ function saveRoutingRule() {
         domain,
         ip,
         port,
+        process,
         protocol,
         network: document.getElementById('rule-network').value,
         outboundTag: document.getElementById('rule-outbound').value,
@@ -5195,6 +5205,166 @@ function saveRoutingRule() {
     renderRoutingRules();
     persistRoutingRules();
     showToast(t('toast_rule_saved'), 'success');
+}
+
+// ===== Routing rule: "process" field + app picker =====
+//
+// rule.process is stored as a comma-separated string of package names plus
+// (optionally) the token __unknown_apps__. helper.js turns it into
+// "process": ["10001", ..., "-1"] when config.json is generated.
+
+const RULE_PROCESS_UNKNOWN = '__unknown_apps__';
+const RULE_PROCESS_TOKEN_RE = /^[A-Za-z0-9_.]+$/;
+
+// Splits on commas / whitespace, maps -1 and __unknown_app__ to the canonical
+// token, drops duplicates. `invalid` lists entries that are not package names.
+function _normalizeProcessInput(raw) {
+    const tokens = [];
+    const invalid = [];
+    String(raw || '').split(/[\s,]+/).map(x => x.trim()).filter(Boolean).forEach(x => {
+        if (x === '-1' || x === '__unknown_app__') x = RULE_PROCESS_UNKNOWN;
+        if (!RULE_PROCESS_TOKEN_RE.test(x)) { invalid.push(x); return; }
+        if (!tokens.includes(x)) tokens.push(x);
+    });
+    return { tokens, invalid };
+}
+
+function addUnknownAppsToProcess() {
+    const input = document.getElementById('rule-process');
+    const cur = _normalizeProcessInput(input.value).tokens;
+    if (!cur.includes(RULE_PROCESS_UNKNOWN)) cur.push(RULE_PROCESS_UNKNOWN);
+    input.value = cur.join(', ');
+}
+
+const _procPick = {
+    apps: [], loaded: false, loading: false,
+    set: new Set(), filter: 'user', query: '', searchTimer: null,
+    filtered: [], loadedCount: 0, endReached: false
+};
+
+function openProcessPicker() {
+    _procPick.set = new Set(_normalizeProcessInput(document.getElementById('rule-process').value).tokens
+        .filter(x => x !== RULE_PROCESS_UNKNOWN));
+    _procPick.query = '';
+    document.getElementById('process-picker-search').value = '';
+    document.getElementById('process-picker-modal').style.display = 'block';
+    if (_procPick.loaded) { renderProcessPicker(); return; }
+    if (_procPick.loading) return;
+    if (typeof _loadInstalledApps !== 'function') { showToast(t('toast_process_apps_unavailable'), 'error'); return; }
+    _procPick.loading = true;
+    document.getElementById('process-picker-loading').style.display = 'block';
+    setTimeout(() => {
+        _loadInstalledApps((apps) => {
+            _procPick.apps = apps.sort((a, b) => a.appLabel.localeCompare(b.appLabel, undefined, { sensitivity: 'base' }));
+            _procPick.loaded = true;
+            _procPick.loading = false;
+            document.getElementById('process-picker-loading').style.display = 'none';
+            renderProcessPicker();
+        });
+    }, 50);
+}
+
+function closeProcessPicker() {
+    document.getElementById('process-picker-modal').style.display = 'none';
+}
+
+// Keeps what is already typed (unknown token, apps not installed right now),
+// drops the apps that were unticked, appends the newly ticked ones.
+function confirmProcessPicker() {
+    const input = document.getElementById('rule-process');
+    const installed = new Set(_procPick.apps.map(a => a.packageName));
+    const out = [];
+    _normalizeProcessInput(input.value).tokens.forEach(x => {
+        if (x === RULE_PROCESS_UNKNOWN || !installed.has(x) || _procPick.set.has(x)) out.push(x);
+    });
+    _procPick.set.forEach(x => { if (!out.includes(x)) out.push(x); });
+    input.value = out.join(', ');
+    closeProcessPicker();
+}
+
+function setProcessPickerFilter(f) {
+    _procPick.filter = f;
+    document.querySelectorAll('#process-picker-filter .log-filter-chip').forEach(el =>
+        el.classList.toggle('active', el.dataset.filter === f));
+    renderProcessPicker();
+}
+
+function onProcessPickerSearch() {
+    clearTimeout(_procPick.searchTimer);
+    _procPick.searchTimer = setTimeout(() => {
+        _procPick.query = document.getElementById('process-picker-search').value.trim()
+            .replace(/[<>"'&]/g, '').slice(0, 100);
+        renderProcessPicker();
+    }, 250);
+}
+
+function renderProcessPicker() {
+    const q = _procPick.query.toLowerCase();
+    _procPick.filtered = _procPick.apps.filter(a => {
+        if (_procPick.filter === 'user' && a.isSystem) return false;
+        if (_procPick.filter === 'system' && !a.isSystem) return false;
+        if (_procPick.filter === 'picked' && !_procPick.set.has(a.packageName)) return false;
+        return !q || a.appLabel.toLowerCase().includes(q) || a.packageName.toLowerCase().includes(q);
+    });
+    _procPick.loadedCount = 0;
+    _procPick.endReached = false;
+    const box = document.getElementById('process-picker-list');
+    box.innerHTML = '';
+    box.scrollTop = 0;
+    document.getElementById('process-picker-empty').style.display =
+        (!_procPick.loading && !_procPick.filtered.length) ? 'block' : 'none';
+    loadProcessPickerPage();
+}
+
+function loadProcessPickerPage() {
+    if (_procPick.endReached) return;
+    const page = _procPick.filtered.slice(_procPick.loadedCount, _procPick.loadedCount + EXCLUDE_PAGE_SIZE);
+    if (!page.length) { _procPick.endReached = true; return; }
+    const box = document.getElementById('process-picker-list');
+    page.forEach(app => box.appendChild(_buildProcessPickerRow(app)));
+    _procPick.loadedCount += page.length;
+    if (_procPick.loadedCount >= _procPick.filtered.length) _procPick.endReached = true;
+}
+
+function onProcessPickerScroll() {
+    const c = document.getElementById('process-picker-list');
+    if (c.scrollTop + c.clientHeight >= c.scrollHeight - 160) loadProcessPickerPage();
+}
+
+function _buildProcessPickerRow(app) {
+    const row = document.createElement('div');
+    row.className = 'setting-item-row toggle-row exclude-row';
+
+    const label = document.createElement('label');
+    label.className = 'exclude-label';
+    const icon = document.createElement('img');
+    icon.className = 'exclude-icon';
+    icon.loading = 'lazy';
+    icon.alt = '';
+    icon.src = 'ksu://icon/' + app.packageName;
+    icon.onerror = () => { icon.style.visibility = 'hidden'; icon.onerror = null; };
+    const text = document.createElement('span');
+    text.className = 'exclude-text';
+    const name = document.createElement('span');
+    name.className = 'exclude-name';
+    name.textContent = app.appLabel;
+    const pkg = document.createElement('small');
+    pkg.textContent = app.packageName;
+    text.append(name, pkg);
+    label.append(icon, text);
+
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = _procPick.set.has(app.packageName);
+    cb.setAttribute('aria-label', app.appLabel);
+    cb.addEventListener('change', () => {
+        if (cb.checked) _procPick.set.add(app.packageName);
+        else _procPick.set.delete(app.packageName);
+    });
+    label.addEventListener('click', (e) => { e.preventDefault(); cb.click(); });
+
+    row.append(label, cb);
+    return row;
 }
 
 function toggleRoutingRuleEnabled(index) {
@@ -5363,6 +5533,7 @@ function importRoutingRulesFromJson() {
         domain: _rtToCsv(raw.domain),
         ip: _rtToCsv(raw.ip),
         port: raw.port !== undefined && raw.port !== null ? String(raw.port) : '',
+        process: _normalizeProcessInput(_rtToCsv(raw.process)).tokens.join(','),
         protocol: _rtToCsv(raw.protocol),
         network: raw.network || '',
         outboundTag: String(raw.outboundTag || 'proxy'),
@@ -5393,6 +5564,8 @@ function exportRoutingRulesToClipboard() {
         const ip = _rtSplitCsv(rule.ip);
         if (ip.length) obj.ip = ip;
         if (rule.port && String(rule.port).trim()) obj.port = String(rule.port).trim();
+        const proc = _rtSplitCsv(rule.process);
+        if (proc.length) obj.process = proc;
         const protocol = _rtSplitCsv(rule.protocol);
         if (protocol.length) obj.protocol = protocol;
         if (rule.network && String(rule.network).trim()) obj.network = rule.network.trim();
