@@ -5482,8 +5482,10 @@ const TCPING_CONCURRENCY = NODE_TEST_CONCURRENCY * 2;
 //      outbound by itself (routing bypassed) and `xhuskydg_helper obsprobe` reads the result over
 //      xray's gRPC API (`api.listen`, only ObservatoryService enabled). Observatory selectors
 //      match by tag PREFIX, so "proxy" also observes a chain's "proxy-hop1"; the result is picked
-//      by exact tag. Xray's observatory request has a fixed 5 s timeout, so OBS_WAIT_MS leaves
-//      room for xray start-up.
+//      by exact tag. The observatory (xray-core patched, see
+//      xray-core-observatory-second-request.patch) sends the probe request TWICE on one
+//      connection and reports the delay of the second, so TCP/TLS handshakes are not counted.
+//      Each request has a 5 s timeout, so OBS_WAIT_MS leaves room for both plus xray start-up.
 //   3. The test URLs are v2rayNG's defaults (AppConfig.DELAY_TEST_URL / DELAY_TEST_URL2): an
 //      HTTPS generate_204, timed on the second request (no handshake). A single-node
 //      check retries with the second URL when the first fails (measureV2rayDelay's fallback); a

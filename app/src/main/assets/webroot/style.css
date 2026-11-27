@@ -3304,6 +3304,30 @@ html.has-bg .category-group:has(> .nodes-list[style*="display: none"]) > .catego
 }
 .access-badge.ok { background: var(--md-primary-container); color: var(--md-on-primary-container); }
 .access-badge.warn { background: color-mix(in srgb, var(--md-warning) 18%, transparent); color: var(--md-warning); }
+.access-log-btn {
+    flex-shrink: 0;
+    width: 40px; height: 40px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--md-on-surface-variant);
+    cursor: pointer;
+}
+.access-log-btn:hover, .access-log-btn:focus-visible { background: var(--md-surface-4); color: var(--md-on-surface); }
+.access-log-list {
+    margin-top: 12px;
+    max-height: 50vh;
+    overflow-y: auto;
+    text-align: left;
+    display: flex; flex-direction: column; gap: 2px;
+}
+.access-log-item { padding: 8px 4px; border-bottom: 1px solid var(--md-outline-variant); }
+.access-log-item:last-child { border-bottom: none; }
+.access-log-time { font-size: 11px; color: var(--md-on-surface-variant); font-family: var(--md-font-mono); }
+.access-log-text { margin-top: 2px; font-size: 14px; word-break: break-word; }
+.access-log-text small { display: block; margin-top: 2px; font-size: 12px; color: var(--md-on-surface-variant); }
+.access-log-item.bad .access-log-text { color: var(--md-warning); }
 
 /* ===== Traffic monitor tab ===== */
 /* Chrome-style sub-tabs: the active one is a raised card that merges into the panel below. */

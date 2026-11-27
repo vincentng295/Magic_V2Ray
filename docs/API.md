@@ -255,7 +255,7 @@ Besides a node, `connect` can carry an `overrides` parameter that **temporarily 
 - The engine reads `config.v2.json`, `settings.base64`, `excludelist.txt` and `bypassIface.txt` from the session directory **instead of** your file of the same name; your files are only read, never modified. Disconnecting deletes the session directory and restarts the engine on your own setup.
 - The pending request is kept in memory only; the session stores metadata (name, caller, exclusion list) but neither the server nor any overridden value.
 - A session **never resumes after a reboot** (root: `/mnt/runtime` is wiped and the service clears the directory at start; non-root: the VpnService is `START_NOT_STICKY` and a stale session is dropped when the app opens). An app that wants it again must send `connect` after each boot. A temporary session also never changes the `enabled` flag that decides what resumes at boot.
-- A request with `overrides` is confirmed (the dialog lists what changes). An app set to "always trust" is **not asked again while it sends the same `overrides` it was last allowed with**. If they differ (new or changed), the dialog comes back saying the app wants to apply NEW settings. **Always allow** remembers the new set; **Allow once** does not. Only a SHA-256 fingerprint of the overrides is stored, never their values. Links and browsers can never be trusted.
+- A request with `overrides` is confirmed (the dialog says the app wants to change settings). An app the user chose **Always allow** for is **never asked again when it changes settings**: new or changed `overrides` are applied without a prompt. Links and browsers can never be trusted. Each app's requests and the decisions made are written to its activity log (Access permissions tab, log button on the app's card).
 
 ---
 
@@ -310,7 +310,7 @@ startActivity(i);                                         // or sendBroadcast(i)
 
 **Privacy and consent.**
 
-- Custom databases change what every `geoip:` / `geosite:` / `ext:` rule matches, so the confirmation dialog says so in plain words and lists each file with its size and the start of its SHA-256. Nothing is applied without that answer, except for an app set to "always trust" that sends the very same overrides and files again (the fingerprint of the files is part of the check; a changed file asks again).
+- Custom databases change what every `geoip:` / `geosite:` / `ext:` rule matches, so the confirmation dialog says so in plain words and lists each file with its size and the start of its SHA-256. Nothing is applied without that answer, except for an app set to "always allow", which is not asked again, whatever overrides or files it sends.
 - A request waits at most 10 minutes. While it waits the files sit in the app's private cache, checked and hashed; **deny, an error or a timeout deletes them at once**.
 - After the user agrees they are moved into the session directory (root: tmpfs under `/mnt/runtime`, gone at reboot; non-root: the cache directory) and are **never** written to the data directory or to the user's `location_assets`. Disconnecting, a reboot or a crash deletes them and the engine goes back to the user's own databases.
 - If a file cannot be read or fails the check, nothing is connected and the user sees why.

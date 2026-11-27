@@ -85,7 +85,17 @@ function _extWrite(path, content) {
 
 // A request approved in the native dialog (ExternalPromptActivity) runs silently in the background: the user is
 // in the app that asked, so the result is a system toast, not a WebUI toast / loading overlay.
+// Best-effort entry in the requesting app's log ("Access permissions" > the app's log). Only for a verified native app.
+function _extLog(req, kind, detail) {
+    try {
+        if (req && req.caller && !req.browser && window.ksu && typeof window.ksu.appLogAdd === 'function') {
+            window.ksu.appLogAdd(String(req.caller), kind, String(detail || ''));
+        }
+    } catch (e) { /* the log never gets in the way */ }
+}
+
 function _extMsg(req, text, type) {
+    if (type === 'error') _extLog(req, 'connect_failed', text);
     if (req && req.approved === true && window.ksu && typeof window.ksu.toast === 'function') window.ksu.toast(text);
     else showToast(text, type);
 }
@@ -296,15 +306,6 @@ function _extConfirm(info) {
         const set = (id, text) => { $(id).textContent = text; };
         const native = !!(req.caller && !req.browser);
 
-        // full description of the caller (Details)
-        let caller;
-        if (native) caller = `${req.callerLabel || req.caller} (${req.caller})`;
-        else if (req.caller) caller = t('ext_caller_browser', { app: req.callerLabel || req.caller });
-        else caller = t('ext_caller_unknown');
-        set('ext-caller', caller);
-        set('ext-name', name);
-        set('ext-uri', req.uri || '');
-
         // the question, with the app name in bold: "Allow <b>app</b> to connect through Magic V2Ray?"
         const who = native ? (req.callerLabel || req.caller)
             : req.caller ? t('ext_who_web') : t('ext_who_unknown');
@@ -327,17 +328,9 @@ function _extConfirm(info) {
         icon.removeAttribute('src');
         if (native) icon.src = 'ksu://icon/' + req.caller;
 
-        const labels = excludes.length ? _extAppLabels(excludes) : {};
-        set('ext-exclude', excludes.length
-            ? excludes.map(p => (labels[p] && labels[p] !== p) ? `${labels[p]} (${p})` : p).join('\n')
-            : t('ext_none'));
-
         const warn = $('ext-warnings');
         warn.textContent = warnings.join('\n\n');
         warn.style.display = warnings.length ? '' : 'none';
-
-        // anything beyond "this app asks for its own server" is shown right away, not hidden behind a tap
-        $('ext-details').open = warnings.length > 0 || excludes.some(p => p !== req.caller);
 
         always.style.display = (req.trustable && req.caller) ? '' : 'none';
 
@@ -511,27 +504,33 @@ async function _extHandleConnectInner(req) {
     if (hasUri && plainOf(isPlainVlessUri)) warnings.push(t('warn_plain_vless', { name }));
     if (hasUri && plainOf(isPlainTrojanUri)) warnings.push(t('warn_plain_trojan', { name }));
     if (entry && _extIsLocalTarget(entry.address) && !excludes.length) warnings.push(t('ext_warn_loop'));
-    // A trusted app (its own explicit intent, verified) is not asked again while it sends the same overrides it was allowed
-    // with (req.trusted); trusted but with different overrides (req.ovChanged) it is asked, with a message that says so.
+    // An app the user always allows (its own explicit intent, verified: req.trusted) is not asked again, also when it
+    // changes settings (overrides).
     if (_extOvSections(ov).length && req.trusted !== true) {
-        warnings.push(t(req.ovChanged === true ? 'ext_warn_overrides_changed' : 'ext_warn_overrides', { sections: _extOvSections(ov).join(', ') }));
+        warnings.push(t('ext_warn_overrides', { sections: _extOvSections(ov).join(', ') }));
     }
     if (Array.isArray(ov.assets) && ov.assets.length && req.trusted !== true) {
         warnings.push(t('ext_warn_assets', { files: ov.assets.map(a => `${a.name} (${a.sha256 ? String(a.sha256).slice(0, 12) : '?'})`).join(', ') }));
     }
 
-    // No prompt when the native dialog already asked, or for an app the user trusts, when nothing in the request
-    // goes beyond what that app is (setting overrides only count when they differ from the ones it was allowed with).
+    // No prompt when the native dialog already asked, or for an app the user always allows, when nothing in the request
+    // goes beyond what that app is (a plaintext node, extra exclusions). Changed settings do not count.
     const auto = silent || (req.trusted === true && !warnings.length && excludes.every(p => p === req.caller));
+    const ovNames = _extOvSections(ov).join(', ');
+    const logWhat = (resolved && resolved.text ? resolved.text : name) + (ovNames ? ' · ' + ovNames : '');
     let trust = false;
     if (!auto) {
         const r = await _extConfirm({ req, node, name, excludes, warnings, nodeText: resolved ? resolved.text : '' });
-        if (!r.ok) return;
+        if (!r.ok) { _extLog(req, 'connect_denied', logWhat); return; }
         trust = r.trust;
+        _extLog(req, trust ? 'connect_always' : 'connect_once', logWhat);
+    } else if (!silent) {
+        _extLog(req, 'connect_auto', logWhat);      // (a silent request was already logged by the native dialog)
     }
     if (!await _extStart(req, ov, name, excludes, built.text, { rawUri: (resolved && resolved.logUri) || rawUri, nodeFromApp: hasUri })) return;
 
     if (trust && req.trustable && req.caller) window.ksu.trustAdd(req.caller);
+    _extLog(req, 'connected', name);
     _markStatusPending();
     renderExtBanner();
     _extMsg(req, t('ext_connected', { name }), 'success');
@@ -764,7 +763,9 @@ function renderAccessTab() {
         const badges = document.createElement('div');
         badges.className = 'access-badges';
         const badge = (cls, txt) => { const b = document.createElement('span'); b.className = 'access-badge ' + cls; b.textContent = txt; badges.appendChild(b); };
+        const hasGrant = app.connect !== false || !!app.nodes;
         if (app.connect !== false) badge('ok', t('access_badge_allowed'));
+        else if (!app.nodes) badge('', t('access_badge_ask'));       // only has a log: asks every time
         if (app.nodes === 'full') badge('warn', t('access_badge_nodes_full'));
         else if (app.nodes === 'anonymous') badge('ok', t('access_badge_nodes_anonymous'));
         if (app.installed === false) badge('warn', t('access_not_installed'));
@@ -772,22 +773,77 @@ function renderAccessTab() {
         if (since) badge('', t('access_since', { date: since }));
         text.append(name, pkg, badges);
 
-        const sw = document.createElement('input');
-        sw.type = 'checkbox';
-        sw.checked = true;
-        sw.setAttribute('aria-label', app.label || app.pkg);
-        sw.addEventListener('change', () => {
-            if (sw.checked) { sw.checked = false; return; }       // cannot be re-granted from here
-            k.trustRemove(app.pkg);
-            showToast(t('access_revoked', { name: app.label || app.pkg }), 'success');
-            row.classList.add('access-card-leaving');
-            setTimeout(renderAccessTab, 220);
-        });
+        // the app's own activity log
+        const logBtn = document.createElement('button');
+        logBtn.type = 'button';
+        logBtn.className = 'access-log-btn';
+        logBtn.title = t('applog_title');
+        logBtn.setAttribute('aria-label', `${t('applog_title')}: ${app.label || app.pkg}`);
+        logBtn.innerHTML = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg>';
+        logBtn.addEventListener('click', () => openAppLog(app));
 
-        row.append(icon, text, sw);
+        row.append(icon, text, logBtn);
+        if (hasGrant) {
+            const sw = document.createElement('input');
+            sw.type = 'checkbox';
+            sw.checked = true;
+            sw.setAttribute('aria-label', app.label || app.pkg);
+            sw.addEventListener('change', () => {
+                if (sw.checked) { sw.checked = false; return; }       // cannot be re-granted from here
+                k.trustRemove(app.pkg);
+                showToast(t('access_revoked', { name: app.label || app.pkg }), 'success');
+                row.classList.add('access-card-leaving');
+                setTimeout(renderAccessTab, 220);
+            });
+            row.append(sw);
+        }
         box.appendChild(row);
     });
 }
+
+// The activity log of one app: what it asked for and what was decided, newest first.
+const _APPLOG_BAD = new Set(['connect_denied', 'connect_failed', 'nodes_denied', 'revoked']);
+function openAppLog(app) {
+    const k = window.ksu;
+    const $ = id => document.getElementById(id);
+    const o = $('access-log-overlay');
+    if (!o || !k || typeof k.appLog !== 'function') return;
+    $('access-log-title').textContent = `${t('applog_title')}: ${app.label || app.pkg}`;
+    $('access-log-pkg').textContent = app.pkg;
+    const render = () => {
+        let list = [];
+        try { list = JSON.parse(k.appLog(app.pkg)); } catch (e) { /* empty */ }
+        const box = $('access-log-list');
+        box.textContent = '';
+        list.forEach(e => {
+            const item = document.createElement('div');
+            item.className = 'access-log-item' + (_APPLOG_BAD.has(e.k) ? ' bad' : '');
+            const time = document.createElement('div');
+            time.className = 'access-log-time';
+            time.textContent = new Date(e.ts).toLocaleString();
+            const text = document.createElement('div');
+            text.className = 'access-log-text';
+            const key = 'applog_' + e.k;
+            text.textContent = (typeof i18n !== 'undefined' && i18n[currentLang] && key in i18n[currentLang]) ? t(key) : String(e.k);
+            if (e.d) {
+                const d = document.createElement('small');
+                d.textContent = e.d;
+                text.appendChild(d);
+            }
+            item.append(time, text);
+            box.appendChild(item);
+        });
+        $('access-log-empty').style.display = list.length ? 'none' : '';
+        $('access-log-clear').style.display = list.length ? '' : 'none';
+    };
+    const close = () => { o.style.display = 'none'; o.onclick = null; renderAccessTab(); };
+    $('access-log-close').onclick = close;
+    $('access-log-clear').onclick = () => { k.appLogClear(app.pkg); showToast(t('applog_cleared'), 'success'); render(); };
+    o.onclick = (e) => { if (e.target === o) close(); };
+    render();
+    o.style.display = 'flex';
+}
+window.openAppLog = openAppLog;
 
 function openAccessHelp() {
     const o = document.getElementById('access-help-overlay');

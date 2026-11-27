@@ -1123,7 +1123,7 @@
         </div>
     </div>
     <!-- External connect request (magicv2ray://connect): asks like Shizuku's permission dialog.
-         Who asks and the server are always visible; the full uri is one tap away (open by default when something is unusual). -->
+         Who asks and the server are always visible; there is no details section. -->
     <div id="ext-modal-overlay" class="ext-scrim" style="display: none;">
         <div class="ext-dialog" role="dialog" aria-modal="true" aria-labelledby="ext-question">
             <div class="ext-dialog-icon">
@@ -1134,20 +1134,6 @@
             <div class="ext-who" id="ext-caller-pkg"></div>
             <div class="ext-server" id="ext-node"></div>
             <p id="ext-warnings" class="ext-warn" style="display:none;"></p>
-            <details id="ext-details" class="ext-details">
-                <summary data-i18n="ext_details">Details</summary>
-                <dl class="ext-facts">
-                    <dt data-i18n="ext_lbl_caller">Requested by</dt>
-                    <dd id="ext-caller"></dd>
-                    <dt data-i18n="ext_lbl_name">Shown as</dt>
-                    <dd id="ext-name"></dd>
-                    <dt data-i18n="ext_lbl_uri">Address (URI)</dt>
-                    <dd><pre id="ext-uri" class="ext-uri"></pre></dd>
-                    <dt data-i18n="ext_lbl_exclude">Kept out of the VPN</dt>
-                    <dd id="ext-exclude"></dd>
-                </dl>
-                <small class="ext-hint" data-i18n="ext_note_temp">Your traffic will go through this server until you disconnect. Your own nodes are not changed; disconnecting brings your previous node back.</small>
-            </details>
             <div class="ext-actions">
                 <button id="ext-modal-always" class="ext-act" data-i18n="ext_btn_always">Always allow</button>
                 <button id="ext-modal-ok" class="ext-act" data-i18n="ext_btn_once">Allow once</button>
@@ -1167,6 +1153,21 @@ action  com.huskydg.magicv2ray.action.CONNECT
 extras  uri, name, exclude</pre>
             <div class="ext-actions">
                 <button id="access-help-close" class="ext-act" data-i18n="access_help_close">Close</button>
+            </div>
+        </div>
+    </div>
+    <!-- Activity log of one app, opened from its card in the Access permissions tab -->
+    <div id="access-log-overlay" class="ext-scrim" style="display: none;">
+        <div class="ext-dialog ext-help" role="dialog" aria-modal="true" aria-labelledby="access-log-title">
+            <h3 id="access-log-title" class="ext-question"></h3>
+            <small id="access-log-pkg" class="ext-hint"></small>
+            <div id="access-log-list" class="access-log-list"></div>
+            <div id="access-log-empty" class="hosts-empty-state" style="display:none;">
+                <span data-i18n="applog_empty">Nothing logged for this app yet.</span>
+            </div>
+            <div class="ext-actions">
+                <button id="access-log-clear" class="ext-act" data-i18n="applog_clear">Clear log</button>
+                <button id="access-log-close" class="ext-act" data-i18n="access_help_close">Close</button>
             </div>
         </div>
     </div>

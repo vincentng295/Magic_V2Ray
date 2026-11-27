@@ -216,13 +216,12 @@ final class ExternalSession {
             boolean browser = caller != null && isBrowser(c, caller);
             // Trust is only offered for calls that app code made on purpose (an explicit action):
             // a link can come from anywhere (a chat message, a web page), whichever app opened it.
-            // An app the user chose to "always trust" (explicit intent from a verified native app, tied to its signing
-            // certificate) is not asked again while it sends the SAME overrides it was last allowed with. New or changed
-            // overrides are asked again ("ovChanged"). Links and browsers are never trustable.
+            // An app the user chose to "always allow" (explicit intent from a verified native app, tied to its signing
+            // certificate) is not asked again, whatever settings it sends with the request. Links and browsers are
+            // never trustable.
             boolean trustable = !"deeplink".equals(source) && caller != null && !browser;
             String ovHash = overridesHash(ov);
             boolean callerTrusted = trustable && isTrusted(c, caller);
-            boolean ovSame = ov.length() == 0 || ovHash.equals(trustedOverridesHash(c, caller));
             o.put("action", "connect")
                     .put("uri", uri)
                     .put("name", clean(name, MAX_NAME))
@@ -233,8 +232,7 @@ final class ExternalSession {
                     .put("callerLabel", caller == null ? "" : labelOf(c, caller))
                     .put("browser", browser)
                     .put("trustable", trustable)
-                    .put("trusted", callerTrusted && ovSame)
-                    .put("ovChanged", callerTrusted && !ovSame)
+                    .put("trusted", callerTrusted)
                     .put("ovHash", ovHash)
                     .put("stageId", stageId)
                     .put("ts", System.currentTimeMillis());
@@ -729,6 +727,7 @@ final class ExternalSession {
     static void untrust(Context c, String pkg) {
         if (pkg != null) trustSp(c).edit().remove(pkg).apply();
         ExternalNodes.revoke(c, pkg);
+        ExternalAppLog.add(c, pkg, ExternalAppLog.K_REVOKED, "");
     }
 
     /**
@@ -752,6 +751,15 @@ final class ExternalSession {
                     rows.put(e.getKey(), r);
                 }
                 r.put("nodes", e.getValue().optString("level"));
+            } catch (JSONException ignored) {
+            }
+        }
+        // apps that were never always-allowed but have a log (asked once, denied...): listed so their log can be read
+        for (Object[] lp : ExternalAppLog.packages(c)) {
+            String pkg = (String) lp[0];
+            if (rows.containsKey(pkg)) continue;
+            try {
+                rows.put(pkg, new JSONObject().put("since", (Long) lp[1]).put("connect", false).put("nodes", ""));
             } catch (JSONException ignored) {
             }
         }

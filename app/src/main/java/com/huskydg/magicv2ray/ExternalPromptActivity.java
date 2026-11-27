@@ -44,13 +44,16 @@ import java.util.Locale;
  * background, reporting only with a toast; see external.js (req.approved).
  *
  * <p>Nothing is connected without this dialog, except for an app the user chose to "always allow" when
- * the request goes no further than what that app is (same rule as before: no warning, no exclusion
- * other than the caller itself).
+ * the request goes no further than what that app is (no warning, no exclusion other than the caller itself). Such an
+ * app is not asked again when it changes settings (overrides). Every decision is written to the app's log
+ * ({@link ExternalAppLog}).
  */
 public class ExternalPromptActivity extends Activity {
 
     private JSONObject req;
     private boolean done;
+    private boolean asked;          // the dialog was shown (so closing it without choosing is a denial)
+    private String logInfo = "";    // what the request asked for, for the app's log: server, settings sections
 
     @Override
     protected void attachBaseContext(Context base) {
@@ -110,9 +113,11 @@ public class ExternalPromptActivity extends Activity {
         if (req == null) { finish(); return; }
 
         if ("disconnect".equals(req.optString("action"))) {
+            final String dcCaller = req.optBoolean("browser") ? "" : req.optString("caller", "");
             new Thread(() -> {
                 final boolean had = ExternalSession.isActive(app);
                 ExternalSession.end(app);
+                ExternalAppLog.add(app, dcCaller, ExternalAppLog.K_DISCONNECT, had ? "" : "no session");
                 runOnUiThread(() -> {
                     Toast.makeText(app, had ? R.string.ext_ended : R.string.ext_no_session, Toast.LENGTH_SHORT).show();
                     finish();
@@ -149,16 +154,14 @@ public class ExternalPromptActivity extends Activity {
         if (nativeCaller && isLocalTarget(host) && !excludes.contains(caller)) excludes.add(caller);
         if (isLocalTarget(host) && excludes.isEmpty()) warnings.add(getString(R.string.ext_prompt_warn_loop));
 
-        // temporary setting overrides: listed in the dialog and confirmed, unless the app is one the user always trusts AND
-        // sends the same overrides as when it was allowed. A trusted app whose overrides changed is asked again.
+        // temporary setting overrides: said plainly and confirmed, unless the app is one the user always allows
+        // (an always-allowed app is not asked again when its settings change)
         final String ovSummary = overridesSummary(req.optJSONObject("overrides"), uri.isEmpty());
         if (!ovSummary.isEmpty() && !req.optBoolean("trusted")) {
-            warnings.add(getString(req.optBoolean("ovChanged") ? R.string.ext_prompt_warn_overrides_changed
-                    : R.string.ext_prompt_warn_overrides));
+            warnings.add(getString(R.string.ext_prompt_warn_overrides));
         }
 
-        // custom geo databases change what every geoip: / geosite: rule matches: said plainly (unless the app is trusted and
-        // sends the very same files, which the fingerprint covers)
+        // custom geo databases change what every geoip: / geosite: rule matches: said plainly (unless the app is always allowed)
         JSONObject ovAll = req.optJSONObject("overrides");
         if (ovAll != null && ovAll.optJSONArray("assets") != null && ovAll.optJSONArray("assets").length() > 0
                 && !req.optBoolean("trusted")) {
@@ -168,22 +171,30 @@ public class ExternalPromptActivity extends Activity {
         boolean onlyCaller = true;
         for (String p : excludes) if (!p.equals(caller)) onlyCaller = false;
 
+        String server = serverLine(effUri);
+        logInfo = server + (ovSummary.isEmpty() ? "" : (server.isEmpty() ? "" : " · ") + ovSummary.replace('\n', ' '));
+
         // an app the user always allows connects without a prompt when nothing goes beyond what that app is
         if (req.optBoolean("trusted") && warnings.isEmpty() && onlyCaller) {
-            approve(false);
+            approve(false, true);
             return;
         }
-        buildDialog(nativeCaller, caller, host, uri, serverLine(effUri), excludes, warnings, false, ovSummary);
+        buildDialog(nativeCaller, caller, server, warnings);
     }
 
     // ------------------------------------------------------------------ result
 
-    private void approve(boolean trust) {
+    private void approve(boolean trust, boolean auto) {
         if (done) return;
         done = true;
         final Context app = getApplicationContext();
         try {
             if (trust) ExternalSession.trustApproved(app, req);
+            if (!req.optBoolean("browser")) {
+                ExternalAppLog.add(app, req.optString("caller", ""),
+                        auto ? ExternalAppLog.K_CONNECT_AUTO : trust ? ExternalAppLog.K_CONNECT_ALWAYS : ExternalAppLog.K_CONNECT_ONCE,
+                        logInfo);
+            }
             MainActivity m = MainActivity.current;
             req.put("approved", true);              // external.js: no dialog, no loading overlay, result as a toast
             req.put("cold", m == null);             // the WebUI is not running: it starts now, and goes back afterwards
@@ -210,7 +221,12 @@ public class ExternalPromptActivity extends Activity {
         super.onDestroy();
         // Denied, dismissed or replaced: the custom .dat files staged for this request are deleted. (Approval hands them
         // on to the WebUI, which installs them and deletes the rest.)
-        if (!done && req != null) ExternalAssets.discard(getApplicationContext(), req.optString("stageId", ""));
+        if (!done && req != null) {
+            ExternalAssets.discard(getApplicationContext(), req.optString("stageId", ""));
+            if (asked && !isChangingConfigurations() && !req.optBoolean("browser")) {
+                ExternalAppLog.add(getApplicationContext(), req.optString("caller", ""), ExternalAppLog.K_CONNECT_DENIED, logInfo);
+            }
+        }
     }
 
     // ------------------------------------------------------------------ request helpers
@@ -386,8 +402,8 @@ public class ExternalPromptActivity extends Activity {
         return b;
     }
 
-    private void buildDialog(boolean nativeCaller, String caller, String host, String uri, String server,
-                             java.util.List<String> excludes, java.util.List<String> warnings, boolean openDetails, String ovSummary) {
+    private void buildDialog(boolean nativeCaller, String caller, String server, java.util.List<String> warnings) {
+        asked = true;
         final int onSurface = getColor(R.color.mv_on_surface);
         final int variant = getColor(R.color.mv_on_surface_variant);
         final int primary = getColor(R.color.mv_primary);
@@ -466,68 +482,15 @@ public class ExternalPromptActivity extends Activity {
             card.addView(w, wlp);
         }
 
-        // details: who is asking, the full uri, what is kept out of the VPN
-        final LinearLayout details = new LinearLayout(this);
-        details.setOrientation(LinearLayout.VERTICAL);
-        details.setVisibility(openDetails ? View.VISIBLE : View.GONE);
-        details.setPadding(0, dp(4), 0, 0);
-        String callerFull = nativeCaller ? (label.isEmpty() ? caller : label + " (" + caller + ")") : who;
-        addFact(details, R.string.ext_prompt_lbl_caller, callerFull, false);
-        addFact(details, R.string.ext_prompt_lbl_uri, uri, true);
-        StringBuilder ex = new StringBuilder();
-        for (String p : excludes) {
-            if (ex.length() > 0) ex.append('\n');
-            ex.append(labelWithPkg(p));
-        }
-        addFact(details, R.string.ext_prompt_lbl_exclude, excludes.isEmpty() ? getString(R.string.ext_prompt_none) : ex.toString(), false);
-
-        if (!ovSummary.isEmpty()) addFact(details, R.string.ext_prompt_lbl_overrides, ovSummary, false);
-
-        final TextView toggle = text("", 14, primary, false);
-        toggle.setTypeface(Typeface.DEFAULT_BOLD);
-        toggle.setGravity(Gravity.CENTER);
-        toggle.setPadding(0, dp(10), 0, dp(6));
-        final String dtl = getString(R.string.ext_prompt_details);
-        toggle.setText(dtl + (openDetails ? " ▴" : " ▾"));
-        toggle.setOnClickListener(v -> {
-            boolean show = details.getVisibility() != View.VISIBLE;
-            details.setVisibility(show ? View.VISIBLE : View.GONE);
-            toggle.setText(dtl + (show ? " ▴" : " ▾"));
-        });
-        card.addView(toggle, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        card.addView(details, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
         // buttons: Always allow (only when it can be trusted) / Allow once / Deny
         boolean canTrust = req.optBoolean("trustable") && nativeCaller;
         View spacer = new View(this);
         card.addView(spacer, new LinearLayout.LayoutParams(1, dp(16)));
-        if (canTrust) card.addView(actionButton(R.string.ext_prompt_always, 16, 4, () -> approve(true)));
-        card.addView(actionButton(R.string.ext_prompt_once, canTrust ? 4 : 16, 4, () -> approve(false)));
+        if (canTrust) card.addView(actionButton(R.string.ext_prompt_always, 16, 4, () -> approve(true, false)));
+        card.addView(actionButton(R.string.ext_prompt_once, canTrust ? 4 : 16, 4, () -> approve(false, false)));
         card.addView(actionButton(R.string.ext_prompt_deny, 4, 16, this::finish));
 
         root.addView(scroll);
         setContentView(root);
-    }
-
-    private String labelWithPkg(String pkg) {
-        String l = ExternalSession.labelOf(this, pkg);
-        return (l == null || l.equals(pkg)) ? pkg : l + " (" + pkg + ")";
-    }
-
-    private void addFact(LinearLayout parent, int labelRes, String value, boolean mono) {
-        TextView l = text(getString(labelRes).toUpperCase(Locale.getDefault()), 11, getColor(R.color.mv_on_surface_variant), false);
-        l.setLetterSpacing(0.04f);
-        LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        llp.topMargin = dp(10);
-        parent.addView(l, llp);
-        TextView v = text(value, mono ? 12 : 14, getColor(R.color.mv_on_surface), mono);
-        v.setTextIsSelectable(true);
-        if (mono) {
-            v.setPadding(dp(10), dp(8), dp(10), dp(8));
-            v.setBackground(shape(getColor(R.color.mv_surface_container), 8, 8, 8, 8));
-        }
-        LinearLayout.LayoutParams vlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        vlp.topMargin = dp(2);
-        parent.addView(v, vlp);
     }
 }

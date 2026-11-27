@@ -81,6 +81,9 @@ public class ExternalNodeAccessActivity extends Activity {
     private void reply(boolean granted, String level, boolean persistent, String error) {
         if (done) return;
         done = true;
+        if (!granted && error == null && caller != null) {
+            ExternalAppLog.add(getApplicationContext(), caller, ExternalAppLog.K_NODES_DENIED, "");   // Cancel / tap outside
+        }
         Intent r = new Intent()
                 .putExtra(ExternalNodes.RESULT_GRANTED, granted)
                 .putExtra(ExternalNodes.RESULT_LEVEL, level)
@@ -93,6 +96,7 @@ public class ExternalNodeAccessActivity extends Activity {
     private void choose(boolean always) {
         String level = fullRadio != null && fullRadio.isChecked() ? ExternalNodes.LEVEL_FULL : ExternalNodes.LEVEL_ANONYMOUS;
         boolean ok = ExternalNodes.grant(getApplicationContext(), caller, level, always);
+        if (ok) ExternalAppLog.add(getApplicationContext(), caller, always ? ExternalAppLog.K_NODES_ALWAYS : ExternalAppLog.K_NODES_ONCE, level);
         reply(ok, ok ? level : ExternalNodes.LEVEL_NONE, ok && always, ok ? null : "grant_failed");
     }
 

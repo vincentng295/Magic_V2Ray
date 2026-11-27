@@ -322,6 +322,24 @@ final class KsuBridge {
         return ExternalNodes.accessLevel(activity.getApplicationContext(), pkg);
     }
 
+    /** The activity log of one app ("App permission" > log), newest first: [{ts, k, d}]. */
+    @JavascriptInterface
+    public String appLog(String pkg) {
+        return ExternalAppLog.list(activity.getApplicationContext(), pkg).toString();
+    }
+
+    /** Adds an entry to an app's log (kind codes: see ExternalAppLog). Only for a package name. */
+    @JavascriptInterface
+    public void appLogAdd(String pkg, String kind, String detail) {
+        if (pkg == null || !pkg.matches("[A-Za-z0-9_.]{1,255}") || kind == null || !kind.matches("[a-z_]{1,32}")) return;
+        ExternalAppLog.add(activity.getApplicationContext(), pkg, kind, detail);
+    }
+
+    @JavascriptInterface
+    public void appLogClear(String pkg) {
+        ExternalAppLog.clear(activity.getApplicationContext(), pkg);
+    }
+
     @JavascriptInterface
     public void trustRemove(String pkg) {
         ExternalSession.untrust(activity.getApplicationContext(), pkg);
