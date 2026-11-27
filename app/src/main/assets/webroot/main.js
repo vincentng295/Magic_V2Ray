@@ -5018,6 +5018,14 @@ function _startDragSort(e, container, item, itemSelector, opts) {
     let lastY = e.clientY;
     let rafId = 0;
 
+    // Moving the item in the DOM (insertBefore/after) makes the browser drop the
+    // pointer capture, so it is taken again after every move; the move/up listeners
+    // sit on document so the drag survives even when the capture is lost.
+    const _recapture = () => {
+        if (!handle.isConnected) return;
+        try { if (!handle.hasPointerCapture(e.pointerId)) handle.setPointerCapture(e.pointerId); } catch (_) { }
+    };
+
     const place = () => {
         const others = siblings().filter(s => s !== item);
         let before = null;
@@ -5031,6 +5039,7 @@ function _startDragSort(e, container, item, itemSelector, opts) {
             const last = others[others.length - 1];
             if (last.nextElementSibling !== item) last.after(item);
         }
+        _recapture();
     };
 
     const tick = () => {
@@ -5047,12 +5056,16 @@ function _startDragSort(e, container, item, itemSelector, opts) {
     };
     rafId = requestAnimationFrame(tick);
 
-    const onMove = (ev) => { lastY = ev.clientY; place(); };
+    const onMove = (ev) => {
+        if (ev.pointerId !== e.pointerId) return;
+        lastY = ev.clientY;
+        place();
+    };
     const finish = (commit) => {
         cancelAnimationFrame(rafId);
-        handle.removeEventListener('pointermove', onMove);
-        handle.removeEventListener('pointerup', onUp);
-        handle.removeEventListener('pointercancel', onCancel);
+        document.removeEventListener('pointermove', onMove, true);
+        document.removeEventListener('pointerup', onUp, true);
+        document.removeEventListener('pointercancel', onCancel, true);
         try { handle.releasePointerCapture(e.pointerId); } catch (_) { }
         item.classList.remove('drag-sorting');
         if (opts.containerClass) container.classList.remove(opts.containerClass);
@@ -5060,11 +5073,13 @@ function _startDragSort(e, container, item, itemSelector, opts) {
         if (commit && toIndex !== fromIndex && toIndex >= 0) opts.onDrop(fromIndex, toIndex);
         else if (toIndex !== fromIndex && opts.onCancel) opts.onCancel();
     };
-    const onUp = () => finish(true);
-    const onCancel = () => finish(false);
-    handle.addEventListener('pointermove', onMove);
-    handle.addEventListener('pointerup', onUp);
-    handle.addEventListener('pointercancel', onCancel);
+    const onUp = (ev) => { if (ev.pointerId === e.pointerId) finish(true); };
+    // A cancel that fires only because the item was moved in the DOM must not end
+    // the drag: treat it as a drop, which keeps the position the user reached.
+    const onCancel = (ev) => { if (ev.pointerId === e.pointerId) finish(true); };
+    document.addEventListener('pointermove', onMove, true);
+    document.addEventListener('pointerup', onUp, true);
+    document.addEventListener('pointercancel', onCancel, true);
 }
 
 // Moves one routing rule to a new position (drag & drop). The list re-renders
