@@ -5485,13 +5485,13 @@ const TCPING_CONCURRENCY = NODE_TEST_CONCURRENCY * 2;
 //      by exact tag. Xray's observatory request has a fixed 5 s timeout, so OBS_WAIT_MS leaves
 //      room for xray start-up.
 //   3. The test URLs are v2rayNG's defaults (AppConfig.DELAY_TEST_URL / DELAY_TEST_URL2): an
-//      HTTPS generate_204, so the number includes the TLS handshake like v2rayNG's. A single-node
+//      HTTPS generate_204, timed on the second request (no handshake). A single-node
 //      check retries with the second URL when the first fails (measureV2rayDelay's fallback); a
 //      category check uses the first URL only, as v2rayNG's batch test does.
 const OBS_SUBJECT = 'proxy';
 const DELAY_TEST_URL = 'https://www.gstatic.com/generate_204';
 const DELAY_TEST_URL2 = 'https://www.google.com/generate_204';
-const OBS_WAIT_MS = 9000;
+const OBS_WAIT_MS = 12000;
 const _nodeTestSlotBusy = new Array(NODE_TEST_SLOTS).fill(false);
 const _nodeTestSlotWaiters = [];
 
