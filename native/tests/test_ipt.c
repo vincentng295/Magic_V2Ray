@@ -164,12 +164,45 @@ static void scenario(int family, bool v6)
     free(orig);
 }
 
+/* filter/OUTPUT -o xraytun0 -> XRAY_EXCLUDE_TUN -> per-uid DROP (excluded apps must not bind the tun) */
+static void tun_block_scenario(int family, bool v6)
+{
+    setfam(family);
+    init_table(0x1f, true);
+    uint8_t *orig = malloc(cur.size); size_t osz = cur.size; memcpy(orig, cur.entries, osz);
+    ipt_spec hook = IPT_SPEC(.out_if = "xraytun0", .target = MVT_JUMP, .jump_chain = "XRAY_EXCLUDE_TUN");
+    ipt_spec blk1 = IPT_SPEC(.owner = true, .uid_lo = 10123, .uid_hi = 10123, .target = MVT_DROP);
+    ipt_spec blk2 = IPT_SPEC(.owner = true, .uid_lo = 10124, .uid_hi = 10124, .target = MVT_DROP);
+    ipt_tx *t = ipt_tx_begin(family, "filter"); assert(t);
+    OK(ipt_new_chain(t, "XRAY_EXCLUDE_TUN"));
+    OK(ipt_insert(t, "OUTPUT", 1, &hook));
+    OK(ipt_append(t, "XRAY_EXCLUDE_TUN", &blk1));
+    OK(ipt_append(t, "XRAY_EXCLUDE_TUN", &blk2));
+    OK(ipt_tx_commit(t));
+    t = ipt_tx_begin(family, "filter"); assert(t);
+    assert(ipt_check(t, "OUTPUT", &hook) == 0);                          /* only -o xraytun0 traffic is diverted */
+    assert(ipt_check(t, "OUTPUT", &IPT_SPEC(.target = MVT_JUMP, .jump_chain = "XRAY_EXCLUDE_TUN")) == -ENOENT);
+    assert(ipt_check(t, "XRAY_EXCLUDE_TUN", &blk1) == 0 && ipt_check(t, "XRAY_EXCLUDE_TUN", &blk2) == 0);
+    OK(ipt_delete(t, "XRAY_EXCLUDE_TUN", &blk1));                        /* app no longer excluded */
+    assert(ipt_check(t, "XRAY_EXCLUDE_TUN", &blk1) == -ENOENT && ipt_check(t, "XRAY_EXCLUDE_TUN", &blk2) == 0);
+    OK(ipt_tx_commit(t));
+    t = ipt_tx_begin(family, "filter"); assert(t);                       /* clear_routing_rules order */
+    OK(ipt_delete(t, "OUTPUT", &hook));
+    OK(ipt_flush_chain(t, "XRAY_EXCLUDE_TUN")); OK(ipt_delete_chain(t, "XRAY_EXCLUDE_TUN"));
+    OK(ipt_tx_commit(t));
+    if (cur.size != osz || memcmp(cur.entries, orig, osz)) { printf("FAIL: tun-block teardown left residue\n"); exit(1); }
+    printf("  v%d: XRAY_EXCLUDE_TUN add/remove/teardown ok\n", v6 ? 6 : 4);
+    free(orig);
+}
+
 int main(void)
 {
     ipt_set_backend(&FK);
     puts("ipt engine tests");
     scenario(AF_INET, false);
     scenario(AF_INET6, true);
+    tun_block_scenario(AF_INET, false);
+    tun_block_scenario(AF_INET6, true);
     puts("PASS");
     return 0;
 }

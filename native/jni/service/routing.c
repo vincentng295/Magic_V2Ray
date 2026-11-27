@@ -70,6 +70,9 @@ static const uint32_t UID_EXCLUDE[] = { 1001, MV_XRAY_UID };
 #define HIDE_UID_LO 10000u
 /* what older builds used (>= 9999): removed too, so an upgrade without reboot leaves no stale REJECT */
 #define LEGACY_HIDE_UID_LO 9999u
+/* filter/OUTPUT -> XRAY_EXCLUDE_TUN (filled by exclude.c): excluded apps may not bind a socket to the tun */
+#define TUN_BLOCK_CHAIN "XRAY_EXCLUDE_TUN"
+#define TUN_BLOCK_HOOK  SPEC(.out_if = TUN_NAME, .target = MVT_JUMP, .jump_chain = TUN_BLOCK_CHAIN)
 static const char *MOBILE_IF[] = { "rmnet+", "ccmni+", "pdp+", "wwan+" };
 
 typedef struct {
@@ -364,6 +367,9 @@ int apply_routing_rules(void)
         g_allowed_uid = -1;                    /* the clear below / a fresh chain dropped any old rule */
         proxy_allow_locked(t, self_app_uid(1));
         pthread_mutex_unlock(&g_allow_mu);
+        NOP(ipt_new_chain(t, TUN_BLOCK_CHAIN));
+        while (ipt_delete(t, "OUTPUT", &TUN_BLOCK_HOOK) == 0) {}
+        NOP(ipt_insert(t, "OUTPUT", 1, &TUN_BLOCK_HOOK));
         commit(t, "v4 filter");
     }
     if (c.tether && (t = begin(AF_INET, "nat"))) {   /* force tethered DNS to 1.1.1.1 */
@@ -395,7 +401,13 @@ int apply_routing_rules(void)
             NOP(ipt_insert(t, "FORWARD", 1, &SPEC(.target = MVT_JUMP, .jump_chain = "HOTSPOT_FORWARD")));
             commit(t, "v6 mangle");
         }
-        if ((t = begin(AF_INET6, "filter"))) { forward_rules(t, true); commit(t, "v6 filter"); }
+        if ((t = begin(AF_INET6, "filter"))) {
+            forward_rules(t, true);
+            NOP(ipt_new_chain(t, TUN_BLOCK_CHAIN));
+            while (ipt_delete(t, "OUTPUT", &TUN_BLOCK_HOOK) == 0) {}
+            NOP(ipt_insert(t, "OUTPUT", 1, &TUN_BLOCK_HOOK));
+            commit(t, "v6 filter");
+        }
         for (int i = 0; i < c.n6; i++) RULE_TABLE(AF_INET6, 5025, RT_TABLE_MAIN, NULL, NULL, c.skip6[i], -1, 0, false, 0);
         if (c.tether) for (const char **p = LAN_V6; *p; p++) RULE_TABLE(AF_INET6, 5030, 100, NULL, *p, NULL, -1, 0, false, 0);
     } else {
@@ -493,6 +505,13 @@ static void drop_chain(ipt_tx *t, const char *hook, const char *chain)
     NOP(ipt_flush_chain(t, chain)); NOP(ipt_delete_chain(t, chain));
 }
 
+/* the jump carries `-o xraytun0`, so drop_chain()'s plain-jump spec would not find it */
+static void drop_tun_block(ipt_tx *t)
+{
+    while (ipt_delete(t, "OUTPUT", &TUN_BLOCK_HOOK) == 0) {}
+    NOP(ipt_flush_chain(t, TUN_BLOCK_CHAIN)); NOP(ipt_delete_chain(t, TUN_BLOCK_CHAIN));
+}
+
 void clear_routing_rules(void)
 {
     ipt_tx *t;
@@ -512,6 +531,7 @@ void clear_routing_rules(void)
         NOP(ipt_delete(t, "OUTPUT", &SPEC(.proto = IPPROTO_TCP, .dport_lo = TUN_PORT, .dst = TUN_ADDR, .owner = true, .uid_lo = LEGACY_HIDE_UID_LO, .uid_hi = 2147483647u, .target = MVT_REJECT, .reject_with = MVR_TCP_RESET)));
         NOP(ipt_delete(t, "OUTPUT", &SPEC(.proto = IPPROTO_TCP, .dport_lo = PLAIN_POOL_PORT, .dst = PLAIN_POOL_NET, .owner = true, .uid_lo = LEGACY_HIDE_UID_LO, .uid_hi = 2147483647u, .target = MVT_REJECT, .reject_with = MVR_TCP_RESET)));
         forward_rules(t, false);
+        drop_tun_block(t);
         commit(t, "v4 filter clear");
     }
     rule_del(AF_INET, 5000, false); rule_del(AF_INET, 5010, false); rule_del(AF_INET, 5020, false);
@@ -534,6 +554,7 @@ void clear_routing_rules(void)
     if ((t = ipt_tx_begin(AF_INET6, "filter"))) {
         forward_rules(t, false);
         drop_chain(t, "FORWARD", "HOTSPOT_FORWARD");
+        drop_tun_block(t);
         commit(t, "v6 filter clear");
     }
     ula_remove();

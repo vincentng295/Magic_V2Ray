@@ -14,6 +14,14 @@
 #include <unistd.h>
 
 #define CHAIN "XRAY_EXCLUDE_APP"
+/* filter/XRAY_EXCLUDE_TUN, hooked from filter/OUTPUT with `-o xraytun0`: one `-m owner --uid-owner <uid> -j DROP`
+ * per excluded uid. The mangle ACCEPT above only keeps an excluded app from being *marked* into the tun; a socket
+ * it binds to the tun itself (SO_BINDTODEVICE / `curl --interface xraytun0`, no CAP_NET_RAW needed on kernel >= 5.7)
+ * never consults the fwmark rule: the kernel treats the destination as on-link and sends straight into xraytun0,
+ * i.e. into the proxy, leaking the server exit IP to an app the user excluded. Nothing legitimate leaves xraytun0
+ * from an excluded uid, so refuse it. */
+#define TUN_CHAIN "XRAY_EXCLUDE_TUN"
+typedef struct { ipt_tx *m4, *m6, *f4, *f6; } xtx;   /* mangle + filter transactions, v4 and v6 */
 static worker_t g_mon;
 static pthread_mutex_t g_ex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -125,21 +133,22 @@ static bool held_by_other(const char *pkg, long uid)
     return r;
 }
 
-/* t4/t6 NULL => open, edit and commit our own transaction. */
-static void uid_rule(long uid, bool add, ipt_tx *t4, ipt_tx *t6)
+/* x NULL => open, edit and commit our own transactions. */
+static void uid_rule(long uid, bool add, xtx *x)
 {
-    ipt_spec s = IPT_SPEC(.owner = true, .uid_lo = uid, .uid_hi = uid, .target = MVT_ACCEPT);
+    ipt_spec acc = IPT_SPEC(.owner = true, .uid_lo = uid, .uid_hi = uid, .target = MVT_ACCEPT);
+    ipt_spec blk = IPT_SPEC(.owner = true, .uid_lo = uid, .uid_hi = uid, .target = MVT_DROP);
     for (int i = 0; i < 2; i++) {
-        ipt_tx *t = i ? t6 : t4;
-        bool own = !t;
-        if (own) t = ipt_tx_begin(i ? AF_INET6 : AF_INET, "mangle");
-        if (!t) continue;
-        if (add) ipt_append(t, CHAIN, &s); else ipt_delete(t, CHAIN, &s);
-        if (own) ipt_tx_commit(t);
+        int fam = i ? AF_INET6 : AF_INET;
+        ipt_tx *m = x ? (i ? x->m6 : x->m4) : ipt_tx_begin(fam, "mangle");
+        ipt_tx *f = x ? (i ? x->f6 : x->f4) : ipt_tx_begin(fam, "filter");
+        if (m) { if (add) ipt_append(m, CHAIN, &acc); else ipt_delete(m, CHAIN, &acc); }
+        if (f) { if (add) ipt_append(f, TUN_CHAIN, &blk); else ipt_delete(f, TUN_CHAIN, &blk); }
+        if (!x) { if (m) ipt_tx_commit(m); if (f) ipt_tx_commit(f); }
     }
 }
 
-static int app_add(const char *pkg, int tries, ipt_tx *t4, ipt_tx *t6)
+static int app_add(const char *pkg, int tries, xtx *x)
 {
     long uid = app_uid(pkg, tries);
     if (!valid_pkg(pkg) || uid < 0) return -1;
@@ -147,34 +156,34 @@ static int app_add(const char *pkg, int tries, ipt_tx *t4, ipt_tx *t6)
     if (old == uid) return 0;
     if (old >= 0) {                    /* came back under a different uid unnoticed */
         record_set(pkg, -1);
-        if (!held_by_other(pkg, old)) uid_rule(old, false, t4, t6);
+        if (!held_by_other(pkg, old)) uid_rule(old, false, x);
     }
     record_set(pkg, uid);
-    if (!held_by_other(pkg, uid)) uid_rule(uid, true, t4, t6);   /* shared uid already has its rule */
+    if (!held_by_other(pkg, uid)) uid_rule(uid, true, x);   /* shared uid already has its rule */
     log_msg("exclude apps: %s (uid %ld) excluded", pkg, uid);
     return 0;
 }
 
-static int app_remove(const char *pkg, ipt_tx *t4, ipt_tx *t6)
+static int app_remove(const char *pkg, xtx *x)
 {
     if (!valid_pkg(pkg)) return -1;
     long uid = record_get(pkg);
     if (uid < 0) return 0;
     record_set(pkg, -1);
-    if (!held_by_other(pkg, uid)) uid_rule(uid, false, t4, t6);
+    if (!held_by_other(pkg, uid)) uid_rule(uid, false, x);
     log_msg("exclude apps: %s (uid %ld) no longer excluded", pkg, uid);
     return 0;
 }
 
-static void reconcile(ipt_tx *t4, ipt_tx *t6)
+static void reconcile(xtx *x)
 {
     int n; char **v = read_list(&n, settings_is_true("excludeApps"));
     for (int i = 0; i < n; i++) {
         char p[300]; struct stat st;
         if (!valid_pkg(v[i])) continue;
         snprintf(p, sizeof p, APP_DATA_DIR "/%s", v[i]);
-        if (stat(p, &st) == 0 && S_ISDIR(st.st_mode)) app_add(v[i], 1, t4, t6);
-        else app_remove(v[i], t4, t6);
+        if (stat(p, &st) == 0 && S_ISDIR(st.st_mode)) app_add(v[i], 1, x);
+        else app_remove(v[i], x);
     }
     free_list(v, n);
 }
@@ -183,9 +192,9 @@ void ensure_exclude_app_chain(void)
 {
     for (int i = 0; i < 2; i++) {
         ipt_tx *t = ipt_tx_begin(i ? AF_INET6 : AF_INET, "mangle");
-        if (!t) continue;
-        ipt_new_chain(t, CHAIN);
-        ipt_tx_commit(t);
+        if (t) { ipt_new_chain(t, CHAIN); ipt_tx_commit(t); }
+        t = ipt_tx_begin(i ? AF_INET6 : AF_INET, "filter");
+        if (t) { ipt_new_chain(t, TUN_CHAIN); ipt_tx_commit(t); }
     }
 }
 
@@ -195,14 +204,16 @@ void sync_exclude_apps(void)
 {
     bool on = exclude_on();
     pthread_mutex_lock(&g_ex);
-    ipt_tx *t4 = ipt_tx_begin(AF_INET, "mangle"), *t6 = ipt_tx_begin(AF_INET6, "mangle");
-    ipt_tx *ts[2] = { t4, t6 };
-    for (int i = 0; i < 2; i++) if (ts[i]) { ipt_new_chain(ts[i], CHAIN); ipt_flush_chain(ts[i], CHAIN); }
+    xtx x = { ipt_tx_begin(AF_INET, "mangle"), ipt_tx_begin(AF_INET6, "mangle"),
+              ipt_tx_begin(AF_INET, "filter"),  ipt_tx_begin(AF_INET6, "filter") };
+    ipt_tx *ts[4] = { x.m4, x.m6, x.f4, x.f6 };
+    const char *cn[4] = { CHAIN, CHAIN, TUN_CHAIN, TUN_CHAIN };
+    for (int i = 0; i < 4; i++) if (ts[i]) { ipt_new_chain(ts[i], cn[i]); ipt_flush_chain(ts[i], cn[i]); }
     u_clear_dir(EXCLUDE_MAP_DIR);
     u_mkdir_p(EXCLUDE_MAP_DIR, 0700);
     if (!on) log_msg("exclude apps: disabled");
-    else reconcile(t4, t6);        /* a missing family (e.g. no ip6tables) is simply skipped */
-    for (int i = 0; i < 2; i++) if (ts[i]) ipt_tx_commit(ts[i]);
+    else reconcile(&x);            /* a missing family (e.g. no ip6tables) is simply skipped */
+    for (int i = 0; i < 4; i++) if (ts[i]) ipt_tx_commit(ts[i]);
     if (on) {
         int cnt = 0; DIR *d = opendir(EXCLUDE_MAP_DIR); struct dirent *e;
         if (d) { while ((e = readdir(d))) if (e->d_name[0] != '.') cnt++; closedir(d); }
@@ -220,7 +231,7 @@ static void monitor_main(int stop_fd)
         return;
     }
     if (worker_wait(stop_fd, 300)) { close(in); return; }
-    if (exclude_on()) { pthread_mutex_lock(&g_ex); reconcile(NULL, NULL); pthread_mutex_unlock(&g_ex); }  /* anything missed meanwhile */
+    if (exclude_on()) { pthread_mutex_lock(&g_ex); reconcile(NULL); pthread_mutex_unlock(&g_ex); }  /* anything missed meanwhile */
     proxy_allow_self(false);           /* the app's own uid may have changed (reinstall) while we were not watching */
     log_msg("apps monitor: watching %s", APP_DATA_DIR);
     for (;;) {
@@ -238,9 +249,9 @@ static void monitor_main(int stop_fd)
             pthread_mutex_lock(&g_ex);
             if (ev->mask & IN_CREATE) {
                 /* the exclusion rules only exist while Exclude apps is on (read_list always adds SELF_PKG) */
-                if (exclude_on() && list_has(ev->name) && app_add(ev->name, 15, NULL, NULL) < 0)
+                if (exclude_on() && list_has(ev->name) && app_add(ev->name, 15, NULL) < 0)
                     log_msg("apps monitor: could not read uid of %s", ev->name);
-            } else if (ev->mask & IN_DELETE) app_remove(ev->name, NULL, NULL);
+            } else if (ev->mask & IN_DELETE) app_remove(ev->name, NULL);
             pthread_mutex_unlock(&g_ex);
         }
     }
