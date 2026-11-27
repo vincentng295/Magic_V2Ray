@@ -115,7 +115,7 @@ Android 11+：请在调用方应用的 manifest 中添加 `<queries><package and
            "extras": ["uri", "name", "exclude", "overrides", "overridesUri", "assets"],
            "overrides": ["traffic", "network", "exclude", "routing", "hosts", "assets"],
            "provider": { "authority": "com.huskydg.magicv2ray.api", "methods": ["getInfo", "getState", "getNodes", "getActiveNode", "getNodeAccess"], "uris": ["..."] },
-           "features": ["connect", "disconnect", "overrides", "exclude", "info", "state_events", "state_provider", "nodes", "node_access_request", "connect_freedom", "connect_chain", "connect_nodeid", "overrides_unlimited", "overrides_uri", "custom_assets"] },
+           "features": ["connect", "disconnect", "overrides", "exclude", "info", "state_events", "state_provider", "nodes", "node_access_request", "connect_freedom", "connect_chain", "connect_nodeid", "overrides_unlimited", "overrides_uri", "custom_assets", "connect_policygroup"] },
   "state": { "connected": true, "known": true, "mode": "root",
              "session": { "active": true, "name": "My server", "caller": "com.example.app", "startedAt": 1731670000000 } } }
 ```
@@ -332,3 +332,38 @@ startActivity(i);                                         // or sendBroadcast(i)
 - 如果文件无法读取或未通过检查，则不会连接任何内容，并向用户说明原因。
 
 **检测方式：** `getInfo` -> `api.level >= 3`，或 `api.features` 中包含 `"custom_assets"`。
+
+---
+
+### 以策略组作为节点：`policygroup://`（API level 3）
+
+功能 `connect_policygroup`。连接请求的 `uri` 可以是**由请求自身定义的策略组**：Xray 用其负载均衡策略在多个节点之间分配所有流量。用法与 `chain://` 类似，但这些节点是互为备选，而不是依次串联的跳。
+
+```
+policygroup://localhost/?type=<策略>&members=<urlencode(节点 uri 的 JSON 数组)>
+```
+
+| 部分 | 含义 |
+|---|---|
+| `type` | `random`（默认）、`roundRobin`、`leastPing`、`leastLoad` |
+| `members` | 2 到 256 个节点 URI（`vless://`、`trojan://`、`ss://` 等）或 `nodeid://<id>` |
+
+- 成员不能是 `chain://`、`freedom://` 或另一个策略组。`nodeid://` 成员遵循与链相同的规则：只有经过验证且获准访问节点的应用才能使用；用户的真实节点会显示在对话框中，但绝不会返回给应用。
+- `leastPing` 和 `leastLoad` 会启用 Xray 的 observatory（探测 `https://www.google.com/generate_204`）；如果所有成员都被判定为不可用，则使用第一个成员作为后备。
+- 策略组仅在本次会话中存在，不会被保存，不会出现在用户的节点或策略组中，也不会与它们冲突。确认对话框会显示策略和节点数；未加密的 VLESS 或 Trojan 成员会触发常规警告。`overrides`、`exclude` 和 `assets` 的行为与其他节点相同。
+- “应用提供本地 SOCKS5”这一规则取指向本机的那个成员，因此调用方应用会自动被排除在 VPN 之外。
+
+```java
+JSONArray members = new JSONArray()
+    .put("vless://...@a.example.com:443?security=reality&...#A")
+    .put("trojan://...@b.example.com:443?security=tls#B")
+    .put("nodeid://3f9c2a");                      // the user's own node: needs node access (see Nodes)
+
+String uri = "policygroup://localhost/?type=leastPing&members=" + Uri.encode(members.toString());
+
+Intent i = new Intent("com.huskydg.magicv2ray.action.CONNECT").setPackage("com.huskydg.magicv2ray");
+i.putExtra("uri", uri);
+startActivity(i);
+```
+
+可通过 `getInfo` 读取：`api.connectUris` 列出该形式，`api.features` 包含 `connect_policygroup`。在 `activeNode` 中，策略组会连同其成员一起返回（对没有完整节点访问权限的应用则为匿名化形式）。

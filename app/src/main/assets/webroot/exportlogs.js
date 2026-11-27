@@ -323,6 +323,10 @@
         if (sess) {
             var sm = sess.meta || {};
             uris = sm.rawUri ? [sm.rawUri] : uris;
+            if (/^policygroup:\/\//i.test(sm.rawUri || '') && typeof _extParsePolicyGroup === 'function') {
+                var pg = _extParsePolicyGroup(sm.rawUri);
+                if (pg) uris = pg.members.slice(0, 30);
+            }
             title = 'Active node (external session' + (sm.callerLabel ? ' from ' + sm.callerLabel : '') + '): ' +
                     (sm.name || sess.state.name || '(unnamed)') +
                     (sm.nodeFromApp ? '' : '  [the user\'s own node, only settings were overridden]');

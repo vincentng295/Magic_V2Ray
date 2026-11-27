@@ -136,4 +136,5 @@
     <string name="ext_ov_assets">自定义 geo 数据库</string>
     <string name="ext_prompt_warn_assets">此应用自带 geo 数据库（.dat）。连接期间它们会替换您的数据库，用于所有 geoip: / geosite: / ext: 规则，因此决定哪些流量直连、走代理或被拦截。它们不会被保存，断开连接后即删除。</string>
     <string name="ext_err_files">无法读取请求中的文件：%1$s</string>
+    <string name="ext_prompt_policygroup">策略组 · %1$s · %2$d 个节点</string>
 </resources>

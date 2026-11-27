@@ -136,4 +136,5 @@
     <string name="ext_ov_assets">Свои гео-базы</string>
     <string name="ext_prompt_warn_assets">Это приложение приносит собственные гео-базы (.dat). Пока оно подключено, они заменяют ваши для всех правил geoip: / geosite: / ext:, то есть решают, какой трафик идёт напрямую, через прокси или блокируется. Они нигде не сохраняются и удаляются при отключении.</string>
     <string name="ext_err_files">Не удалось прочитать файлы запроса: %1$s</string>
+    <string name="ext_prompt_policygroup">Группа политик · %1$s · узлов: %2$d</string>
 </resources>

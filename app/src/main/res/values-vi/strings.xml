@@ -146,4 +146,5 @@
     <string name="ext_ov_assets">Cơ sở dữ liệu geo tùy chỉnh</string>
     <string name="ext_prompt_warn_assets">Ứng dụng này mang theo cơ sở dữ liệu geo (.dat) riêng. Khi đang kết nối, chúng thay thế của bạn cho mọi quy tắc geoip: / geosite: / ext:, nên quyết định lưu lượng nào đi thẳng, qua proxy hay bị chặn. Chúng không bao giờ được lưu và bị xóa khi ngắt kết nối.</string>
     <string name="ext_err_files">Không đọc được các tệp của yêu cầu: %1$s</string>
+    <string name="ext_prompt_policygroup">Nhóm chính sách · %1$s · %2$d node</string>
 </resources>

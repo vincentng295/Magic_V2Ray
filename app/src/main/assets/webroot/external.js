@@ -12,6 +12,8 @@
 // may be (API level 2):
 //   freedom://localhost                            the built-in "no proxy" node (xray as a pure router)
 //   chain://localhost/?hopList=<urlencode(JSON array of node uris)>     a proxy chain of 2..16 hops, entry hop first
+//   policygroup://localhost/?type=<random|roundRobin|leastPing|leastLoad>&members=<urlencode(JSON array of node uris)>
+//                                                  2..256 nodes that xray load-balances with the strategy (API level 3)
 //   nodeid://<id>                                  one of the user's own nodes, alone or as a hop; only for a verified app that
 //                                                  was allowed to read nodes (ExternalNodes / ExternalNodeAccessActivity)
 //
@@ -169,6 +171,29 @@ function _extFindNodeById(id) {
     return null;
 }
 
+// ---- policygroup:// (API level 3): a group defined by the connect uri itself, used for this session only -------------
+const EXT_PG_ID = 'mvext';                 // id of the session's group (xray tags pg-mvext-N / pgb-mvext)
+const EXT_PG_MIN = 2, EXT_PG_MAX = 256;
+
+// -> { type, members } | null
+function _extParsePolicyGroup(uri) {
+    try {
+        const q = new URL(String(uri).trim().replace(/^policygroup:\/\//i, 'https://')).searchParams;
+        const type = q.get('type') || 'random';
+        if (!POLICY_GROUP_TYPES.includes(type)) return null;
+        const arr = JSON.parse(q.get('members') || 'null');
+        if (!Array.isArray(arr) || arr.length < EXT_PG_MIN || arr.length > EXT_PG_MAX) return null;
+        if (!arr.every(x => typeof x === 'string')) return null;
+        return { type, members: arr.map(x => x.trim()) };
+    } catch (e) {
+        return null;
+    }
+}
+
+function _extBuildPolicyGroupUri(type, uris) {
+    return 'policygroup://localhost/?type=' + encodeURIComponent(type) + '&members=' + encodeURIComponent(JSON.stringify(uris));
+}
+
 // What the request's `uri` stands for -> { ok:true, rawUri, node, entry, text } | { ok:false, error }.
 //   node  = shown node (the exit hop of a chain), entry = node the device dials first (null: nothing to dial, freedom://)
 //   text  = one line for the dialog
@@ -206,6 +231,25 @@ function _extResolveUri(req) {
         return {
             ok: true, rawUri: buildChainUri(nodes.map(n => n.rawUri)), node: nodes[nodes.length - 1], entry: nodes[0],
             text: t('ext_node_chain', { n: nodes.length, protos: nodes.map(n => String(n.protocol).toUpperCase()).join(' → ') })
+        };
+    }
+    if (/^policygroup:\/\//i.test(uri)) {
+        const g = _extParsePolicyGroup(uri);
+        if (!g) return bad;
+        const nodes = [];
+        for (const m of g.members) {
+            if (/^(chain|freedom|policygroup|pgroup):\/\//i.test(m)) return bad;
+            const r = one(m, true);
+            if (r.error) return { ok: false, error: r.error };
+            nodes.push(r.node);
+        }
+        const uris = nodes.map(n => n.rawUri);
+        // the member that points at this device (if any) is the one the calling app must stay out of the VPN for
+        const entry = nodes.find(n => _extIsLocalTarget(n.address)) || nodes[0];
+        return {
+            ok: true, rawUri: 'pgroup://' + EXT_PG_ID, node: nodes[0], entry,
+            group: { id: EXT_PG_ID, type: g.type, uris }, logUri: _extBuildPolicyGroupUri(g.type, uris),
+            text: t('ext_node_policygroup', { type: g.type, n: nodes.length })
         };
     }
     const r = one(uri, false);
@@ -435,6 +479,7 @@ async function _extHandleConnect(req) {
     try {
         await _extHandleConnectInner(req);
     } finally {
+        window._extGroup = null;       // the session's policygroup:// is not kept: the config it produced is what runs
         // Denied, refused or done: whatever of the request's custom .dat files is still staged is deleted (no-op once installed).
         if (req && req.stageId && window.ksu && typeof window.ksu.extDiscardStage === 'function') window.ksu.extDiscardStage(String(req.stageId));
     }
@@ -455,14 +500,16 @@ async function _extHandleConnectInner(req) {
     const rawUri = resolved ? resolved.rawUri : _extBaseRawUri();
 
     // Built with the overrides applied, so a config that cannot be generated is refused before anything changes.
+    window._extGroup = resolved && resolved.group ? resolved.group : null;
     const built = await _extWithOverlay(ov, () => _extBuildConfig(rawUri));
     if (!built.ok) { _extMsg(req, t('toast_config_invalid', { reason: built.error }), 'error'); return; }
 
     const name = _extDisplayName(req, node);
     const excludes = _extExcludes(req, entry);
     const warnings = [];
-    if (hasUri && isPlainVlessUri(rawUri)) warnings.push(t('warn_plain_vless', { name }));
-    if (hasUri && isPlainTrojanUri(rawUri)) warnings.push(t('warn_plain_trojan', { name }));
+    const plainOf = fn => resolved && resolved.group ? resolved.group.uris.some(fn) : fn(rawUri);
+    if (hasUri && plainOf(isPlainVlessUri)) warnings.push(t('warn_plain_vless', { name }));
+    if (hasUri && plainOf(isPlainTrojanUri)) warnings.push(t('warn_plain_trojan', { name }));
     if (entry && _extIsLocalTarget(entry.address) && !excludes.length) warnings.push(t('ext_warn_loop'));
     // A trusted app (its own explicit intent, verified) is not asked again while it sends the same overrides it was allowed
     // with (req.trusted); trusted but with different overrides (req.ovChanged) it is asked, with a message that says so.
@@ -482,7 +529,7 @@ async function _extHandleConnectInner(req) {
         if (!r.ok) return;
         trust = r.trust;
     }
-    if (!await _extStart(req, ov, name, excludes, built.text, { rawUri, nodeFromApp: hasUri })) return;
+    if (!await _extStart(req, ov, name, excludes, built.text, { rawUri: (resolved && resolved.logUri) || rawUri, nodeFromApp: hasUri })) return;
 
     if (trust && req.trustable && req.caller) window.ksu.trustAdd(req.caller);
     _markStatusPending();

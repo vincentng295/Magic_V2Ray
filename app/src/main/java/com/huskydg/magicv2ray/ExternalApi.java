@@ -145,10 +145,11 @@ final class ExternalApi {
                         .put("requestAction", ExternalNodes.ACTION_REQUEST_ACCESS)
                         .put("levels", arr(ExternalNodes.LEVEL_ANONYMOUS, ExternalNodes.LEVEL_FULL)))
                 .put("connectUris", arr(ExternalNodes.FREEDOM_URI, ExternalNodes.CHAIN_PREFIX + "<urlencode(JSON array)>",
+                        ExternalNodes.POLICY_PREFIX.replace("?type=", "?type=<strategy>&members=<urlencode(JSON array)>"),
                         ExternalNodes.NODEID_PREFIX + "<id>"))
                 .put("features", arr("connect", "disconnect", "overrides", "exclude", "info", "state_events", "state_provider",
                         "nodes", "node_access_request", "connect_freedom", "connect_chain", "connect_nodeid",
-                        "overrides_unlimited", "overrides_uri", "custom_assets"));
+                        "overrides_unlimited", "overrides_uri", "custom_assets", "connect_policygroup"));
     }
 
     /**

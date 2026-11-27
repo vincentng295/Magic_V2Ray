@@ -57,6 +57,14 @@ final class ExternalNodes {
     static final String FREEDOM_URI = "freedom://localhost";
     static final String CHAIN_PREFIX = "chain://localhost/?hopList=";
 
+    /** {@code policygroup://localhost/?type=<strategy>&members=<urlencode(JSON array of node uris)>} (API level 3). */
+    static final String POLICY_PREFIX = "policygroup://localhost/?type=";
+    static final int POLICY_MIN_MEMBERS = 2;
+    static final int POLICY_MAX_MEMBERS = 256;
+    static final int MAX_POLICY_URI = 1024 * 1024;
+    /** Xray balancer strategies, the same four as a saved policy group. */
+    static final String[] POLICY_TYPES = {"random", "roundRobin", "leastPing", "leastLoad"};
+
     static final int CHAIN_MIN_HOPS = 2;
     static final int CHAIN_MAX_HOPS = 16;
     static final int MAX_URI = 8192;
@@ -101,6 +109,56 @@ final class ExternalNodes {
 
     static boolean isFreedom(String uri) {
         return uri != null && uri.regionMatches(true, 0, "freedom://", 0, 10);
+    }
+
+    static boolean isPolicyGroup(String uri) {
+        return uri != null && uri.regionMatches(true, 0, "policygroup://", 0, 14);
+    }
+
+    /** The strategy of a policygroup:// uri ("random" when absent), or null when it is not one of {@link #POLICY_TYPES}. */
+    static String policyGroupType(String uri) {
+        if (!isPolicyGroup(uri)) return null;
+        try {
+            String t = Uri.parse(uri.trim()).getQueryParameter("type");
+            if (t == null || t.isEmpty()) return "random";
+            for (String k : POLICY_TYPES) if (k.equals(t)) return k;
+        } catch (RuntimeException ignored) {
+        }
+        return null;
+    }
+
+    /**
+     * The members of a {@code policygroup://} uri, or null when it is not valid: a known {@code type}, 2 to 256 members,
+     * each a node uri or a {@code nodeid://}, never a chain, a freedom node or another group. Xray picks among the members
+     * with the strategy; every member is a complete outbound of its own.
+     */
+    static List<String> policyGroupMembers(String uri) {
+        if (!isPolicyGroup(uri) || uri.length() > MAX_POLICY_URI || policyGroupType(uri) == null) return null;
+        try {
+            String list = Uri.parse(uri.trim()).getQueryParameter("members");
+            if (list == null) return null;
+            JSONArray arr = new JSONArray(list);
+            if (arr.length() < POLICY_MIN_MEMBERS || arr.length() > POLICY_MAX_MEMBERS) return null;
+            List<String> out = new ArrayList<>();
+            for (int i = 0; i < arr.length(); i++) {
+                Object v = arr.get(i);
+                if (!(v instanceof String)) return null;
+                String m = ((String) v).trim();
+                if (m.length() > MAX_URI || !HOP_RE.matcher(m).matches()) return null;
+                if (isChain(m) || isFreedom(m) || isPolicyGroup(m) || m.regionMatches(true, 0, "pgroup://", 0, 9)) return null;
+                if (isNodeId(m) && !validNodeIdUri(m)) return null;
+                out.add(m);
+            }
+            return out;
+        } catch (JSONException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    static String buildPolicyGroup(String type, List<String> members) {
+        JSONArray a = new JSONArray();
+        for (String m : members) a.put(m);
+        return POLICY_PREFIX + Uri.encode(type) + "&members=" + Uri.encode(a.toString());
     }
 
     static String idOf(String nodeIdUri) {
@@ -158,6 +216,11 @@ final class ExternalNodes {
 
     static boolean hasNodeRefs(String uri) {
         if (isNodeId(uri)) return true;
+        if (isPolicyGroup(uri)) {
+            List<String> ms = policyGroupMembers(uri);
+            if (ms != null) for (String m : ms) if (isNodeId(m)) return true;
+            return false;
+        }
         List<String> hops = chainHops(uri);
         if (hops == null) return false;
         for (String h : hops) if (isNodeId(h)) return true;
@@ -168,6 +231,7 @@ final class ExternalNodes {
     static boolean validConnectUri(String uri) {
         if (uri == null) return false;
         if (isChain(uri)) return uri.length() <= MAX_CHAIN_URI && chainHops(uri) != null;
+        if (isPolicyGroup(uri)) return policyGroupMembers(uri) != null;
         if (isNodeId(uri)) return validNodeIdUri(uri);
         return uri.length() <= MAX_URI && uri.matches("^[A-Za-z][A-Za-z0-9+.-]*://\\S+$");
     }
@@ -185,6 +249,20 @@ final class ExternalNodes {
         if (isNodeId(uri)) {
             JSONObject n = byId.get(idOf(uri));
             return n == null ? null : n.optString("rawUri");
+        }
+        if (isPolicyGroup(uri)) {
+            List<String> ms = policyGroupMembers(uri);
+            if (ms == null) return null;
+            List<String> res = new ArrayList<>();
+            for (String m : ms) {
+                if (!isNodeId(m)) { res.add(m); continue; }
+                JSONObject n = byId.get(idOf(m));
+                if (n == null) return null;
+                String raw = n.optString("rawUri");
+                if (isChain(raw) || isFreedom(raw) || raw.regionMatches(true, 0, "pgroup://", 0, 9)) return null;
+                res.add(raw);
+            }
+            return buildPolicyGroup(policyGroupType(uri), res);
         }
         List<String> hops = chainHops(uri);
         if (hops == null) return null;
@@ -207,7 +285,11 @@ final class ExternalNodes {
     static String entryHost(String uri) {
         if (uri == null || isFreedom(uri)) return "";
         String target = uri;
-        if (isChain(uri)) {
+        if (isPolicyGroup(uri)) {
+            List<String> ms = policyGroupMembers(uri);
+            if (ms == null || ms.isEmpty()) return "";
+            target = ms.get(0);
+        } else if (isChain(uri)) {
             List<String> hops = chainHops(uri);
             if (hops == null || hops.isEmpty()) return "";
             target = hops.get(0);
@@ -421,6 +503,13 @@ final class ExternalNodes {
         if (isFreedom(raw)) return FREEDOM_URI;
         if (all != null) {
             for (JSONObject n : all) if (raw.equals(n.optString("rawUri"))) return NODEID_PREFIX + n.optString("id");
+        }
+        if (isPolicyGroup(raw)) {
+            List<String> ms = policyGroupMembers(raw);
+            if (ms == null) return "policygroup://hidden";
+            List<String> out = new ArrayList<>();
+            for (String m : ms) out.add(anonymize(m, all));
+            return buildPolicyGroup(policyGroupType(raw), out);
         }
         if (isChain(raw)) {
             List<String> hops = chainHops(raw);

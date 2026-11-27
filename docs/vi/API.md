@@ -115,7 +115,7 @@ Android 11+: thêm `<queries><package android:name="com.huskydg.magicv2ray"/></q
            "extras": ["uri", "name", "exclude", "overrides", "overridesUri", "assets"],
            "overrides": ["traffic", "network", "exclude", "routing", "hosts", "assets"],
            "provider": { "authority": "com.huskydg.magicv2ray.api", "methods": ["getInfo", "getState", "getNodes", "getActiveNode", "getNodeAccess"], "uris": ["..."] },
-           "features": ["connect", "disconnect", "overrides", "exclude", "info", "state_events", "state_provider", "nodes", "node_access_request", "connect_freedom", "connect_chain", "connect_nodeid", "overrides_unlimited", "overrides_uri", "custom_assets"] },
+           "features": ["connect", "disconnect", "overrides", "exclude", "info", "state_events", "state_provider", "nodes", "node_access_request", "connect_freedom", "connect_chain", "connect_nodeid", "overrides_unlimited", "overrides_uri", "custom_assets", "connect_policygroup"] },
   "state": { "connected": true, "known": true, "mode": "root",
              "session": { "active": true, "name": "My server", "caller": "com.example.app", "startedAt": 1731670000000 } } }
 ```
@@ -332,3 +332,38 @@ startActivity(i);                                         // or sendBroadcast(i)
 - Nếu không đọc được tệp hoặc tệp không qua kiểm tra, sẽ không kết nối gì và người dùng được báo lý do.
 
 **Kiểm tra:** `getInfo` -> `api.level >= 3`, hoặc `"custom_assets"` trong `api.features`.
+
+---
+
+### Nhóm chính sách làm node: `policygroup://` (API level 3)
+
+Tính năng `connect_policygroup`. `uri` của lệnh connect có thể là **nhóm chính sách do chính request định nghĩa**: Xray cân bằng toàn bộ lưu lượng giữa nhiều node bằng một chiến lược balancer. Hoạt động giống `chain://`, nhưng các node là lựa chọn thay thế chứ không phải các hop nối tiếp.
+
+```
+policygroup://localhost/?type=<chiến lược>&members=<urlencode(mảng JSON các node uri)>
+```
+
+| Thành phần | Ý nghĩa |
+|---|---|
+| `type` | `random` (mặc định), `roundRobin`, `leastPing`, `leastLoad` |
+| `members` | 2 đến 256 node URI (`vless://`, `trojan://`, `ss://`, ...) hoặc `nodeid://<id>` |
+
+- Thành viên không được là `chain://`, `freedom://` hay nhóm khác. Thành viên `nodeid://` theo cùng quy tắc như trong chain: chỉ ứng dụng đã xác minh và được cấp quyền truy cập node mới dùng được; node thật của người dùng hiện trong hộp thoại nhưng không bao giờ trả về cho ứng dụng.
+- `leastPing` và `leastLoad` bật observatory của Xray (thăm dò `https://www.google.com/generate_204`); nếu mọi thành viên đều bị coi là chết thì dùng thành viên đầu tiên làm dự phòng.
+- Nhóm chỉ tồn tại trong phiên này. Không được lưu, không xuất hiện trong node hay nhóm của người dùng và không thể đụng với chúng. Hộp thoại xác nhận hiện chiến lược và số node; thành viên VLESS hoặc Trojan không mã hóa sẽ kích hoạt cảnh báo thông thường. `overrides`, `exclude` và `assets` hoạt động như với mọi node khác.
+- Mục "ứng dụng phục vụ SOCKS5 cục bộ" lấy thành viên trỏ về chính thiết bị này, nên ứng dụng gọi tự động bị loại khỏi VPN.
+
+```java
+JSONArray members = new JSONArray()
+    .put("vless://...@a.example.com:443?security=reality&...#A")
+    .put("trojan://...@b.example.com:443?security=tls#B")
+    .put("nodeid://3f9c2a");                      // the user's own node: needs node access (see Nodes)
+
+String uri = "policygroup://localhost/?type=leastPing&members=" + Uri.encode(members.toString());
+
+Intent i = new Intent("com.huskydg.magicv2ray.action.CONNECT").setPackage("com.huskydg.magicv2ray");
+i.putExtra("uri", uri);
+startActivity(i);
+```
+
+Đọc lại bằng `getInfo`: `api.connectUris` liệt kê dạng này, `api.features` có `connect_policygroup`. Trong `activeNode`, nhóm được báo kèm các thành viên (ẩn danh với ứng dụng không có quyền xem đầy đủ node).

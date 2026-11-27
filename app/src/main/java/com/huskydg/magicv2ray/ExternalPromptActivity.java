@@ -252,6 +252,11 @@ public class ExternalPromptActivity extends Activity {
         if (uri == null) return false;
         uri = uri.trim();
         try {
+            if (uri.regionMatches(true, 0, "policygroup://", 0, 14)) {
+                java.util.List<String> ms = ExternalNodes.policyGroupMembers(uri);
+                if (ms != null) for (String m : ms) if (isPlain(m, scheme)) return true;
+                return false;
+            }
             if (uri.regionMatches(true, 0, "chain://", 0, 8)) {
                 Uri u = Uri.parse(uri);
                 String hopList = u.getQueryParameter("hopList");
@@ -290,6 +295,10 @@ public class ExternalPromptActivity extends Activity {
     /** The line under the app name: the server, "direct" for freedom://, or the protocols of a chain. */
     private String serverLine(String effUri) {
         if (ExternalNodes.isFreedom(effUri)) return getString(R.string.ext_prompt_direct);
+        if (ExternalNodes.isPolicyGroup(effUri)) {
+            java.util.List<String> ms = ExternalNodes.policyGroupMembers(effUri);
+            return getString(R.string.ext_prompt_policygroup, ExternalNodes.policyGroupType(effUri), ms == null ? 0 : ms.size());
+        }
         if (ExternalNodes.isChain(effUri)) {
             java.util.List<String> hops = ExternalNodes.chainHops(effUri);
             if (hops == null) return "chain";

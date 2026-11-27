@@ -115,7 +115,7 @@ Android 11+: добавьте `<queries><package android:name="com.huskydg.magic
            "extras": ["uri", "name", "exclude", "overrides", "overridesUri", "assets"],
            "overrides": ["traffic", "network", "exclude", "routing", "hosts", "assets"],
            "provider": { "authority": "com.huskydg.magicv2ray.api", "methods": ["getInfo", "getState", "getNodes", "getActiveNode", "getNodeAccess"], "uris": ["..."] },
-           "features": ["connect", "disconnect", "overrides", "exclude", "info", "state_events", "state_provider", "nodes", "node_access_request", "connect_freedom", "connect_chain", "connect_nodeid", "overrides_unlimited", "overrides_uri", "custom_assets"] },
+           "features": ["connect", "disconnect", "overrides", "exclude", "info", "state_events", "state_provider", "nodes", "node_access_request", "connect_freedom", "connect_chain", "connect_nodeid", "overrides_unlimited", "overrides_uri", "custom_assets", "connect_policygroup"] },
   "state": { "connected": true, "known": true, "mode": "root",
              "session": { "active": true, "name": "My server", "caller": "com.example.app", "startedAt": 1731670000000 } } }
 ```
@@ -332,3 +332,38 @@ startActivity(i);                                         // or sendBroadcast(i)
 - Если файл не читается или не проходит проверку, ничего не подключается, а пользователь видит причину.
 
 **Проверка:** `getInfo` -> `api.level >= 3` или `"custom_assets"` в `api.features`.
+
+---
+
+### Группа политик как узел: `policygroup://` (API level 3)
+
+Возможность `connect_policygroup`. `uri` подключения может быть **группой политик, заданной самим запросом**: Xray распределяет весь трафик между несколькими узлами одной из своих стратегий балансировщика. Работает как `chain://`, но узлы здесь — альтернативы, а не последовательные звенья.
+
+```
+policygroup://localhost/?type=<стратегия>&members=<urlencode(JSON-массив uri узлов)>
+```
+
+| Часть | Значение |
+|---|---|
+| `type` | `random` (по умолчанию), `roundRobin`, `leastPing`, `leastLoad` |
+| `members` | от 2 до 256 URI узлов (`vless://`, `trojan://`, `ss://`, ...) или `nodeid://<id>` |
+
+- Участниками не могут быть `chain://`, `freedom://` и другая группа. Участники `nodeid://` подчиняются тому же правилу, что и в цепочке: их может использовать только проверенное приложение с доступом к узлам; настоящий узел пользователя виден в диалоге, но приложению не возвращается.
+- `leastPing` и `leastLoad` включают observatory Xray (проверки `https://www.google.com/generate_204`); если все участники считаются недоступными, запасным служит первый.
+- Группа существует только в этой сессии. Она не сохраняется, не появляется среди узлов и групп пользователя и не может с ними конфликтовать. Диалог подтверждения показывает стратегию и число узлов; участники VLESS или Trojan без шифрования вызывают обычное предупреждение. `overrides`, `exclude` и `assets` работают как с любым другим узлом.
+- Для правила «приложение обслуживает локальный SOCKS5» берётся участник, указывающий на это устройство, поэтому вызывающее приложение автоматически исключается из VPN.
+
+```java
+JSONArray members = new JSONArray()
+    .put("vless://...@a.example.com:443?security=reality&...#A")
+    .put("trojan://...@b.example.com:443?security=tls#B")
+    .put("nodeid://3f9c2a");                      // the user's own node: needs node access (see Nodes)
+
+String uri = "policygroup://localhost/?type=leastPing&members=" + Uri.encode(members.toString());
+
+Intent i = new Intent("com.huskydg.magicv2ray.action.CONNECT").setPackage("com.huskydg.magicv2ray");
+i.putExtra("uri", uri);
+startActivity(i);
+```
+
+Проверка через `getInfo`: `api.connectUris` содержит эту форму, `api.features` — `connect_policygroup`. В `activeNode` группа возвращается со своими участниками (обезличенными для приложений без полного доступа к узлам).

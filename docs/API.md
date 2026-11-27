@@ -115,7 +115,7 @@ Android 11+: add `<queries><package android:name="com.huskydg.magicv2ray"/></que
            "extras": ["uri", "name", "exclude", "overrides", "overridesUri", "assets"],
            "overrides": ["traffic", "network", "exclude", "routing", "hosts", "assets"],
            "provider": { "authority": "com.huskydg.magicv2ray.api", "methods": ["getInfo", "getState", "getNodes", "getActiveNode", "getNodeAccess"], "uris": ["..."] },
-           "features": ["connect", "disconnect", "overrides", "exclude", "info", "state_events", "state_provider", "nodes", "node_access_request", "connect_freedom", "connect_chain", "connect_nodeid", "overrides_unlimited", "overrides_uri", "custom_assets"] },
+           "features": ["connect", "disconnect", "overrides", "exclude", "info", "state_events", "state_provider", "nodes", "node_access_request", "connect_freedom", "connect_chain", "connect_nodeid", "overrides_unlimited", "overrides_uri", "custom_assets", "connect_policygroup"] },
   "state": { "connected": true, "known": true, "mode": "root",
              "session": { "active": true, "name": "My server", "caller": "com.example.app", "startedAt": 1731670000000 } } }
 ```
@@ -316,3 +316,38 @@ startActivity(i);                                         // or sendBroadcast(i)
 - If a file cannot be read or fails the check, nothing is connected and the user sees why.
 
 **Test for it:** `getInfo` -> `api.level >= 3`, or `"custom_assets"` in `api.features`.
+
+---
+
+### Policy group as the node: `policygroup://` (API level 3)
+
+Feature `connect_policygroup`. The `uri` of a connect can be a **policy group defined by the request itself**: Xray load-balances all traffic between several nodes with one of its balancer strategies. It works like `chain://`, but the nodes are alternatives instead of hops.
+
+```
+policygroup://localhost/?type=<strategy>&members=<urlencode(JSON array of node uris)>
+```
+
+| Part | Meaning |
+|---|---|
+| `type` | `random` (default), `roundRobin`, `leastPing`, `leastLoad` |
+| `members` | 2 to 256 node URIs (`vless://`, `trojan://`, `ss://`, ...) or `nodeid://<id>` |
+
+- Members cannot be a `chain://`, `freedom://` or another group. `nodeid://` members follow the same rule as in a chain: only a verified app that was granted node access may use them; the user's real node is shown in the dialog but never returned to the app.
+- `leastPing` and `leastLoad` start Xray's observatory (probes of `https://www.google.com/generate_204`); if every member is observed dead the first member is used as fallback.
+- The group exists for this session only. It is never saved, does not show up in the user's nodes or groups, and cannot clash with them. The confirmation dialog shows the strategy and the number of nodes; plain (unencrypted) VLESS or Trojan members trigger the usual warning. Overrides, `exclude` and `assets` work the same as with any other node.
+- The entry for the "app serves a local SOCKS5" rule is the member that points at this device, so the calling app is excluded from the VPN automatically.
+
+```java
+JSONArray members = new JSONArray()
+    .put("vless://...@a.example.com:443?security=reality&...#A")
+    .put("trojan://...@b.example.com:443?security=tls#B")
+    .put("nodeid://3f9c2a");                      // the user's own node: needs node access (see Nodes)
+
+String uri = "policygroup://localhost/?type=leastPing&members=" + Uri.encode(members.toString());
+
+Intent i = new Intent("com.huskydg.magicv2ray.action.CONNECT").setPackage("com.huskydg.magicv2ray");
+i.putExtra("uri", uri);
+startActivity(i);
+```
+
+Read back with `getInfo`: `api.connectUris` lists the form, `api.features` contains `connect_policygroup`. In `activeNode` a group is reported with its members (anonymised for apps without full node access).

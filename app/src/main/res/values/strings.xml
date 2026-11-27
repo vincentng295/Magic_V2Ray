@@ -146,4 +146,5 @@
     <string name="ext_ov_assets">Custom geo databases</string>
     <string name="ext_prompt_warn_assets">This app brings its own geo databases (.dat). While it is connected they replace yours for every geoip: / geosite: / ext: rule, so they decide which traffic goes direct, through the proxy or is blocked. They are never saved and are deleted when it disconnects.</string>
     <string name="ext_err_files">Could not read the files of the request: %1$s</string>
+    <string name="ext_prompt_policygroup">Policy group · %1$s · %2$d nodes</string>
 </resources>

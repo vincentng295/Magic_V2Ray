@@ -1770,12 +1770,20 @@ function _resolveXrayConfig(rawUri) {
     // points every "proxy" rule at the group's balancer.
     if (rawUri && rawUri.startsWith('pgroup://')) {
         const gid = rawUri.slice('pgroup://'.length);
-        const g = _findPolicyGroup(gid);
-        const members = g ? _policyGroupNodes(g) : [];
-        if (!members.length) throw new Error(t('toast_pg_empty'));
-        genSettings.policyGroupsResolved = _collectPolicyGroupsResolved(gid);
-        genSettings.activeGroupId = gid;
-        rawUri = members[0].rawUri;
+        const eg = window._extGroup;       // a group an external session defined in its connect uri (never saved)
+        if (eg && eg.id === gid && Array.isArray(eg.uris) && eg.uris.length) {
+            genSettings.policyGroupsResolved = [{ id: eg.id, type: eg.type, uris: eg.uris }]
+                .concat(_collectPolicyGroupsResolved().filter(x => x.id !== eg.id));
+            genSettings.activeGroupId = gid;
+            rawUri = eg.uris[0];
+        } else {
+            const g = _findPolicyGroup(gid);
+            const members = g ? _policyGroupNodes(g) : [];
+            if (!members.length) throw new Error(t('toast_pg_empty'));
+            genSettings.policyGroupsResolved = _collectPolicyGroupsResolved(gid);
+            genSettings.activeGroupId = gid;
+            rawUri = members[0].rawUri;
+        }
     }
     if (rawUri && rawUri.startsWith('chain://')) {
         config_json = convert_chain_hops_to_xray_json(parseChainHops(rawUri), genSettings, MV_NONROOT);
