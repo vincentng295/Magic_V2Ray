@@ -278,6 +278,26 @@ final class KsuBridge {
         POOL.execute(() -> deliver(callback, ExternalSession.abandon(activity.getApplicationContext()) ? 0 : 1, "", ""));
     }
 
+    /**
+     * API level 3: puts the custom .dat files that came with the request (staged under {@code stageId}) into the session
+     * directory. Callback gets (0, "", "") or (1, "", reason).
+     */
+    @JavascriptInterface
+    public void extInstallAssets(final String stageId, final String callback) {
+        if (callback == null || !CB_RE.matcher(callback).matches()) return;
+        POOL.execute(() -> {
+            String err = ExternalSession.installAssets(activity.getApplicationContext(), stageId);
+            deliver(callback, err == null ? 0 : 1, "", err == null ? "" : err);
+        });
+    }
+
+    /** The request was denied, failed or is done: deletes whatever of it is still staged. No-op for an unknown id. */
+    @JavascriptInterface
+    public void extDiscardStage(final String stageId) {
+        if (stageId == null || stageId.isEmpty()) return;
+        POOL.execute(() -> ExternalSession.discardStage(activity.getApplicationContext(), stageId));
+    }
+
     /** Where an external session keeps its files (RAM under /dev in root mode, the cache dir otherwise). Never the data dir. */
     @JavascriptInterface
     public String overrideDir() {

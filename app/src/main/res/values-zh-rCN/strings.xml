@@ -133,4 +133,7 @@
     <string name="adb_tcp_port_invalid">端口必须在 1024 到 65535 之间。</string>
     <string name="adb_tcp_desc">让 adb 持续监听一个 TCP 端口（默认随机，也可自选 1024 到 65535 之间的任意端口），只要手机启动后连接过一次，热点辅助进程就能在没有 Wi-Fi 的情况下重新启动。该端口受已配对密钥保护，但手机加入的任何网络都可以访问到它。</string>
     <string name="adb_status_paired_desc_tcp">仅在手机开机后的第一次需要开启无线调试（并连接 Wi-Fi）。</string>
+    <string name="ext_ov_assets">自定义 geo 数据库</string>
+    <string name="ext_prompt_warn_assets">此应用自带 geo 数据库（.dat）。连接期间它们会替换您的数据库，用于所有 geoip: / geosite: / ext: 规则，因此决定哪些流量直连、走代理或被拦截。它们不会被保存，断开连接后即删除。</string>
+    <string name="ext_err_files">无法读取请求中的文件：%1$s</string>
 </resources>

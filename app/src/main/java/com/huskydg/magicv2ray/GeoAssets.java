@@ -68,10 +68,8 @@ final class GeoAssets {
                     out.write(b, 0, n);
                 }
             }
-            if (total < MIN_BYTES) return "file is empty or too small";
-            // geoip.dat / geosite.dat are protobuf lists: field 1, length-delimited => first byte 0x0A.
-            // An HTML error page, a zip or a text file fails this; a corrupt database would stop xray from starting.
-            if (first != 0x0A) return "not a geoip/geosite database (unexpected file header)";
+            String bad = validate(total, first);
+            if (bad != null) return bad;
             return place(c, stage, name);
         } catch (IOException e) {
             return "cannot read the file: " + e.getMessage();
@@ -79,6 +77,17 @@ final class GeoAssets {
             //noinspection ResultOfMethodCallIgnored
             stage.delete();
         }
+    }
+
+    /**
+     * Cheap sanity check shared with the external API ({@link ExternalAssets}): {@code total} bytes, first byte {@code first}.
+     * geoip.dat / geosite.dat are protobuf lists: field 1, length-delimited => first byte 0x0A. An HTML error page, a zip
+     * or a text file fails this; a corrupt database would stop xray from starting. Returns an error text or null.
+     */
+    static String validate(long total, int first) {
+        if (total < MIN_BYTES) return "file is empty or too small";
+        if (first != 0x0A) return "not a geoip/geosite database (unexpected file header)";
+        return null;
     }
 
     private static String place(Context c, File stage, String name) {

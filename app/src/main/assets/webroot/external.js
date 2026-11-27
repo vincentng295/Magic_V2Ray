@@ -15,8 +15,11 @@
 //   nodeid://<id>                                  one of the user's own nodes, alone or as a hop; only for a verified app that
 //                                                  was allowed to read nodes (ExternalNodes / ExternalNodeAccessActivity)
 //
-// overrides = { traffic: {...}, network: {...}, exclude: {...}, routing: {...}, hosts: {...} }, see
+// overrides = { traffic: {...}, network: {...}, exclude: {...}, routing: {...}, hosts: {...}, assets: [...] }, see
 // ExternalSession.sanitizeOverrides for the exact (whitelisted) keys. They are applied to a COPY of the user's settings.
+// API level 3: any number of routing rules and hosts; the overrides can come from a file (extra overridesUri); and
+// `assets` = [{name, size, sha256}] are custom .dat databases that native code already staged (ExternalAssets): they are
+// moved into OVERRIDE_DIR/assets when the session starts, where the engine reads them instead of the user's files.
 //
 // NOTHING OF A SESSION IS EVER SAVED. The native side only parks the request; this file asks the user and does the work.
 // The merged settings, the generated config, the exclude list, the bypass interfaces are written ONLY to OVERRIDE_DIR
@@ -347,7 +350,33 @@ writeFileB64 = function (path, content, callback) {
 };
 
 function _extOvSections(ov) {
-    return ['traffic', 'network', 'exclude', 'routing', 'hosts'].filter(k => ov && ov[k]);
+    return ['traffic', 'network', 'exclude', 'routing', 'hosts', 'assets'].filter(k => ov && ov[k] && (!Array.isArray(ov[k]) || ov[k].length));
+}
+
+// The native readers of settings.base64 (the root service, the VpnService) only look up flat scalars and refuse a file
+// above 4 MB, which would silently turn EVERY setting off. A big rule set already sits in the generated config, so the
+// session's copy of the settings drops the list when it is large and keeps a count instead.
+const EXT_SETTINGS_SLIM_AT = 1000000;
+function _extSettingsText(merged) {
+    let text = JSON.stringify(merged);
+    if (text.length > EXT_SETTINGS_SLIM_AT && Array.isArray(merged.routingRules)) {
+        const slim = Object.assign({}, merged, { routingRulesCount: merged.routingRules.length });
+        delete slim.routingRules;
+        text = JSON.stringify(slim);
+    }
+    return text;
+}
+
+// What session.json keeps of the overrides: the values when they are small, only counts for a big set.
+function _extOvForLog(ov) {
+    const full = JSON.stringify(ov);
+    if (full.length <= 65536) return ov;
+    return {
+        large: true,
+        routingRules: ov.routing && Array.isArray(ov.routing.rules) ? ov.routing.rules.length : 0,
+        hosts: ov.hosts && ov.hosts.entries ? Object.keys(ov.hosts.entries).length : 0,
+        assets: Array.isArray(ov.assets) ? ov.assets : []
+    };
 }
 
 // The user's settings with the overrides applied, as a new object. advSettings itself is not changed.
@@ -403,6 +432,15 @@ async function _extWithOverlay(ov, fn) {
 // ---------------------------------------------------------------------------
 
 async function _extHandleConnect(req) {
+    try {
+        await _extHandleConnectInner(req);
+    } finally {
+        // Denied, refused or done: whatever of the request's custom .dat files is still staged is deleted (no-op once installed).
+        if (req && req.stageId && window.ksu && typeof window.ksu.extDiscardStage === 'function') window.ksu.extDiscardStage(String(req.stageId));
+    }
+}
+
+async function _extHandleConnectInner(req) {
     const silent = req.approved === true;     // already confirmed in the native dialog over the calling app
     // Professional mode owns config.json: a session would overwrite the hand-written config.
     if (advSettings.proMode) { _extMsg(req, t('ext_err_promode'), 'error'); return; }
@@ -430,6 +468,9 @@ async function _extHandleConnect(req) {
     // with (req.trusted); trusted but with different overrides (req.ovChanged) it is asked, with a message that says so.
     if (_extOvSections(ov).length && req.trusted !== true) {
         warnings.push(t(req.ovChanged === true ? 'ext_warn_overrides_changed' : 'ext_warn_overrides', { sections: _extOvSections(ov).join(', ') }));
+    }
+    if (Array.isArray(ov.assets) && ov.assets.length && req.trusted !== true) {
+        warnings.push(t('ext_warn_assets', { files: ov.assets.map(a => `${a.name} (${a.sha256 ? String(a.sha256).slice(0, 12) : '?'})`).join(', ') }));
     }
 
     // No prompt when the native dialog already asked, or for an app the user trusts, when nothing in the request
@@ -510,17 +551,28 @@ async function _extStart(req, ov, name, excludes, configText, nodeInfo) {
         const prep = await _extExec(`umask 077; rm -rf ${dir}; mkdir -p ${dir} && chmod 700 ${dir}`);
         let ok = prep.errno === 0;
         ok = ok && await _extWrite(`${OVERRIDE_DIR}/config.v2.json`, configText);
-        ok = ok && await _extWrite(`${OVERRIDE_DIR}/settings.base64`, utoa(JSON.stringify(merged)));
+        ok = ok && await _extWrite(`${OVERRIDE_DIR}/settings.base64`, utoa(_extSettingsText(merged)));
         // Who asked and for which node: read back by "Export app logs" so the export describes the session, not the user's own
         // node / settings. Same tmpfs / cache dir as config.v2.json (which already holds the node), gone when the session ends.
         ok = ok && await _extWrite(`${OVERRIDE_DIR}/session.json`, JSON.stringify({
             rawUri: (nodeInfo && nodeInfo.rawUri) || '', nodeFromApp: !!(nodeInfo && nodeInfo.nodeFromApp),
             name, caller: req.caller || '', callerLabel: req.callerLabel || '', source: req.source || '',
-            sections, overrides: ov, exclude: excludes
+            sections, overrides: _extOvForLog(ov), exclude: excludes
         }));
         if (ok && excludes.length) ok = await _extWrite(`${OVERRIDE_DIR}/${EXT_SESSION_EXCLUDE_NAME}`, excludes.join('\n') + '\n');
         if (ok && exList !== null) ok = await _extWrite(`${OVERRIDE_DIR}/excludelist.txt`, exList);
         if (ok && bypass !== null) ok = await _extWrite(`${OVERRIDE_DIR}/bypassIface.txt`, bypass);
+        // API level 3: custom .dat databases that came with the request go into OVERRIDE_DIR/assets (root: tmpfs). They were
+        // checked and hashed when the request arrived and have been waiting in the app's private cache since.
+        if (ok && Array.isArray(ov.assets) && ov.assets.length) {
+            const ar = await _extCall('extInstallAssets', String(req.stageId || ''));
+            if (ar.code !== 0) {
+                await _extCleanFiles();
+                if (prev.active) await _extCall('extEnd');
+                _extMsg(req, t('ext_err_assets', { reason: ar.err || '' }), 'error');
+                return false;
+            }
+        }
         if (!ok) {
             await _extCleanFiles();
             if (prev.active) await _extCall('extEnd');

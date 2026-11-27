@@ -54,10 +54,15 @@ final class ExternalSession {
     static final String EXTRA_EXCLUDE = "exclude";
     /** Temporary setting overrides: JSON object (extra) or base64url / url-encoded JSON (deep link), see {@link #sanitizeOverrides}. */
     static final String EXTRA_OVERRIDES = "overrides";
+    /** API level 3: content:// uri of a file holding the overrides JSON (no size trouble with an intent). Needs a ClipData grant. */
+    static final String EXTRA_OVERRIDES_URI = "overridesUri";
+    /** API level 3: JSON array [{"name":"geoip.dat","uri":"content://..."}] of custom .dat databases. Needs a ClipData grant. */
+    static final String EXTRA_ASSETS = "assets";
 
     static final String BASE_FILE = "config.base.json";
     static final String SESSION_EXCLUDE_FILE = "excludelist.session.txt";
 
+    /** Inline overrides (extra / deep link). An intent cannot carry much more anyway; bigger sets go through overridesUri. */
     private static final int MAX_OVERRIDES = 256 * 1024;
     private static final String PREFS = "ext_session";
     private static final String TRUST_PREFS = "ext_trust";
@@ -76,6 +81,12 @@ final class ExternalSession {
      * written to disk. (A process that dies in between simply loses the request, which expires after 10 minutes anyway.)
      */
     private static String pendingJson = "";
+    // What take() needs from the parked request, kept next to it so a request with a huge rule set is not parsed a second time.
+    private static long pendingTs;
+    private static boolean pendingTrustable;
+    private static String pendingCaller = "";
+    private static String pendingOvHash = "";
+    private static String pendingStageId = "";
     private static final Object LOCK = new Object();
     /** Caller of the request the WebUI took last, if that caller may be trusted ("always trust this app"). */
     private static volatile String lastTakenTrustable;
@@ -168,10 +179,40 @@ final class ExternalSession {
             JSONObject o = new JSONObject();
             if (!connect) return o.put("action", "disconnect").put("source", source);
             uri = uri == null ? "" : uri.trim();
-            JSONObject ov = sanitizeOverrides(overrides);
+            lastError = "";
+            JSONObject ov;
+            String stageId = "";
+            if ("deeplink".equals(source)) {
+                ov = sanitizeOverrides(overrides);      // a link can carry neither files nor big sets
+            } else {
+                // API level 3: the overrides may sit in a file (overridesUri) and custom .dat databases may come along
+                // (assets). Both are content:// uris the caller granted; they are read here, so never on the main thread
+                // (see hasFileParts).
+                String ovUri = i.getStringExtra(EXTRA_OVERRIDES_URI);
+                String assetsRaw = i.getStringExtra(EXTRA_ASSETS);
+                try {
+                    ov = ovUri != null && !ovUri.trim().isEmpty()
+                            ? sanitizeOverrides(ExternalAssets.readOverridesText(c, i, ovUri), ExternalAssets.MAX_OVERRIDES_FILE_BYTES)
+                            : sanitizeOverrides(overrides);
+                    if (assetsRaw != null && !assetsRaw.trim().isEmpty()) {
+                        String id = ExternalAssets.newId();
+                        JSONArray staged = ExternalAssets.stage(c, i, assetsRaw, id);
+                        if (staged.length() > 0) {
+                            stageId = id;
+                            ov.put("assets", staged);       // name, size, sha256 only: part of the fingerprint
+                        }
+                    }
+                } catch (ExternalAssets.FileError e) {
+                    lastError = e.getMessage();
+                    return null;
+                }
+            }
             // The node is optional when settings are overridden: the node the user selected keeps being used.
             // freedom://localhost, chain://localhost/?hopList=<urlencode(JSON array)> and nodeid://<id> are accepted too
-            if (uri.isEmpty() ? ov.length() == 0 : !ExternalNodes.validConnectUri(uri)) return null;
+            if (uri.isEmpty() ? ov.length() == 0 : !ExternalNodes.validConnectUri(uri)) {
+                ExternalAssets.discard(c, stageId);
+                return null;
+            }
             boolean browser = caller != null && isBrowser(c, caller);
             // Trust is only offered for calls that app code made on purpose (an explicit action):
             // a link can come from anywhere (a chat message, a web page), whichever app opened it.
@@ -195,11 +236,31 @@ final class ExternalSession {
                     .put("trusted", callerTrusted && ovSame)
                     .put("ovChanged", callerTrusted && !ovSame)
                     .put("ovHash", ovHash)
+                    .put("stageId", stageId)
                     .put("ts", System.currentTimeMillis());
             return o;
         } catch (JSONException e) {
             return null;
         }
+    }
+
+    /** Why the last {@link #request} was refused because of its files (shown to the user), "" if not that. Read once. */
+    private static volatile String lastError = "";
+
+    static String takeError() {
+        String e = lastError;
+        lastError = "";
+        return e;
+    }
+
+    /**
+     * Does this intent carry files (API level 3: {@code overridesUri}, {@code assets})? Then {@link #request} reads and
+     * hashes them, which can take a while: the caller has to run it off the main thread. Deep links never carry files.
+     */
+    static boolean hasFileParts(Intent i) {
+        if (i == null || !ACTION_CONNECT.equals(i.getAction())) return false;
+        String a = i.getStringExtra(EXTRA_OVERRIDES_URI), b = i.getStringExtra(EXTRA_ASSETS);
+        return (a != null && !a.trim().isEmpty()) || (b != null && !b.trim().isEmpty());
     }
 
     private static String excludeExtra(Intent i) {
@@ -256,52 +317,62 @@ final class ExternalSession {
     private static final Pattern IP_RE = Pattern.compile("^[0-9A-Fa-f:.]{2,45}$");
     private static final Pattern CIDR_LIST_RE = Pattern.compile("^[0-9A-Fa-f:./\\s]*$");
     private static final java.util.Set<String> BUILTIN_TAGS = new java.util.HashSet<>(java.util.Arrays.asList("proxy", "direct", "block"));
-    private static final int MAX_RULES = 500;
-    private static final int MAX_HOSTS = 2000;
+    // API level 3: no limit on the number of routing rules, hosts, or addresses per host. What stays is a ceiling on bytes:
+    // MAX_OVERRIDES for inline text, ExternalAssets.MAX_OVERRIDES_FILE_BYTES for a file. Text fields of a rule (domain / ip
+    // lists) are only bounded by that, too. The list of excluded apps keeps its cap: it is a list of installed packages.
     private static final int MAX_EXCLUDE_OVERRIDE = 500;
 
-    /** Key-sorted, whitespace-free text of a JSON value: the same overrides always give the same text. */
-    private static void canon(Object v, StringBuilder sb) throws JSONException {
+    private static void upd(java.security.MessageDigest md, String t) {
+        md.update(t.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    /**
+     * Key-sorted, whitespace-free text of a JSON value, fed to the digest piece by piece (a big rule set must not be built
+     * as one string first). The bytes are the same as the old string version, so fingerprints of apps the user already
+     * trusts stay valid.
+     */
+    private static void canon(Object v, java.security.MessageDigest md) throws JSONException {
         if (v instanceof JSONObject) {
             JSONObject o = (JSONObject) v;
             java.util.List<String> keys = new java.util.ArrayList<>();
             java.util.Iterator<String> it = o.keys();
             while (it.hasNext()) keys.add(it.next());
             java.util.Collections.sort(keys);
-            sb.append('{');
+            upd(md, "{");
             for (int i = 0; i < keys.size(); i++) {
-                if (i > 0) sb.append(',');
-                sb.append(JSONObject.quote(keys.get(i))).append(':');
-                canon(o.get(keys.get(i)), sb);
+                if (i > 0) upd(md, ",");
+                upd(md, JSONObject.quote(keys.get(i)));
+                upd(md, ":");
+                canon(o.get(keys.get(i)), md);
             }
-            sb.append('}');
+            upd(md, "}");
         } else if (v instanceof JSONArray) {
             JSONArray a = (JSONArray) v;
-            sb.append('[');
+            upd(md, "[");
             for (int i = 0; i < a.length(); i++) {
-                if (i > 0) sb.append(',');
-                canon(a.get(i), sb);
+                if (i > 0) upd(md, ",");
+                canon(a.get(i), md);
             }
-            sb.append(']');
+            upd(md, "]");
         } else if (v instanceof String) {
-            sb.append(JSONObject.quote((String) v));
+            upd(md, JSONObject.quote((String) v));
         } else {
-            sb.append(String.valueOf(v));
+            upd(md, String.valueOf(v));
         }
     }
 
     /**
      * SHA-256 of the sanitized overrides, "" when there are none. A trusted app is only let through silently with the
      * overrides it was last allowed with; this fingerprint is what is compared (the overrides themselves are not stored).
+     * Custom .dat files count too: {@code overrides.assets} holds each file's name, size and SHA-256.
      */
     static String overridesHash(JSONObject ov) {
         if (ov == null || ov.length() == 0) return "";
         try {
-            StringBuilder sb = new StringBuilder();
-            canon(ov, sb);
-            byte[] h = MessageDigest.getInstance("SHA-256").digest(sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            canon(ov, md);
             StringBuilder hex = new StringBuilder();
-            for (byte b : h) hex.append(String.format("%02x", b));
+            for (byte b : md.digest()) hex.append(String.format("%02x", b));
             return hex.toString();
         } catch (JSONException | java.security.NoSuchAlgorithmException e) {
             return "";
@@ -345,6 +416,25 @@ final class ExternalSession {
     }
 
     /**
+     * A domain / ip list of a rule: the comma separated string the WebUI keeps, or (level 3) a JSON array of strings, which
+     * is how a long list is naturally written. No length limit besides the size of the request itself.
+     */
+    private static String ruleList(JSONObject r, String k) {
+        Object v = r.opt(k);
+        if (v instanceof String) return clean((String) v, Integer.MAX_VALUE);
+        if (!(v instanceof JSONArray)) return "";
+        JSONArray a = (JSONArray) v;
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < a.length(); i++) {
+            String e = clean(a.optString(i, ""), Integer.MAX_VALUE).replace(",", " ").trim();
+            if (e.isEmpty()) continue;
+            if (sb.length() > 0) sb.append(',');
+            sb.append(e);
+        }
+        return sb.toString();
+    }
+
+    /**
      * Decodes and normalises the {@code overrides} of a request into what the WebUI may apply: only whitelisted keys of
      * the right type and range survive, everything else is dropped. Returns an empty object when there is nothing valid.
      *
@@ -359,17 +449,22 @@ final class ExternalSession {
      * </pre>
      */
     static JSONObject sanitizeOverrides(String raw) {
+        return sanitizeOverrides(raw, MAX_OVERRIDES);
+    }
+
+    /** {@code maxChars}: ceiling on the decoded JSON text (a deep link's base64 may be a third longer). */
+    static JSONObject sanitizeOverrides(String raw, long maxChars) {
         JSONObject out = new JSONObject();
         if (raw == null) return out;
         raw = raw.trim();
-        if (raw.isEmpty() || raw.length() > MAX_OVERRIDES * 2) return out;
+        if (raw.isEmpty() || raw.length() > maxChars * 2) return out;
         try {
             String json = raw;
             if (!raw.startsWith("{")) {      // deep link: base64url
                 byte[] b = android.util.Base64.decode(raw, android.util.Base64.URL_SAFE | android.util.Base64.NO_WRAP | android.util.Base64.NO_PADDING);
                 json = new String(b, java.nio.charset.StandardCharsets.UTF_8);
             }
-            if (json.length() > MAX_OVERRIDES) return out;
+            if (json.length() > maxChars) return out;
             JSONObject in = new JSONObject(json);
 
             JSONObject traffic = pickKeys(in.optJSONObject("traffic"), TRAFFIC_KEYS);
@@ -416,14 +511,14 @@ final class ExternalSession {
                 JSONArray ir = inRt.optJSONArray("rules");
                 if (ir != null) {
                     JSONArray rules = new JSONArray();
-                    for (int i = 0; i < ir.length() && rules.length() < MAX_RULES; i++) {
+                    for (int i = 0; i < ir.length(); i++) {
                         JSONObject r = ir.optJSONObject(i);
                         if (r == null) continue;
                         String tag = ruleStr(r, "outboundTag", 16);
                         if (!BUILTIN_TAGS.contains(tag)) continue;   // nodes / policy groups are the user's, not an app's
                         JSONObject o = new JSONObject();
                         o.put("remarks", ruleStr(r, "remarks", 80)).put("locked", false)
-                                .put("domain", ruleStr(r, "domain", 4000)).put("ip", ruleStr(r, "ip", 4000))
+                                .put("domain", ruleList(r, "domain")).put("ip", ruleList(r, "ip"))
                                 .put("port", ruleStr(r, "port", 200)).put("protocol", ruleStr(r, "protocol", 100))
                                 .put("network", ruleStr(r, "network", 20)).put("outboundTag", tag)
                                 .put("enabled", !r.has("enabled") || r.optBoolean("enabled", true));
@@ -440,7 +535,7 @@ final class ExternalSession {
             if (he != null) {
                 JSONObject entries = new JSONObject();
                 java.util.Iterator<String> it = he.keys();
-                while (it.hasNext() && entries.length() < MAX_HOSTS) {
+                while (it.hasNext()) {
                     String dom = it.next();
                     if (!DOMAIN_RE.matcher(dom).matches()) continue;
                     Object v = he.get(dom);
@@ -448,7 +543,7 @@ final class ExternalSession {
                     if (v instanceof String) {
                         if (IP_RE.matcher((String) v).matches()) ips.put(v);
                     } else if (v instanceof JSONArray) {
-                        for (int i = 0; i < ((JSONArray) v).length() && ips.length() < 8; i++) {
+                        for (int i = 0; i < ((JSONArray) v).length(); i++) {
                             String ip = ((JSONArray) v).optString(i, "");
                             if (IP_RE.matcher(ip).matches()) ips.put(ip);
                         }
@@ -467,31 +562,44 @@ final class ExternalSession {
     // ---- parking a request until the WebUI takes it
 
     static void queue(Context c, JSONObject req) {
+        String stale;
         synchronized (LOCK) {
+            stale = pendingStageId;     // a newer request replaces the parked one: its staged files go with it
             pendingJson = req.toString();
+            pendingTs = req.optLong("ts");
+            pendingTrustable = req.optBoolean("trustable");
+            pendingCaller = req.optString("caller");
+            pendingOvHash = req.optString("ovHash", "");
+            pendingStageId = req.optString("stageId", "");
         }
+        if (!stale.isEmpty() && !stale.equals(req.optString("stageId", ""))) ExternalAssets.discard(c, stale);
     }
 
     /** The parked request as JSON (\"\" if none or expired); returns it once. */
     static String take(Context c) {
+        String expired = "";
+        String out;
         synchronized (LOCK) {
             String s = pendingJson;
             pendingJson = "";
             lastTakenTrustable = null;
             lastTakenOvHash = "";
+            String stage = pendingStageId;
+            pendingStageId = "";
             if (s == null || s.isEmpty()) return "";
-            try {
-                JSONObject o = new JSONObject(s);
-                if (System.currentTimeMillis() - o.optLong("ts") > PENDING_TTL_MS) return "";
-                if (o.optBoolean("trustable")) {
-                    lastTakenTrustable = o.optString("caller");
-                    lastTakenOvHash = o.optString("ovHash", "");
+            if (System.currentTimeMillis() - pendingTs > PENDING_TTL_MS) {
+                expired = stage;
+                out = "";
+            } else {
+                if (pendingTrustable) {
+                    lastTakenTrustable = pendingCaller;
+                    lastTakenOvHash = pendingOvHash;
                 }
-            } catch (JSONException e) {
-                return "";
+                out = s;
             }
-            return s;
         }
+        if (!expired.isEmpty()) ExternalAssets.discard(c, expired);
+        return out;
     }
 
     /** Posts "app X wants to connect, tap to review" for requests that arrive while nothing is on screen. */
@@ -752,10 +860,17 @@ final class ExternalSession {
     }
 
     private static void purgeNonRootDir(Context c) {
-        File d = NonRootEnv.overrideDir(c);
-        File[] fs = d.listFiles();
-        if (fs != null) for (File f : fs) f.delete();
-        d.delete();
+        ExternalAssets.deleteTree(NonRootEnv.overrideDir(c));       // includes assets/ (custom .dat files)
+    }
+
+    /** The WebUI agreed: puts the staged custom .dat files into the session directory. Blocking. Null = ok, else the reason. */
+    static String installAssets(Context c, String stageId) {
+        return ExternalAssets.install(c.getApplicationContext(), stageId);
+    }
+
+    /** The request was denied, failed or replaced: the staged files are deleted. */
+    static void discardStage(Context c, String stageId) {
+        ExternalAssets.discard(c.getApplicationContext(), stageId);
     }
 
     /**
@@ -764,6 +879,7 @@ final class ExternalSession {
      */
     static void sweepStale(Context c) {
         Context app = c.getApplicationContext();
+        ExternalAssets.sweepAll(app);       // staged files of a request the process did not survive
         if (!isActive(app) && RunMode.isNonRoot(app)) purgeNonRootDir(app);
     }
 

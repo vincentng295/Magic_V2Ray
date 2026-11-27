@@ -71,7 +71,24 @@ public class ExternalControlReceiver extends BroadcastReceiver {
             caller = getSentFromPackage();
             if (caller != null && caller.equals(app.getPackageName())) caller = null;
         }
-        JSONObject req = ExternalSession.request(app, intent, caller, true);
+        if (ExternalSession.hasFileParts(intent)) {
+            // API level 3: the request carries files (overridesUri / assets). They are read and hashed here, which can
+            // take a moment: not on the main thread.
+            final PendingResult pr = goAsync();
+            final String who = caller;
+            new Thread(() -> {
+                try {
+                    handleConnect(app, ExternalSession.request(app, intent, who, true));
+                } finally {
+                    pr.finish();
+                }
+            }, "mv-ext-req").start();
+            return;
+        }
+        handleConnect(app, ExternalSession.request(app, intent, caller, true));
+    }
+
+    private static void handleConnect(Context app, JSONObject req) {
         if (req == null) return;
         ExternalSession.queue(app, req);
 

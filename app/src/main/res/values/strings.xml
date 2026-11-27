@@ -143,4 +143,7 @@
     <string name="adb_tcp_port_invalid">The port must be between 1024 and 65535.</string>
     <string name="adb_tcp_desc">Keeps adb listening on a TCP port (random by default, or any port from 1024 to 65535 you choose), so the hotspot helper can restart without Wi-Fi as long as you connected once since the phone booted. The port is protected by your paired key but is reachable from any network the phone joins.</string>
     <string name="adb_status_paired_desc_tcp">Wireless debugging (and Wi-Fi) is only needed the first time after the phone boots.</string>
+    <string name="ext_ov_assets">Custom geo databases</string>
+    <string name="ext_prompt_warn_assets">This app brings its own geo databases (.dat). While it is connected they replace yours for every geoip: / geosite: / ext: rule, so they decide which traffic goes direct, through the proxy or is blocked. They are never saved and are deleted when it disconnects.</string>
+    <string name="ext_err_files">Could not read the files of the request: %1$s</string>
 </resources>

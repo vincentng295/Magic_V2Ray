@@ -102,6 +102,40 @@ final class NonRootEnv {
         }
     }
 
+    /**
+     * What xray is given as XRAY_LOCATION_ASSET: the user's databases ({@link #prepareAssets}), or, while an external
+     * session (API level 3) brings its own .dat files, the session's {@code assets} directory. The user's other *.dat files
+     * that the session does not replace are COPIED in beside them (xray is given one directory), so geoip.dat /
+     * geosite.dat / "ext:" files that the session leaves alone keep working. The directory is in the cache and goes with
+     * the session. Never throws; falls back to the user's databases.
+     */
+    static File runtimeAssets(Context c) {
+        File user = prepareAssets(c);
+        try {
+            if (!ExternalSession.isActive(c)) return user;
+            File ov = new File(overrideDir(c), "assets");
+            if (!ov.isDirectory()) return user;
+            File[] have = user.listFiles();
+            if (have != null) {
+                for (File f : have) {
+                    String n = f.getName();
+                    if (!n.endsWith(".dat") || !f.isFile()) continue;
+                    File to = new File(ov, n);
+                    if (to.isFile() && to.length() > 0) continue;                 // the session's own file
+                    try (InputStream in = new FileInputStream(f); FileOutputStream out = new FileOutputStream(to)) {
+                        byte[] b = new byte[64 * 1024];
+                        int k;
+                        while ((k = in.read(b)) > 0) out.write(b, 0, k);
+                    }
+                }
+            }
+            return ov;
+        } catch (IOException | RuntimeException e) {
+            android.util.Log.w("NonRootEnv", "session assets: " + e.getMessage() + " (using the user's databases)");
+            return user;
+        }
+    }
+
     private static boolean isLink(File f) {
         try {
             return android.system.Os.lstat(f.getPath()).st_mode >> 12 == 012;   // S_IFLNK

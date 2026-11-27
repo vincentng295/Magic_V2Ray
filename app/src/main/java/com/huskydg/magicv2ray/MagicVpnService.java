@@ -407,7 +407,7 @@ public class MagicVpnService extends VpnService {
             ProcessBuilder pb = new ProcessBuilder(
                     NonRootEnv.bin(this, "xhuskydg_helper").getPath(), "vpnrun", sock,
                     NonRootEnv.bin(this, "xray").getPath(), "run", "-c", cfg.getPath());
-            pb.environment().put("XRAY_LOCATION_ASSET", NonRootEnv.prepareAssets(this).getPath());
+            pb.environment().put("XRAY_LOCATION_ASSET", NonRootEnv.runtimeAssets(this).getPath());
             pb.directory(NonRootEnv.root(this));
             pb.redirectErrorStream(true);
             p = pb.start();

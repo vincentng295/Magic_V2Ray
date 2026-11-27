@@ -158,6 +158,26 @@ public class MainActivity extends Activity {
             return true;
         }
         if ((intent.getFlags() & Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0) return false;   // do not replay
+        if (ExternalSession.hasFileParts(intent)) {
+            // API level 3: files (overridesUri / assets) are read and hashed off the main thread. The caller is worked out
+            // here: the system's referrer is only valid inside onCreate / onNewIntent.
+            final Context app = getApplicationContext();
+            final String who = ExternalSession.callerOf(this, intent);
+            final Intent in = intent;
+            new Thread(() -> {
+                final org.json.JSONObject r = ExternalSession.request(app, in, who, false);
+                runOnUiThread(() -> {
+                    if (r == null) {
+                        String why = ExternalSession.takeError();
+                        if (!why.isEmpty()) Toast.makeText(this, getString(R.string.ext_err_files, why), Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    ExternalSession.queue(app, r);
+                    pokeWeb("window.checkExternalRequest&&window.checkExternalRequest()");
+                });
+            }, "mv-ext-req").start();
+            return true;
+        }
         final org.json.JSONObject req = ExternalSession.request(this, intent, ExternalSession.callerOf(this, intent), false);
         if (req == null) return false;
         if ("disconnect".equals(req.optString("action"))) {

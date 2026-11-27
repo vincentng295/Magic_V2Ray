@@ -77,9 +77,36 @@ public class ExternalPromptActivity extends Activity {
             } catch (JSONException e) {
                 req = null;
             }
+        } else if (ExternalSession.hasFileParts(in)) {
+            // API level 3: overridesUri / assets are read and hashed off the main thread (the dialog follows). The caller is
+            // worked out here: the system's referrer is only valid inside onCreate.
+            final String who = ExternalSession.callerOf(this, in);
+            final Intent intent = in;
+            new Thread(() -> {
+                final JSONObject r = ExternalSession.request(app, intent, who, false);
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) {
+                        if (r != null) ExternalAssets.discard(app, r.optString("stageId", ""));
+                        return;
+                    }
+                    if (r == null) {
+                        String why = ExternalSession.takeError();
+                        if (!why.isEmpty()) Toast.makeText(app, getString(R.string.ext_err_files, why), Toast.LENGTH_LONG).show();
+                    }
+                    proceed(r);
+                });
+            }, "mv-ext-req").start();
+            return;
         } else {
             req = ExternalSession.request(this, in, ExternalSession.callerOf(this, in), false);
         }
+        proceed(req);
+    }
+
+    /** Everything after the request is known (it may have been read from files on another thread). */
+    private void proceed(JSONObject r) {
+        final Context app = getApplicationContext();
+        req = r;
         if (req == null) { finish(); return; }
 
         if ("disconnect".equals(req.optString("action"))) {
@@ -130,6 +157,14 @@ public class ExternalPromptActivity extends Activity {
                     : R.string.ext_prompt_warn_overrides));
         }
 
+        // custom geo databases change what every geoip: / geosite: rule matches: said plainly (unless the app is trusted and
+        // sends the very same files, which the fingerprint covers)
+        JSONObject ovAll = req.optJSONObject("overrides");
+        if (ovAll != null && ovAll.optJSONArray("assets") != null && ovAll.optJSONArray("assets").length() > 0
+                && !req.optBoolean("trusted")) {
+            warnings.add(getString(R.string.ext_prompt_warn_assets));
+        }
+
         boolean onlyCaller = true;
         for (String p : excludes) if (!p.equals(caller)) onlyCaller = false;
 
@@ -170,6 +205,14 @@ public class ExternalPromptActivity extends Activity {
         overridePendingTransition(0, 0);
     }
 
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        // Denied, dismissed or replaced: the custom .dat files staged for this request are deleted. (Approval hands them
+        // on to the WebUI, which installs them and deletes the rest.)
+        if (!done && req != null) ExternalAssets.discard(getApplicationContext(), req.optString("stageId", ""));
+    }
+
     // ------------------------------------------------------------------ request helpers
 
     /** "Traffic settings: 3 / Routing rules: 12 ..." for the overrides of a request, "" when there are none. */
@@ -188,6 +231,18 @@ public class ExternalPromptActivity extends Activity {
             else n = o.length();
             if (sb.length() > 0) sb.append('\n');
             sb.append(getString(R.string.ext_ov_item, getString(getResources().getIdentifier(e[1], "string", getPackageName())), n));
+        }
+        JSONArray as = ov.optJSONArray("assets");
+        if (as != null && as.length() > 0) {
+            if (sb.length() > 0) sb.append('\n');
+            sb.append(getString(R.string.ext_ov_assets));
+            for (int i = 0; i < as.length(); i++) {
+                JSONObject a = as.optJSONObject(i);
+                if (a == null) continue;
+                sb.append("\n  ").append(a.optString("name")).append("  ")
+                        .append(android.text.format.Formatter.formatShortFileSize(this, a.optLong("size")))
+                        .append("  sha256:").append(a.optString("sha256").substring(0, Math.min(12, a.optString("sha256").length())));
+            }
         }
         if (keepsNode) sb.append('\n').append(getString(R.string.ext_ov_selected_node));
         return sb.toString();

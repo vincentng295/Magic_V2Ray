@@ -108,14 +108,14 @@ Android 11+: add `<queries><package android:name="com.huskydg.magicv2ray"/></que
 
 ```json
 { "app": "Magic V2Ray", "package": "com.huskydg.magicv2ray", "versionName": "v2.5-alpha", "versionCode": 192, "mode": "root",
-  "api": { "level": 2,
+  "api": { "level": 3,
            "actions": ["com.huskydg.magicv2ray.action.CONNECT", "...DISCONNECT", "...GET_INFO"],
            "schemes": ["magicv2ray://connect", "magicv2ray://disconnect"],
            "events": ["com.huskydg.magicv2ray.event.STATE_CHANGED"],
-           "extras": ["uri", "name", "exclude", "overrides"],
-           "overrides": ["traffic", "network", "exclude", "routing", "hosts"],
+           "extras": ["uri", "name", "exclude", "overrides", "overridesUri", "assets"],
+           "overrides": ["traffic", "network", "exclude", "routing", "hosts", "assets"],
            "provider": { "authority": "com.huskydg.magicv2ray.api", "methods": ["getInfo", "getState", "getNodes", "getActiveNode", "getNodeAccess"], "uris": ["..."] },
-           "features": ["connect", "disconnect", "overrides", "exclude", "info", "state_events", "state_provider", "nodes", "node_access_request", "connect_freedom", "connect_chain", "connect_nodeid"] },
+           "features": ["connect", "disconnect", "overrides", "exclude", "info", "state_events", "state_provider", "nodes", "node_access_request", "connect_freedom", "connect_chain", "connect_nodeid", "overrides_unlimited", "overrides_uri", "custom_assets"] },
   "state": { "connected": true, "known": true, "mode": "root",
              "session": { "active": true, "name": "My server", "caller": "com.example.app", "startedAt": 1731670000000 } } }
 ```
@@ -256,3 +256,63 @@ Besides a node, `connect` can carry an `overrides` parameter that **temporarily 
 - The pending request is kept in memory only; the session stores metadata (name, caller, exclusion list) but neither the server nor any overridden value.
 - A session **never resumes after a reboot** (root: `/mnt/runtime` is wiped and the service clears the directory at start; non-root: the VpnService is `START_NOT_STICKY` and a stale session is dropped when the app opens). An app that wants it again must send `connect` after each boot. A temporary session also never changes the `enabled` flag that decides what resumes at boot.
 - A request with `overrides` is confirmed (the dialog lists what changes). An app set to "always trust" is **not asked again while it sends the same `overrides` it was last allowed with**. If they differ (new or changed), the dialog comes back saying the app wants to apply NEW settings. **Always allow** remembers the new set; **Allow once** does not. Only a SHA-256 fingerprint of the overrides is stored, never their values. Links and browsers can never be trusted.
+
+---
+
+### Unlimited rules and hosts, custom `.dat` files (API level 3, apps only)
+
+`api.level` is `3` when the features `overrides_unlimited`, `overrides_uri` and `custom_assets` are present. Everything above keeps working unchanged.
+
+**1. No limit on rules and hosts.** `routing.rules` and `hosts.entries` accept any number of entries, each host any number of addresses, and a rule's `domain` / `ip` may be a comma separated string **or a JSON array of strings** (a long list is simply written as an array). What remains is a ceiling on bytes, because an intent cannot carry more than about 1 MB and a phone has limited memory:
+
+| Where the overrides travel | Ceiling |
+|---|---|
+| `overrides` extra / deep link | 256 KB of JSON (same as before, but counts no longer matter) |
+| `overridesUri` (file) | 64 MB of JSON |
+
+The ceilings are reported in `getInfo` under `api.limits`. Only entries that are not valid are dropped (a rule with an `outboundTag` other than `proxy` / `direct` / `block`, a malformed domain or address), never because the list is long.
+
+**2. `overridesUri`: the overrides in a file.** A `content://` URI of a file that holds the same JSON as `overrides`. When it is present it **replaces** the `overrides` extra. Links and browsers cannot use it.
+
+**3. `assets`: custom `.dat` databases.** `geoip.dat`, `geosite.dat` and any other file reachable through `ext:<file>.dat:<tag>` can be supplied for the length of the connection. The extra is a JSON array `[{"name": "geoip.dat", "uri": "content://..."}, ...]`.
+
+- `name` is a bare file name ending in `.dat` (letters, digits, `.`, `_`, `-`). Files you do **not** send keep working: the engine sees your `assets` first and the user's own databases for every other name, so sending only `geosite.dat` leaves `geoip.dat` as it was.
+- Each file is checked when the request arrives (it must look like a geo database, not an HTML page or a zip). At most 32 files, 256 MB each and 512 MB together; in root mode they live in RAM for the length of the session.
+- The files are replaced, not merged: your `geosite.dat` is used **instead of** the user's, for every `geosite:` rule, including the user's own routing rules.
+
+```
+{ "uri": "freedom://localhost", "assets": [ {"name": "geosite.dat", "uri": "content://..."} ] }
+```
+
+**Granting the files.** Only `content://` URIs are accepted, and each one must also be in the intent's `ClipData` with `FLAG_GRANT_READ_URI_PERMISSION`; a URI that was not granted this way is refused. Use `startActivity` or `sendBroadcast` with the action `CONNECT`; a shell (Termux, `adb`) cannot grant URIs, so it cannot send files, and a deep link cannot either.
+
+```java
+// Files you own, shared through your FileProvider (or any ContentProvider that honours URI grants)
+Uri ov    = FileProvider.getUriForFile(this, getPackageName() + ".files", overridesJsonFile);
+Uri geoip = FileProvider.getUriForFile(this, getPackageName() + ".files", geoipDatFile);
+Uri site  = FileProvider.getUriForFile(this, getPackageName() + ".files", geositeDatFile);
+
+JSONArray assets = new JSONArray()
+    .put(new JSONObject().put("name", "geoip.dat").put("uri", geoip.toString()))
+    .put(new JSONObject().put("name", "geosite.dat").put("uri", site.toString()));
+
+Intent i = new Intent("com.huskydg.magicv2ray.action.CONNECT").setPackage("com.huskydg.magicv2ray");
+i.putExtra("uri", "freedom://localhost");                 // optional, as before
+i.putExtra("overridesUri", ov.toString());                // the same JSON as `overrides`, from a file
+i.putExtra("assets", assets.toString());
+ClipData clip = ClipData.newRawUri("mv", ov);              // EVERY uri used above must be in the ClipData
+clip.addItem(new ClipData.Item(geoip));
+clip.addItem(new ClipData.Item(site));
+i.setClipData(clip);
+i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+startActivity(i);                                         // or sendBroadcast(i): the request then waits for a tap
+```
+
+**Privacy and consent.**
+
+- Custom databases change what every `geoip:` / `geosite:` / `ext:` rule matches, so the confirmation dialog says so in plain words and lists each file with its size and the start of its SHA-256. Nothing is applied without that answer, except for an app set to "always trust" that sends the very same overrides and files again (the fingerprint of the files is part of the check; a changed file asks again).
+- A request waits at most 10 minutes. While it waits the files sit in the app's private cache, checked and hashed; **deny, an error or a timeout deletes them at once**.
+- After the user agrees they are moved into the session directory (root: tmpfs under `/mnt/runtime`, gone at reboot; non-root: the cache directory) and are **never** written to the data directory or to the user's `location_assets`. Disconnecting, a reboot or a crash deletes them and the engine goes back to the user's own databases.
+- If a file cannot be read or fails the check, nothing is connected and the user sees why.
+
+**Test for it:** `getInfo` -> `api.level >= 3`, or `"custom_assets"` in `api.features`.

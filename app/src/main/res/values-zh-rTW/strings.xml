@@ -133,4 +133,7 @@
     <string name="adb_tcp_port_invalid">連接埠必須介於 1024 到 65535 之間。</string>
     <string name="adb_tcp_desc">讓 adb 持續監聽一個 TCP 連接埠（預設隨機，也可自選 1024 到 65535 之間的任一連接埠），只要手機開機後連線過一次，熱點輔助程序就能在沒有 Wi-Fi 的情況下重新啟動。該連接埠受已配對金鑰保護，但手機加入的任何網路都能連到它。</string>
     <string name="adb_status_paired_desc_tcp">僅在手機開機後的第一次需要開啟無線偵錯（並連上 Wi-Fi）。</string>
+    <string name="ext_ov_assets">自訂 geo 資料庫</string>
+    <string name="ext_prompt_warn_assets">此應用程式自帶 geo 資料庫（.dat）。連線期間它們會取代您的資料庫，用於所有 geoip: / geosite: / ext: 規則，因此決定哪些流量直連、走代理或被封鎖。它們不會被儲存，中斷連線後即刪除。</string>
+    <string name="ext_err_files">無法讀取請求中的檔案：%1$s</string>
 </resources>

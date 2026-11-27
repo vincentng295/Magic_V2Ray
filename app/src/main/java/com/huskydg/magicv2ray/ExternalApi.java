@@ -39,8 +39,11 @@ final class ExternalApi {
     /**
      * Bump when the API gains something an app may need to test for. Level 1: info + state events.
      * Level 2: nodes (permission-gated, apps only) and freedom:// / chain:// / nodeid:// as the node of a connect.
+     * Level 3: no limit on the number of routing rules / hosts in {@code overrides}, the overrides can travel in a file
+     * ({@code overridesUri}), and custom .dat databases ({@code assets}) replace geoip.dat / geosite.dat / ext: files for
+     * the length of the session. See {@link ExternalAssets}.
      */
-    static final int API_LEVEL = 2;
+    static final int API_LEVEL = 3;
 
     static final String ACTION_GET_INFO = "com.huskydg.magicv2ray.action.GET_INFO";
     static final String ACTION_STATE_CHANGED = "com.huskydg.magicv2ray.event.STATE_CHANGED";
@@ -129,8 +132,9 @@ final class ExternalApi {
                 .put("schemes", arr("magicv2ray://connect", "magicv2ray://disconnect"))
                 .put("events", arr(ACTION_STATE_CHANGED))
                 .put("extras", arr(ExternalSession.EXTRA_URI, ExternalSession.EXTRA_NAME, ExternalSession.EXTRA_EXCLUDE,
-                        ExternalSession.EXTRA_OVERRIDES))
-                .put("overrides", arr("traffic", "network", "exclude", "routing", "hosts"))
+                        ExternalSession.EXTRA_OVERRIDES, ExternalSession.EXTRA_OVERRIDES_URI, ExternalSession.EXTRA_ASSETS))
+                .put("overrides", arr("traffic", "network", "exclude", "routing", "hosts", "assets"))
+                .put("limits", ExternalAssets.limits())
                 .put("provider", new JSONObject()
                         .put("authority", ExternalApiProvider.AUTHORITY)
                         .put("methods", arr(ExternalApiProvider.METHOD_INFO, ExternalApiProvider.METHOD_STATE,
@@ -143,7 +147,8 @@ final class ExternalApi {
                 .put("connectUris", arr(ExternalNodes.FREEDOM_URI, ExternalNodes.CHAIN_PREFIX + "<urlencode(JSON array)>",
                         ExternalNodes.NODEID_PREFIX + "<id>"))
                 .put("features", arr("connect", "disconnect", "overrides", "exclude", "info", "state_events", "state_provider",
-                        "nodes", "node_access_request", "connect_freedom", "connect_chain", "connect_nodeid"));
+                        "nodes", "node_access_request", "connect_freedom", "connect_chain", "connect_nodeid",
+                        "overrides_unlimited", "overrides_uri", "custom_assets"));
     }
 
     /**

@@ -143,4 +143,7 @@
     <string name="adb_tcp_port_invalid">Cổng phải nằm trong khoảng 1024 đến 65535.</string>
     <string name="adb_tcp_desc">Giữ adb lắng nghe ở một cổng TCP (mặc định ngẫu nhiên, hoặc cổng bất kỳ từ 1024 đến 65535 do bạn chọn) để helper hotspot khởi động lại mà không cần Wi-Fi, miễn là bạn đã kết nối ít nhất một lần kể từ khi máy khởi động. Cổng được bảo vệ bằng khóa đã ghép nối nhưng truy cập được từ mọi mạng mà máy tham gia.</string>
     <string name="adb_status_paired_desc_tcp">Chỉ cần bật Gỡ lỗi không dây (và Wi-Fi) ở lần đầu sau khi máy khởi động.</string>
+    <string name="ext_ov_assets">Cơ sở dữ liệu geo tùy chỉnh</string>
+    <string name="ext_prompt_warn_assets">Ứng dụng này mang theo cơ sở dữ liệu geo (.dat) riêng. Khi đang kết nối, chúng thay thế của bạn cho mọi quy tắc geoip: / geosite: / ext:, nên quyết định lưu lượng nào đi thẳng, qua proxy hay bị chặn. Chúng không bao giờ được lưu và bị xóa khi ngắt kết nối.</string>
+    <string name="ext_err_files">Không đọc được các tệp của yêu cầu: %1$s</string>
 </resources>

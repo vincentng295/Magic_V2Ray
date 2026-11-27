@@ -108,14 +108,14 @@ Android 11+：请在调用方应用的 manifest 中添加 `<queries><package and
 
 ```json
 { "app": "Magic V2Ray", "package": "com.huskydg.magicv2ray", "versionName": "v2.5-alpha", "versionCode": 192, "mode": "root",
-  "api": { "level": 2,
+  "api": { "level": 3,
            "actions": ["com.huskydg.magicv2ray.action.CONNECT", "...DISCONNECT", "...GET_INFO"],
            "schemes": ["magicv2ray://connect", "magicv2ray://disconnect"],
            "events": ["com.huskydg.magicv2ray.event.STATE_CHANGED"],
-           "extras": ["uri", "name", "exclude", "overrides"],
-           "overrides": ["traffic", "network", "exclude", "routing", "hosts"],
+           "extras": ["uri", "name", "exclude", "overrides", "overridesUri", "assets"],
+           "overrides": ["traffic", "network", "exclude", "routing", "hosts", "assets"],
            "provider": { "authority": "com.huskydg.magicv2ray.api", "methods": ["getInfo", "getState", "getNodes", "getActiveNode", "getNodeAccess"], "uris": ["..."] },
-           "features": ["connect", "disconnect", "overrides", "exclude", "info", "state_events", "state_provider", "nodes", "node_access_request", "connect_freedom", "connect_chain", "connect_nodeid"] },
+           "features": ["connect", "disconnect", "overrides", "exclude", "info", "state_events", "state_provider", "nodes", "node_access_request", "connect_freedom", "connect_chain", "connect_nodeid", "overrides_unlimited", "overrides_uri", "custom_assets"] },
   "state": { "connected": true, "known": true, "mode": "root",
              "session": { "active": true, "name": "My server", "caller": "com.example.app", "startedAt": 1731670000000 } } }
 ```
@@ -272,3 +272,63 @@ echo "Magic V2Ray 已断开"
 - 待确认的请求只保存在内存中；会话仅保存元数据（名称、调用方、排除列表），既不保存服务器，也不保存任何被覆盖的值。
 - 会话**重启后不会恢复**（Root：`/mnt/runtime` 会被清空，且服务在启动时清理该目录；非 Root：VpnService 为 `START_NOT_STICKY`，应用打开时会丢弃过期会话）。需要再次使用的应用必须在每次开机后重新发送 `connect`。临时会话也不会改变决定开机时恢复什么的 `enabled` 标志。
 - 带有 `overrides` 的请求需要确认（对话框会列出将更改的内容）。设为“始终信任”的应用，只要发送的 `overrides` 与上次获准时相同，**就不会再次询问**。如果不同（新增或已更改），对话框会再次出现，提示该应用想要应用新的设置。**始终允许**会记住新的一组；**仅允许一次**则不会。只保存 `overrides` 的 SHA-256 指纹，绝不保存其值。链接和浏览器永远不能被信任。
+
+---
+
+### 不限数量的规则与 hosts、自定义 `.dat` 文件（API level 3，仅限应用）
+
+当存在功能 `overrides_unlimited`、`overrides_uri` 和 `custom_assets` 时，`api.level` 为 `3`。以上内容保持不变。
+
+**1. 规则与 hosts 不限数量。** `routing.rules` 和 `hosts.entries` 可包含任意数量的条目，每个 host 可有任意数量的地址，规则的 `domain` / `ip` 可以是逗号分隔的字符串，**也可以是字符串的 JSON 数组**（长列表直接写成数组即可）。只剩字节数上限，因为 intent 最多只能携带约 1 MB，而手机内存有限：
+
+| `overrides` 的传递方式 | 上限 |
+|---|---|
+| `overrides` extra / 深度链接 | 256 KB JSON（与之前相同，但条目数量不再重要） |
+| `overridesUri`（文件） | 64 MB JSON |
+
+这些上限会在 `getInfo` 的 `api.limits` 中报告。只有无效的条目才会被丢弃（`outboundTag` 不是 `proxy` / `direct` / `block` 的规则、格式错误的域名或地址），绝不会因为列表太长而丢弃。
+
+**2. `overridesUri`：把 overrides 放进文件。** 指向文件的 `content://` URI，文件内容与 `overrides` 的 JSON 相同。提供时它会**取代** `overrides` extra。链接和浏览器无法使用。
+
+**3. `assets`：自定义 `.dat` 数据库。** `geoip.dat`、`geosite.dat` 以及通过 `ext:<文件>.dat:<标签>` 引用的任何文件，都可以在连接期间提供。该 extra 是 JSON 数组 `[{"name": "geoip.dat", "uri": "content://..."}, ...]`。
+
+- `name` 是以 `.dat` 结尾的纯文件名（字母、数字、`.`、`_`、`-`）。您**没有**发送的文件照常工作：引擎优先使用您的 `assets`，其余名称使用用户自己的数据库，所以只发送 `geosite.dat` 时 `geoip.dat` 保持不变。
+- 每个文件在请求到达时都会检查（必须像 geo 数据库，而不是 HTML 页面或 zip）。最多 32 个文件，每个 256 MB，合计 512 MB；root 模式下它们在会话期间驻留于内存。
+- 文件是替换而非合并：您的 `geosite.dat` 会**取代**用户的，用于所有 `geosite:` 规则，包括用户自己的路由规则。
+
+```
+{ "uri": "freedom://localhost", "assets": [ {"name": "geosite.dat", "uri": "content://..."} ] }
+```
+
+**授予文件访问权。** 只接受 `content://` URI，且每个 URI 还必须出现在 intent 的 `ClipData` 中并带有 `FLAG_GRANT_READ_URI_PERMISSION`；未以此方式授予的 URI 会被拒绝。请使用动作为 `CONNECT` 的 `startActivity` 或 `sendBroadcast`；shell（Termux、`adb`）无法授予 URI，因此无法发送文件，深度链接同样不行。
+
+```java
+// Files you own, shared through your FileProvider (or any ContentProvider that honours URI grants)
+Uri ov    = FileProvider.getUriForFile(this, getPackageName() + ".files", overridesJsonFile);
+Uri geoip = FileProvider.getUriForFile(this, getPackageName() + ".files", geoipDatFile);
+Uri site  = FileProvider.getUriForFile(this, getPackageName() + ".files", geositeDatFile);
+
+JSONArray assets = new JSONArray()
+    .put(new JSONObject().put("name", "geoip.dat").put("uri", geoip.toString()))
+    .put(new JSONObject().put("name", "geosite.dat").put("uri", site.toString()));
+
+Intent i = new Intent("com.huskydg.magicv2ray.action.CONNECT").setPackage("com.huskydg.magicv2ray");
+i.putExtra("uri", "freedom://localhost");                 // optional, as before
+i.putExtra("overridesUri", ov.toString());                // the same JSON as `overrides`, from a file
+i.putExtra("assets", assets.toString());
+ClipData clip = ClipData.newRawUri("mv", ov);              // EVERY uri used above must be in the ClipData
+clip.addItem(new ClipData.Item(geoip));
+clip.addItem(new ClipData.Item(site));
+i.setClipData(clip);
+i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+startActivity(i);                                         // or sendBroadcast(i): the request then waits for a tap
+```
+
+**隐私与同意。**
+
+- 自定义数据库会改变每条 `geoip:` / `geosite:` / `ext:` 规则的匹配结果，因此确认对话框会明确说明，并列出每个文件的大小和 SHA-256 前缀。未经用户同意不会应用任何内容，唯一例外是设为“始终信任”的应用再次发送完全相同的 overrides 和文件（文件的指纹也在比对之内；文件一变就会再次询问）。
+- 请求最多等待 10 分钟。等待期间文件位于应用私有缓存中，已检查并计算哈希；**拒绝、出错或超时都会立即删除它们**。
+- 用户同意后，它们被移入会话目录（root：`/mnt/runtime` 下的 tmpfs，重启即消失；非 root：缓存目录），**绝不会**写入用户的数据目录或 `location_assets`。断开连接、重启或崩溃都会删除它们，引擎回到用户自己的数据库。
+- 如果文件无法读取或未通过检查，则不会连接任何内容，并向用户说明原因。
+
+**检测方式：** `getInfo` -> `api.level >= 3`，或 `api.features` 中包含 `"custom_assets"`。

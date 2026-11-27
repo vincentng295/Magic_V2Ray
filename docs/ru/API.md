@@ -108,14 +108,14 @@ Android 11+: добавьте `<queries><package android:name="com.huskydg.magic
 
 ```json
 { "app": "Magic V2Ray", "package": "com.huskydg.magicv2ray", "versionName": "v2.5-alpha", "versionCode": 192, "mode": "root",
-  "api": { "level": 2,
+  "api": { "level": 3,
            "actions": ["com.huskydg.magicv2ray.action.CONNECT", "...DISCONNECT", "...GET_INFO"],
            "schemes": ["magicv2ray://connect", "magicv2ray://disconnect"],
            "events": ["com.huskydg.magicv2ray.event.STATE_CHANGED"],
-           "extras": ["uri", "name", "exclude", "overrides"],
-           "overrides": ["traffic", "network", "exclude", "routing", "hosts"],
+           "extras": ["uri", "name", "exclude", "overrides", "overridesUri", "assets"],
+           "overrides": ["traffic", "network", "exclude", "routing", "hosts", "assets"],
            "provider": { "authority": "com.huskydg.magicv2ray.api", "methods": ["getInfo", "getState", "getNodes", "getActiveNode", "getNodeAccess"], "uris": ["..."] },
-           "features": ["connect", "disconnect", "overrides", "exclude", "info", "state_events", "state_provider", "nodes", "node_access_request", "connect_freedom", "connect_chain", "connect_nodeid"] },
+           "features": ["connect", "disconnect", "overrides", "exclude", "info", "state_events", "state_provider", "nodes", "node_access_request", "connect_freedom", "connect_chain", "connect_nodeid", "overrides_unlimited", "overrides_uri", "custom_assets"] },
   "state": { "connected": true, "known": true, "mode": "root",
              "session": { "active": true, "name": "My server", "caller": "com.example.app", "startedAt": 1731670000000 } } }
 ```
@@ -272,3 +272,63 @@ echo "Magic V2Ray отключён"
 - Ожидающий подтверждения запрос хранится только в памяти; сессия хранит лишь метаданные (имя, вызывающий, список исключений), но не сервер и не изменённые значения.
 - Сессия **не возобновляется после перезагрузки** (root: `/mnt/runtime` очищается, а служба чистит каталог при запуске; non-root: VpnService имеет режим `START_NOT_STICKY`, и устаревшая сессия отбрасывается при открытии приложения). Приложению, которому она нужна снова, необходимо отправлять `connect` после каждой загрузки. Временная сессия также не меняет флаг `enabled`, определяющий, что возобновится при загрузке.
 - Запрос с `overrides` подтверждается (в диалоге перечислено, что изменится). Приложение с режимом «всегда доверять» **повторно не спрашивается, пока отправляет те же `overrides`, с которыми ему было разрешено в прошлый раз**. Если они отличаются (новые или изменённые), диалог появляется снова с сообщением, что приложение хочет применить НОВЫЕ настройки. **Всегда разрешать** запоминает новый набор; **Разрешить один раз** — нет. Хранится только отпечаток SHA-256 от `overrides`, но не сами значения. Ссылкам и браузерам нельзя доверять никогда.
+
+---
+
+### Неограниченные правила и hosts, свои файлы `.dat` (API level 3, только для приложений)
+
+`api.level` равен `3`, когда есть возможности `overrides_unlimited`, `overrides_uri` и `custom_assets`. Всё описанное выше работает как раньше.
+
+**1. Без ограничений на правила и hosts.** `routing.rules` и `hosts.entries` принимают любое число записей, у каждого host — любое число адресов, а `domain` / `ip` правила может быть строкой через запятую **или JSON-массивом строк** (длинный список проще записать массивом). Остаётся только предел по размеру: intent не вмещает больше примерно 1 МБ, а память телефона ограничена:
+
+| Как передаются `overrides` | Предел |
+|---|---|
+| extra `overrides` / deep link | 256 КБ JSON (как раньше, но количество записей уже не важно) |
+| `overridesUri` (файл) | 64 МБ JSON |
+
+Пределы сообщаются в `getInfo`, раздел `api.limits`. Отбрасываются только некорректные записи (правило с `outboundTag`, отличным от `proxy` / `direct` / `block`, неверный домен или адрес), но никогда из-за длины списка.
+
+**2. `overridesUri`: `overrides` в файле.** `content://` URI файла с тем же JSON, что и `overrides`. Если он указан, он **заменяет** extra `overrides`. Ссылки и браузеры его использовать не могут.
+
+**3. `assets`: свои базы `.dat`.** `geoip.dat`, `geosite.dat` и любые другие файлы, доступные через `ext:<файл>.dat:<тег>`, можно передать на время подключения. Extra — JSON-массив `[{"name": "geoip.dat", "uri": "content://..."}, ...]`.
+
+- `name` — простое имя файла, оканчивающееся на `.dat` (буквы, цифры, `.`, `_`, `-`). Файлы, которые вы **не** передали, продолжают работать: движок сначала видит ваши `assets`, а для остальных имён — базы пользователя, поэтому при передаче только `geosite.dat` файл `geoip.dat` остаётся прежним.
+- Каждый файл проверяется при получении запроса (он должен быть похож на гео-базу, а не на HTML-страницу или zip). Не более 32 файлов, по 256 МБ каждый и 512 МБ всего; в режиме root они лежат в ОЗУ на время сессии.
+- Файлы заменяются, а не объединяются: ваш `geosite.dat` используется **вместо** пользовательского для всех правил `geosite:`, включая собственные правила маршрутизации пользователя.
+
+```
+{ "uri": "freedom://localhost", "assets": [ {"name": "geosite.dat", "uri": "content://..."} ] }
+```
+
+**Выдача доступа к файлам.** Принимаются только `content://` URI, и каждый из них должен быть также в `ClipData` intent с `FLAG_GRANT_READ_URI_PERMISSION`; URI, не выданный таким образом, отклоняется. Используйте `startActivity` или `sendBroadcast` с действием `CONNECT`; shell (Termux, `adb`) не может выдавать URI и поэтому не может отправлять файлы, как и deep link.
+
+```java
+// Files you own, shared through your FileProvider (or any ContentProvider that honours URI grants)
+Uri ov    = FileProvider.getUriForFile(this, getPackageName() + ".files", overridesJsonFile);
+Uri geoip = FileProvider.getUriForFile(this, getPackageName() + ".files", geoipDatFile);
+Uri site  = FileProvider.getUriForFile(this, getPackageName() + ".files", geositeDatFile);
+
+JSONArray assets = new JSONArray()
+    .put(new JSONObject().put("name", "geoip.dat").put("uri", geoip.toString()))
+    .put(new JSONObject().put("name", "geosite.dat").put("uri", site.toString()));
+
+Intent i = new Intent("com.huskydg.magicv2ray.action.CONNECT").setPackage("com.huskydg.magicv2ray");
+i.putExtra("uri", "freedom://localhost");                 // optional, as before
+i.putExtra("overridesUri", ov.toString());                // the same JSON as `overrides`, from a file
+i.putExtra("assets", assets.toString());
+ClipData clip = ClipData.newRawUri("mv", ov);              // EVERY uri used above must be in the ClipData
+clip.addItem(new ClipData.Item(geoip));
+clip.addItem(new ClipData.Item(site));
+i.setClipData(clip);
+i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+startActivity(i);                                         // or sendBroadcast(i): the request then waits for a tap
+```
+
+**Конфиденциальность и согласие.**
+
+- Свои базы меняют то, что совпадает с каждым правилом `geoip:` / `geosite:` / `ext:`, поэтому диалог подтверждения говорит об этом прямо и перечисляет каждый файл с размером и началом SHA-256. Ничего не применяется без ответа пользователя, кроме приложения с «всегда доверять», которое снова присылает те же `overrides` и те же файлы (отпечаток файлов входит в проверку; изменённый файл вызывает новый запрос).
+- Запрос ждёт не более 10 минут. Пока он ждёт, файлы лежат в приватном кэше приложения, проверенные и хешированные; **отказ, ошибка или тайм-аут удаляют их сразу**.
+- После согласия они переносятся в каталог сессии (root: tmpfs в `/mnt/runtime`, исчезает при перезагрузке; non-root: каталог кэша) и **никогда** не пишутся в каталог данных или в `location_assets` пользователя. Отключение, перезагрузка или сбой удаляют их, и движок возвращается к базам пользователя.
+- Если файл не читается или не проходит проверку, ничего не подключается, а пользователь видит причину.
+
+**Проверка:** `getInfo` -> `api.level >= 3` или `"custom_assets"` в `api.features`.

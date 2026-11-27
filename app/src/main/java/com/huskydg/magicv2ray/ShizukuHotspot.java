@@ -532,7 +532,7 @@ final class ShizukuHotspot {
             ProcessBuilder pb = new ProcessBuilder(
                     NonRootEnv.bin(app, "xhuskydg_helper").getPath(), "vpnrun", sock,
                     NonRootEnv.bin(app, "xray").getPath(), "run", "-c", cfg.getPath());
-            pb.environment().put("XRAY_LOCATION_ASSET", NonRootEnv.prepareAssets(app).getPath());
+            pb.environment().put("XRAY_LOCATION_ASSET", NonRootEnv.runtimeAssets(app).getPath());
             pb.directory(NonRootEnv.root(app));
             pb.redirectErrorStream(true);
             p = pb.start();

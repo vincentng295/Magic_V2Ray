@@ -2,6 +2,7 @@
  * /dev/net/tun, TUNSETIFF, hand the fd to xray via XRAY_TUN_FD, exec. */
 #include "service.h"
 #include "privdrop.h"
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/if_tun.h>
@@ -216,12 +217,49 @@ static void location_assets_seed(void)
     }
 }
 
+/* An external API session (level 3) can bring its own .dat databases: the app puts them in OVERRIDE_DIR/assets
+ * (tmpfs, never in DATADIR). Every other *.dat of the user's location_assets that the session does not replace is
+ * COPIED in beside them, so geoip.dat / geosite.dat / "ext:" files that the session leaves alone keep working: xray is
+ * given one directory only. Gone with the session directory. */
+#define SESSION_ASSETS_DIR OVERRIDE_DIR "/assets"
+
+static bool has_dat_suffix(const char *n)
+{
+    size_t l = strlen(n);
+    return l > 4 && !strcmp(n + l - 4, ".dat");
+}
+
+/* Returns true when the session brought a directory of its own (and it is now complete). */
+static bool session_assets_seed(void)
+{
+    struct stat st;
+    if (!u_ov_active() || stat(SESSION_ASSETS_DIR, &st) != 0 || !S_ISDIR(st.st_mode)) return false;
+    chmod(SESSION_ASSETS_DIR, 0755);       /* xray's uid walks it through the fd: it needs x on the directory itself */
+    DIR *d = opendir(LOCATION_ASSETS_DIR);
+    if (!d) { log_msg("cannot read %s: %s", LOCATION_ASSETS_DIR, strerror(errno)); return true; }
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL) {
+        char src[600], dst[600];
+        if (!has_dat_suffix(e->d_name) || strchr(e->d_name, '/')) continue;
+        snprintf(src, sizeof src, "%s/%s", LOCATION_ASSETS_DIR, e->d_name);
+        snprintf(dst, sizeof dst, "%s/%s", SESSION_ASSETS_DIR, e->d_name);
+        if (strlen(src) >= 300 || strlen(dst) >= 300) continue;                /* copy_file_atomic's buffers */
+        if (lstat(dst, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0) continue;     /* the session's own file */
+        if (stat(src, &st) != 0 || !S_ISREG(st.st_mode)) continue;
+        if (copy_file_atomic(src, dst) != 0) log_msg("cannot copy %s -> %s: %s", src, dst, strerror(errno));
+    }
+    closedir(d);
+    log_msg("session brings its own geo databases (%s)", SESSION_ASSETS_DIR);
+    return true;
+}
+
 /* O_CLOEXEC directory fd, moved above the low fds that the child dup2()s over (0, 1, 2 can be free in a daemon). */
 static int location_assets_open(void)
 {
     location_assets_seed();
-    int fd = open(LOCATION_ASSETS_DIR, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-    if (fd < 0) { log_msg("cannot open %s: %s (xray uses the bundled databases)", LOCATION_ASSETS_DIR, strerror(errno)); return -1; }
+    const char *dir = session_assets_seed() ? SESSION_ASSETS_DIR : LOCATION_ASSETS_DIR;
+    int fd = open(dir, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (fd < 0) { log_msg("cannot open %s: %s (xray uses the bundled databases)", dir, strerror(errno)); return -1; }
     int hi = fcntl(fd, F_DUPFD_CLOEXEC, 10);
     if (hi >= 0) { close(fd); fd = hi; }
     return fd;
