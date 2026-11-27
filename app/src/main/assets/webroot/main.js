@@ -1989,6 +1989,17 @@ function renderProfiles() {
         menuWrap.className = 'category-menu-container';
         menuWrap.style.cssText = "display: flex; align-items: center; gap: 8px;";
 
+        if (!fetching) {
+            const catGrip = _mkDragHandle();
+            catGrip.addEventListener('pointerdown', (ev) => _startDragSort(ev, container, group, '.category-group', {
+                containerClass: 'sorting-categories',
+                onDrop: () => dropCategory(
+                    Array.from(container.querySelectorAll(':scope > .category-group')).map(g => g.dataset.category)),
+                onCancel: renderProfiles
+            }));
+            menuWrap.appendChild(catGrip);
+        }
+
         const expandBtn = _mkButton(isExpanded ? "▽" : "▷", 'btn-menu-trigger',
             (e) => toggleCategoryExpand(e, category));
         expandBtn.style.cssText = "font-weight: bold; width: 28px;";
@@ -4955,6 +4966,133 @@ function _summarizeRoutingRule(rule) {
     return parts.join('  ·  ') || t('rule_no_conditions');
 }
 
+// ===== Drag & drop reordering (touch + mouse) =====
+// HTML5 drag events do not fire on touch in the Android WebView, so this uses
+// pointer events on a dedicated grip handle (touch-action: none keeps the page
+// from scrolling while the handle is held). The dragged element is moved in the
+// DOM live; when the finger lifts, onDrop(fromIndex, toIndex) receives the
+// position among the sortable siblings before and after the drag.
+const DRAG_GRIP_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
+    '<circle cx="9" cy="6" r="1.8"/><circle cx="15" cy="6" r="1.8"/>' +
+    '<circle cx="9" cy="12" r="1.8"/><circle cx="15" cy="12" r="1.8"/>' +
+    '<circle cx="9" cy="18" r="1.8"/><circle cx="15" cy="18" r="1.8"/></svg>';
+
+function _mkDragHandle() {
+    const h = document.createElement('button');
+    h.type = 'button';
+    h.className = 'drag-handle';
+    h.title = t('btn_drag_reorder');
+    h.setAttribute('aria-label', t('btn_drag_reorder'));
+    h.innerHTML = DRAG_GRIP_SVG;
+    h.addEventListener('click', (e) => e.stopPropagation());
+    return h;
+}
+
+function _scrollParentOf(el) {
+    for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+        const oy = getComputedStyle(p).overflowY;
+        if ((oy === 'auto' || oy === 'scroll') && p.scrollHeight > p.clientHeight) return p;
+    }
+    return document.scrollingElement || document.documentElement;
+}
+
+// container: element holding the sortable items (direct children matching itemSelector)
+// item:      the element being dragged (the handle's owner)
+// opts.onDrop(from, to), opts.containerClass (added to container while dragging)
+function _startDragSort(e, container, item, itemSelector, opts) {
+    if (e.button !== undefined && e.button !== 0 && e.pointerType === 'mouse') return;
+    e.preventDefault();
+    e.stopPropagation();
+    closeAllMenus();
+
+    const handle = e.currentTarget;
+    const siblings = () => Array.from(container.children).filter(c => c.matches(itemSelector));
+    const fromIndex = siblings().indexOf(item);
+    if (fromIndex < 0) return;
+
+    try { handle.setPointerCapture(e.pointerId); } catch (_) { }
+    item.classList.add('drag-sorting');
+    if (opts.containerClass) container.classList.add(opts.containerClass);
+
+    const scroller = _scrollParentOf(item);
+    let lastY = e.clientY;
+    let rafId = 0;
+
+    const place = () => {
+        const others = siblings().filter(s => s !== item);
+        let before = null;
+        for (const s of others) {
+            const r = s.getBoundingClientRect();
+            if (lastY < r.top + r.height / 2) { before = s; break; }
+        }
+        if (before) {
+            if (item.nextElementSibling !== before) container.insertBefore(item, before);
+        } else if (others.length) {
+            const last = others[others.length - 1];
+            if (last.nextElementSibling !== item) last.after(item);
+        }
+    };
+
+    const tick = () => {
+        // Auto-scroll when the finger is near the top/bottom edge of the scroll area.
+        const box = scroller === document.scrollingElement || scroller === document.documentElement
+            ? { top: 0, bottom: window.innerHeight }
+            : scroller.getBoundingClientRect();
+        const zone = 70, maxStep = 18;
+        let dy = 0;
+        if (lastY < box.top + zone) dy = -maxStep * (1 - Math.max(0, lastY - box.top) / zone);
+        else if (lastY > box.bottom - zone) dy = maxStep * (1 - Math.max(0, box.bottom - lastY) / zone);
+        if (dy) { scroller.scrollTop += dy; place(); }
+        rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+
+    const onMove = (ev) => { lastY = ev.clientY; place(); };
+    const finish = (commit) => {
+        cancelAnimationFrame(rafId);
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', onUp);
+        handle.removeEventListener('pointercancel', onCancel);
+        try { handle.releasePointerCapture(e.pointerId); } catch (_) { }
+        item.classList.remove('drag-sorting');
+        if (opts.containerClass) container.classList.remove(opts.containerClass);
+        const toIndex = siblings().indexOf(item);
+        if (commit && toIndex !== fromIndex && toIndex >= 0) opts.onDrop(fromIndex, toIndex);
+        else if (toIndex !== fromIndex && opts.onCancel) opts.onCancel();
+    };
+    const onUp = () => finish(true);
+    const onCancel = () => finish(false);
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
+    handle.addEventListener('pointercancel', onCancel);
+}
+
+// Moves one routing rule to a new position (drag & drop). The list re-renders
+// at once; the save (config regeneration + xray reload) is debounced.
+function dropRoutingRule(from, to) {
+    const rules = advSettings.routingRules;
+    if (!Array.isArray(rules) || !rules[from]) return;
+    const [moved] = rules.splice(from, 1);
+    rules.splice(to, 0, moved);
+    renderRoutingRules();
+    clearTimeout(_routingPersistTimer);
+    _routingPersistTimer = setTimeout(persistRoutingRules, 800);
+}
+
+// Reorders the categories. `profiles` is an object, so its key order is the
+// display order: the keys are re-inserted in place in the new order. Empty
+// categories that renderProfiles() hides keep their relative position at the end.
+function dropCategory(order) {
+    const visible = order.filter(c => profiles[c]);
+    const rest = Object.keys(profiles).filter(c => !visible.includes(c));
+    const final = visible.concat(rest);
+    const entries = final.map(c => [c, profiles[c]]);
+    Object.keys(profiles).forEach(c => delete profiles[c]);
+    entries.forEach(([c, v]) => { profiles[c] = v; });
+    saveProfiles();
+    renderProfiles();
+}
+
 function renderRoutingRules() {
     const container = document.getElementById('routing-rules-container');
     const emptyState = document.getElementById('routing-empty-state');
@@ -4973,25 +5111,16 @@ function renderRoutingRules() {
         const row = document.createElement('div');
         row.className = `routing-rule-row${rule.enabled === false ? ' rule-disabled' : ''}`;
 
-        // Rule order is match priority in Xray (first match wins), so the
-        // list can be reordered. Up/down buttons rather than drag & drop:
-        // HTML5 drag events do not fire on touch in the Android WebView.
+        // Rule order is match priority in Xray (first match wins), so the list
+        // can be reordered by dragging the grip (pointer events: works on touch).
         const reorder = document.createElement('div');
         reorder.className = 'routing-rule-reorder';
-        const upBtn = document.createElement('button');
-        upBtn.className = 'routing-rule-icon-btn';
-        upBtn.title = t('btn_move_up');
-        upBtn.disabled = index === 0;
-        upBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>';
-        upBtn.onclick = (e) => { e.stopPropagation(); moveRoutingRule(index, -1); };
-        reorder.appendChild(upBtn);
-        const downBtn = document.createElement('button');
-        downBtn.className = 'routing-rule-icon-btn';
-        downBtn.title = t('btn_move_down');
-        downBtn.disabled = index === rules.length - 1;
-        downBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
-        downBtn.onclick = (e) => { e.stopPropagation(); moveRoutingRule(index, 1); };
-        reorder.appendChild(downBtn);
+        const grip = _mkDragHandle();
+        grip.addEventListener('pointerdown', (ev) => _startDragSort(ev, container, row, '.routing-rule-row', {
+            onDrop: dropRoutingRule,
+            onCancel: renderRoutingRules
+        }));
+        reorder.appendChild(grip);
         row.appendChild(reorder);
 
         const info = document.createElement('div');

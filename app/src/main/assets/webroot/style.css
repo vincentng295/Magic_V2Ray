@@ -3561,3 +3561,37 @@ input.traffic-limit-input { flex: 1; }
     padding: 6px 12px 0;
 }
 .rule-process-actions .log-filter-chip { cursor: pointer; }
+
+
+/* ===== Drag & drop reordering (categories + routing rules) ===== */
+.drag-handle {
+    background: none;
+    border: none;
+    color: var(--md-on-surface-variant);
+    padding: 6px;
+    border-radius: var(--md-shape-full);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    cursor: grab;
+    touch-action: none;           /* the page must not scroll while the grip is held */
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    opacity: .75;
+}
+.drag-handle:hover { background: rgba(var(--md-primary-rgb), 0.1); opacity: 1; }
+.drag-handle:active { cursor: grabbing; }
+.routing-rule-reorder { margin: -6px 0 -6px -8px; }
+.drag-sorting {
+    position: relative;
+    z-index: 5;
+    opacity: .92;
+    box-shadow: var(--md-shadow-3, 0 8px 24px rgba(0,0,0,.35));
+    outline: 2px solid var(--md-primary);
+    outline-offset: -2px;
+}
+/* While a category is dragged, collapse every node list so the groups are short. */
+.sorting-categories .nodes-list { display: none !important; }
+.sorting-categories, .sorting-categories * { -webkit-user-select: none; user-select: none; }
