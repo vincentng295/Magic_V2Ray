@@ -15,6 +15,7 @@ public class StopProxyReceiver extends BroadcastReceiver {
         new Thread(() -> {
             try {
                 ProxyNotifier.stopProxy(app);
+                ProxyNotifier.syncUi(app);      // an open app re-reads the engine status
             } finally {
                 pr.finish();
             }

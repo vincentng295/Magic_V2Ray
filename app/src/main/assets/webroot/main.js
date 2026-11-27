@@ -3998,6 +3998,8 @@ document.addEventListener('visibilitychange', () => {
         _suspendBackgroundWork();
     } else {
         _resumeBackgroundWork();
+        // The tile or the notification button may have started/stopped the core while the UI was away.
+        updateStatusDisplay();
     }
 });
 

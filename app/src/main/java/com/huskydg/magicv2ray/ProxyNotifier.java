@@ -12,6 +12,8 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.drawable.Icon;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 
 /**
  * The "proxy is active" notification: shows the selected node and a "Turn off proxy" action.
@@ -173,6 +175,17 @@ final class ProxyNotifier {
             }
         } catch (RuntimeException ignored) {    // notifications blocked: nothing to show
         }
+    }
+
+    /**
+     * Tells a live WebUI that the engine was started or stopped behind its back (Quick Settings tile, notification
+     * button) so it re-reads the status. The second ping covers the non-root teardown, which can still be finishing
+     * when stop() returns.
+     */
+    static void syncUi(Context c) {
+        final Context app = c.getApplicationContext() != null ? c.getApplicationContext() : c;
+        ExternalSession.pingUi(app);
+        new Handler(Looper.getMainLooper()).postDelayed(() -> ExternalSession.pingUi(app), 1000);
     }
 
     /**

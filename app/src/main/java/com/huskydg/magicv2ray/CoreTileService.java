@@ -59,6 +59,7 @@ public class CoreTileService extends TileService {
                 boolean needApp = !turnOff && !r.ok();
                 State s = query();
                 notifyRoot(s);
+                ProxyNotifier.syncUi(getApplicationContext());     // an open app re-reads the engine status
                 main.post(() -> {
                     show(s, null);
                     if (needApp && s != State.ON) openApp();
