@@ -1,0 +1,12 @@
+{
+  "version": "x-alpha-build-06710cd8",
+  "versionCode": 214,
+  "zipUrl": "https://raw.githubusercontent.com/vincentng295/Magic_V2Ray/refs/heads/alpha-build/magic_v2ray-alpha-universal.apk",
+  "arch": {
+    "arm64-v8a": "https://raw.githubusercontent.com/vincentng295/Magic_V2Ray/refs/heads/alpha-build/magic_v2ray-alpha-arm64-v8a.apk",
+    "armeabi-v7a": "https://raw.githubusercontent.com/vincentng295/Magic_V2Ray/refs/heads/alpha-build/magic_v2ray-alpha-armeabi-v7a.apk",
+    "x86_64": "https://raw.githubusercontent.com/vincentng295/Magic_V2Ray/refs/heads/alpha-build/magic_v2ray-alpha-x86_64.apk",
+    "x86": "https://raw.githubusercontent.com/vincentng295/Magic_V2Ray/refs/heads/alpha-build/magic_v2ray-alpha-x86.apk"
+  },
+  "changelog": "https://raw.githubusercontent.com/vincentng295/Magic_V2Ray/refs/heads/alpha-build/changelog.md"
+}
