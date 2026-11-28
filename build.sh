@@ -7,7 +7,7 @@
 # the installer files (META-INF, customize.sh, ...) at its root next to the
 # executables for its ABI(s). Flashing it installs the module, then the app.
 #
-#   ./build.sh                     -> APKs: arm64-v8a, x86_64 and universal
+#   ./build.sh                     -> APKs: arm64-v8a, armeabi-v7a, x86_64, x86 and universal
 #   ./build.sh --update-xray       -> force rebuild of xray even if up to date
 #   ./build.sh --update-helper     -> force rebuild of xhuskydg_helper even if up to date
 #
@@ -112,8 +112,10 @@ build_xray() {
     fi
     local goarch triple
     case "$arch" in
-        arm64-v8a) goarch=arm64; triple="aarch64-linux-android31" ;;
-        x86_64)    goarch=amd64; triple="x86_64-linux-android31" ;;
+        arm64-v8a)   goarch=arm64; triple="aarch64-linux-android31" ;;
+        armeabi-v7a) goarch=arm;   triple="armv7a-linux-androideabi31" ;;
+        x86_64)      goarch=amd64; triple="x86_64-linux-android31" ;;
+        x86)         goarch=386;   triple="i686-linux-android31" ;;
         *) echo "unknown arch: $arch" >&2; exit 1 ;;
     esac
     # GOOS=android needs external (cgo) linking, so build with the NDK clang.
@@ -124,7 +126,7 @@ build_xray() {
     echo "==> building xray for ${arch} from core/xray-core (NDK: ${ndk})"
     mkdir -p "$dest"
     ( cd core/xray-core && \
-      CGO_ENABLED=1 CC="$cc" GOOS=android GOARCH="$goarch" \
+      CGO_ENABLED=1 CC="$cc" GOOS=android GOARCH="$goarch" GOARM=7 GO386=softfloat \
       go build -trimpath -buildvcs=false -ldflags "-s -w -buildid= -checklinkname=0" \
           -o "${root}/${dest}/xray" ./main )
     chmod 0755 "${dest}/xray"
@@ -178,8 +180,9 @@ locate_boringssl() {
     inc=$(find "$BSSL_ROOT" -type f -path '*/openssl/ssl.h' | head -n 1)
     [[ -n "$inc" ]] || { echo "BoringSSL headers (openssl/ssl.h) not found under $BSSL_ROOT" >&2; exit 1; }
     BSSL_INC="${inc%/openssl/ssl.h}"
-    BSSL_SSL=$(find "$BSSL_ROOT" -type f -name 'libssl*.a' -path "*${arch}*" | head -n 1)
-    BSSL_CRYPTO=$(find "$BSSL_ROOT" -type f -name 'libcrypto*.a' -path "*${arch}*" | head -n 1)
+    # exact ABI directory (android.<abi>/ or <abi>/), so "x86" never picks up x86_64
+    BSSL_SSL=$(find "$BSSL_ROOT" -type f -name 'libssl*.a' \( -path "*android.${arch}/*" -o -path "*/${arch}/*" \) | head -n 1)
+    BSSL_CRYPTO=$(find "$BSSL_ROOT" -type f -name 'libcrypto*.a' \( -path "*android.${arch}/*" -o -path "*/${arch}/*" \) | head -n 1)
     [[ -f "$BSSL_SSL" && -f "$BSSL_CRYPTO" ]] || { echo "BoringSSL libssl.a/libcrypto.a for ${arch} not found under $BSSL_ROOT" >&2; exit 1; }
 }
 
@@ -216,8 +219,10 @@ build_helper() {
     fi
     local triple
     case "$arch" in
-        arm64-v8a) triple="aarch64-linux-android31" ;;
-        x86_64)    triple="x86_64-linux-android31" ;;
+        arm64-v8a)   triple="aarch64-linux-android31" ;;
+        armeabi-v7a) triple="armv7a-linux-androideabi31" ;;
+        x86_64)      triple="x86_64-linux-android31" ;;
+        x86)         triple="i686-linux-android31" ;;
         *) echo "unknown arch: $arch" >&2; exit 1 ;;
     esac
     local ndk tc; ndk=$(find_ndk)
@@ -262,8 +267,10 @@ fetch_busybox() {
     local arch="$1" name
     [[ -x "module/bin/${arch}/busybox" ]] && return
     case "$arch" in
-        arm64-v8a) name=busybox-arm64-selinux ;;
-        x86_64)    name=busybox-x86_64-selinux ;;
+        arm64-v8a)   name=busybox-arm64-selinux ;;
+        armeabi-v7a) name=busybox-arm-selinux ;;
+        x86_64)      name=busybox-x86_64-selinux ;;
+        x86)         name=busybox-x86-selinux ;;
         *) echo "unknown arch: $arch" >&2; exit 1 ;;
     esac
     echo "==> fetching busybox (${arch})"
@@ -356,9 +363,11 @@ verify_flashable() {
         grep -q " ${need}\$" <<<"$list" || { echo "!! $f is missing ${need}" >&2; exit 1; }
     done
     case "$f" in
-        *arm64-v8a*) abis="arm64-v8a" ;;
-        *x86_64*)    abis="x86_64" ;;
-        *)           abis="arm64-v8a x86_64" ;;
+        *arm64-v8a*)   abis="arm64-v8a" ;;
+        *armeabi-v7a*) abis="armeabi-v7a" ;;
+        *x86_64*)      abis="x86_64" ;;
+        *-x86.apk)     abis="x86" ;;
+        *)             abis="arm64-v8a armeabi-v7a x86_64 x86" ;;
     esac
     for abi in $abis; do
         for lib in libxray.so libxhuskydg_helper.so libbusybox.so; do
@@ -369,7 +378,7 @@ verify_flashable() {
 
 build_apk() {
     local a f name
-    for a in arm64-v8a x86_64; do
+    for a in arm64-v8a armeabi-v7a x86_64 x86; do
         build_xray "$a"; build_helper "$a"; fetch_busybox "$a"; stage_jnilibs "$a"
     done
     echo "==> ${GRADLE_CMD} assembleRelease"

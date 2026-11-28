@@ -212,7 +212,7 @@ final class ModuleInstaller {
                 File src = new File(libDir, b[0]);
                 if (!src.isFile() || src.length() == 0) {
                     return "missing native binary for this CPU: " + b[0]
-                            + " (supported ABIs: arm64-v8a, x86_64)";
+                            + " (supported ABIs: arm64-v8a, armeabi-v7a, x86_64, x86)";
                 }
                 copyFile(src, new File(stage, b[1]));
             }

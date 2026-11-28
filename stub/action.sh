@@ -19,6 +19,10 @@ APK_ARM64="@APK_ARM64@"
 SHA_ARM64="@SHA_ARM64@"
 APK_X64="@APK_X64@"
 SHA_X64="@SHA_X64@"
+APK_ARM32="@APK_ARM32@"
+SHA_ARM32="@SHA_ARM32@"
+APK_X86="@APK_X86@"
+SHA_X86="@SHA_X86@"
 TMPAPK="/data/local/tmp/magic_v2ray_install.apk"
 
 trap 'rm -f "$TMPAPK"' EXIT
@@ -87,12 +91,14 @@ IFS=,
 for a in $abis; do
     case "$a" in
         arm64-v8a) APK="$APK_ARM64"; SHA="$SHA_ARM64"; break ;;
+        armeabi-v7a) APK="$APK_ARM32"; SHA="$SHA_ARM32"; break ;;
         x86_64)    APK="$APK_X64";   SHA="$SHA_X64";   break ;;
+        x86)       APK="$APK_X86";   SHA="$SHA_X86";   break ;;
     esac
 done
 IFS=$oldifs
 if [ -z "$APK" ]; then
-    echo "Unsupported CPU ($abis): arm64-v8a or x86_64 is required."
+    echo "Unsupported CPU ($abis): arm64-v8a, armeabi-v7a, x86_64 or x86 is required."
     exit 1
 fi
 

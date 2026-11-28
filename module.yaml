@@ -18,7 +18,7 @@ authors:
 
 compatibility:
   androidMinApi: 26
-  architectures: [arm64-v8a, x86_64]
+  architectures: [arm64-v8a, armeabi-v7a, x86_64, x86]
 
 release:
   # The release holds the three APKs plus exactly one .zip: the installer stub.

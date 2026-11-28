@@ -16,10 +16,12 @@ mkdir -p "$MODPATH/bin"
 
 case "$ARCH" in
     arm64) ABI=arm64-v8a ;;
+    arm)   ABI=armeabi-v7a ;;
     x64)   ABI=x86_64 ;;
+    x86)   ABI=x86 ;;
     *)
         ui_print "! Unsupported CPU architecture: $ARCH"
-        abort "! This module supports arm64-v8a and x86_64 only."
+        abort "! This module supports arm64-v8a, armeabi-v7a, x86_64 and x86 only."
         ;;
 esac
 

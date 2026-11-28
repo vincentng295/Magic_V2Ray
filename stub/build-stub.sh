@@ -42,7 +42,9 @@ esac
 
 ARM64="$DIST/${MODID}-${VERSION}-arm64-v8a.apk"
 X64="$DIST/${MODID}-${VERSION}-x86_64.apk"
-for f in "$ARM64" "$X64"; do
+ARM32="$DIST/${MODID}-${VERSION}-armeabi-v7a.apk"
+X86="$DIST/${MODID}-${VERSION}-x86.apk"
+for f in "$ARM64" "$X64" "$ARM32" "$X86"; do
     [ -s "$f" ] || { echo "!! missing $f (run build.sh first)" >&2; exit 1; }
 done
 
@@ -59,6 +61,10 @@ sed \
     -e "s|@SHA_ARM64@|$(sha "$ARM64")|g" \
     -e "s|@APK_X64@|$(basename "$X64")|g" \
     -e "s|@SHA_X64@|$(sha "$X64")|g" \
+    -e "s|@APK_ARM32@|$(basename "$ARM32")|g" \
+    -e "s|@SHA_ARM32@|$(sha "$ARM32")|g" \
+    -e "s|@APK_X86@|$(basename "$X86")|g" \
+    -e "s|@SHA_X86@|$(sha "$X86")|g" \
     stub/action.sh > "$STAGE/action.sh"
 if grep -q '@[A-Z0-9_]*@' "$STAGE/action.sh"; then
     echo "!! unreplaced placeholder left in action.sh" >&2; exit 1

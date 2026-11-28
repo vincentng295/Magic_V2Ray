@@ -42,7 +42,7 @@ android {
         abi {
             enable true
             reset()
-            include 'arm64-v8a', 'x86_64'
+            include 'arm64-v8a', 'armeabi-v7a', 'x86_64', 'x86'
             universalApk true
         }
     }
@@ -128,7 +128,7 @@ tasks.register('stageModuleAssets', Sync) {
 tasks.register('checkNativeLibs') {
     doFirst {
         def missing = []
-        ['arm64-v8a', 'x86_64'].each { abi ->
+        ['arm64-v8a', 'armeabi-v7a', 'x86_64', 'x86'].each { abi ->
             ['libxray.so', 'libxhuskydg_helper.so', 'libbusybox.so'].each { lib ->
                 if (!file("src/main/jniLibs/$abi/$lib").isFile()) missing << "$abi/$lib"
             }

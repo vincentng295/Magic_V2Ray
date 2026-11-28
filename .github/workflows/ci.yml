@@ -299,6 +299,20 @@ jobs:
           path: dist/*-x86_64.apk
           if-no-files-found: error
 
+      - name: Upload armeabi-v7a artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: magic_v2ray-armeabi-v7a
+          path: dist/*-armeabi-v7a.apk
+          if-no-files-found: error
+
+      - name: Upload x86 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: magic_v2ray-x86
+          path: dist/*-x86.apk
+          if-no-files-found: error
+
       - name: Upload universal artifact
         uses: actions/upload-artifact@v4
         with:
@@ -413,7 +427,7 @@ jobs:
         - name: Rename APKs to fixed alpha names
           run: |
             set -e
-            for abi in universal arm64-v8a x86_64; do
+            for abi in universal arm64-v8a armeabi-v7a x86_64 x86; do
               src=$(ls dist/*-"$abi".apk 2>/dev/null | head -n1 || true)
               [ -n "$src" ] || { echo "::error::no $abi APK in dist/"; exit 1; }
               mv -f "$src" "dist/magic_v2ray-alpha-$abi.apk"
@@ -446,9 +460,11 @@ jobs:
               --arg zip "$base/magic_v2ray-alpha-universal.apk" \
               --arg a64 "$base/magic_v2ray-alpha-arm64-v8a.apk" \
               --arg x64 "$base/magic_v2ray-alpha-x86_64.apk" \
+              --arg a32 "$base/magic_v2ray-alpha-armeabi-v7a.apk" \
+              --arg x32 "$base/magic_v2ray-alpha-x86.apk" \
               --arg cl "$base/changelog.md" \
               '{version:$version, versionCode:$code, zipUrl:$zip,
-                arch:{"arm64-v8a":$a64, "x86_64":$x64}, changelog:$cl}' > dist/update.json
+                arch:{"arm64-v8a":$a64, "armeabi-v7a":$a32, "x86_64":$x64, "x86":$x32}, changelog:$cl}' > dist/update.json
             cat dist/update.json
 
         - name: Push to alpha-build branch
