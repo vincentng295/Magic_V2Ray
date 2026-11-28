@@ -216,6 +216,19 @@ let advSettings = {
     policyGroups: [],
     routingRules: [
         {
+            "remarks": "block exclude apps",
+            "locked": false,
+            "domain": "",
+            "ip": "",
+            "port": "",
+            "sourceIP": "127.0.0.1,198.18.0.1,::1,fdfe:dcba:9876::1,2001:db8:7872:6179::1,fe80::/10",
+            "sourcePort": "",
+            "process" : "__unknown_apps__", // come from the Exclude Apps tab
+            "protocol": "",
+            "outboundTag": "block",
+            "enabled": true
+        },
+        {
             "remarks": "阻断udp443",
             "locked": false,
             "domain": "",

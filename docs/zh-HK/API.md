@@ -257,7 +257,8 @@ echo "Magic V2Ray 已中斷連接"
   "exclude": { "apps": ["com.example.app"], "mode": "add", "enabled": true },
   "routing": { "domainStrategy": "IPIfNonMatch", "mode": "prepend",
                "rules": [ { "domain": "geosite:google", "outboundTag": "proxy", "remarks": "temp" },
-                          { "process": ["com.example.app"], "outboundTag": "direct", "remarks": "app direct" } ] },
+                          { "process": ["com.example.app"], "outboundTag": "direct", "remarks": "app direct" },
+                           { "sourceIP": "192.168.43.0/24", "sourcePort": "1000-2000", "outboundTag": "block", "remarks": "hotspot clients" } ] },
   "hosts":   { "mode": "merge", "entries": { "example.com": "1.2.3.4", "b.com": ["::1", "10.0.0.1"] } }
 }
 ```

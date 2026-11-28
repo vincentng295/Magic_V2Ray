@@ -270,7 +270,7 @@
         rules.forEach(function (r, i) {
             if (!r) return;
             var m = [];
-            ['domain', 'ip', 'port', 'network', 'protocol'].forEach(function (k) {
+            ['domain', 'ip', 'port', 'sourceIP', 'sourcePort', 'network', 'protocol'].forEach(function (k) {
                 if (r[k]) m.push(k + '=' + String(r[k]).slice(0, 120) + (String(r[k]).length > 120 ? '...' : ''));
             });
             L.push('    ' + (i + 1) + '. [' + (r.enabled === false ? 'off' : 'on') + '] ' + (r.remarks || '') +

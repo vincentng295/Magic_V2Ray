@@ -5051,6 +5051,8 @@ function _summarizeRoutingRule(rule) {
     if (rule.domain && rule.domain.trim()) parts.push(`domain: ${rule.domain.trim()}`);
     if (rule.ip && rule.ip.trim()) parts.push(`ip: ${rule.ip.trim()}`);
     if (rule.port && String(rule.port).trim()) parts.push(`port: ${String(rule.port).trim()}`);
+    if (rule.sourceIP && String(rule.sourceIP).trim()) parts.push(`sourceIP: ${String(rule.sourceIP).trim()}`);
+    if (rule.sourcePort && String(rule.sourcePort).trim()) parts.push(`sourcePort: ${String(rule.sourcePort).trim()}`);
     if (rule.process && String(rule.process).trim()) parts.push(`process: ${String(rule.process).trim()}`);
     if (rule.protocol && rule.protocol.trim()) parts.push(`protocol: [${rule.protocol.trim()}]`);
     if (rule.network && rule.network.trim()) parts.push(`network: [${rule.network.trim()}]`);
@@ -5402,6 +5404,8 @@ function openAddRoutingRuleModal() {
     document.getElementById('rule-domain').value = '';
     document.getElementById('rule-ip').value = '';
     document.getElementById('rule-port').value = '';
+    document.getElementById('rule-source-ip').value = '';
+    document.getElementById('rule-source-port').value = '';
     document.getElementById('rule-process').value = '';
     document.getElementById('rule-protocol').value = '';
     document.getElementById('rule-network').value = '';
@@ -5420,6 +5424,8 @@ function editRoutingRule(index) {
     document.getElementById('rule-domain').value = rule.domain || '';
     document.getElementById('rule-ip').value = rule.ip || '';
     document.getElementById('rule-port').value = rule.port || '';
+    document.getElementById('rule-source-ip').value = rule.sourceIP || '';
+    document.getElementById('rule-source-port').value = rule.sourcePort || '';
     document.getElementById('rule-process').value = rule.process || '';
     document.getElementById('rule-protocol').value = rule.protocol || '';
     document.getElementById('rule-network').value = rule.network || '';
@@ -5436,6 +5442,8 @@ function saveRoutingRule() {
     const domain = document.getElementById('rule-domain').value.trim();
     const ip = document.getElementById('rule-ip').value.trim();
     const port = document.getElementById('rule-port').value.trim();
+    const sourceIP = document.getElementById('rule-source-ip').value.trim();
+    const sourcePort = document.getElementById('rule-source-port').value.trim();
     const protocol = document.getElementById('rule-protocol').value.trim();
     const proc = _normalizeProcessInput(document.getElementById('rule-process').value);
     if (proc.invalid.length) {
@@ -5444,7 +5452,7 @@ function saveRoutingRule() {
     }
     const process = proc.tokens.join(',');
 
-    if (!domain && !ip && !port && !protocol && !process) {
+    if (!domain && !ip && !port && !sourceIP && !sourcePort && !protocol && !process) {
         showToast(t('toast_rule_needs_condition'), 'error');
         return;
     }
@@ -5455,6 +5463,8 @@ function saveRoutingRule() {
         domain,
         ip,
         port,
+        sourceIP,
+        sourcePort,
         process,
         protocol,
         network: document.getElementById('rule-network').value,
@@ -5802,6 +5812,9 @@ function importRoutingRulesFromJson() {
         domain: _rtToCsv(raw.domain),
         ip: _rtToCsv(raw.ip),
         port: raw.port !== undefined && raw.port !== null ? String(raw.port) : '',
+        // Xray calls the source address list "source"; "sourceIP" is accepted too
+        sourceIP: _rtToCsv(raw.sourceIP !== undefined ? raw.sourceIP : raw.source),
+        sourcePort: raw.sourcePort !== undefined && raw.sourcePort !== null ? String(raw.sourcePort) : '',
         process: _normalizeProcessInput(_rtToCsv(raw.process)).tokens.join(','),
         protocol: _rtToCsv(raw.protocol),
         network: raw.network || '',
@@ -5833,6 +5846,9 @@ function exportRoutingRulesToClipboard() {
         const ip = _rtSplitCsv(rule.ip);
         if (ip.length) obj.ip = ip;
         if (rule.port && String(rule.port).trim()) obj.port = String(rule.port).trim();
+        const sourceIP = _rtSplitCsv(rule.sourceIP);
+        if (sourceIP.length) obj.sourceIP = sourceIP;
+        if (rule.sourcePort && String(rule.sourcePort).trim()) obj.sourcePort = String(rule.sourcePort).trim();
         const proc = _rtSplitCsv(rule.process);
         if (proc.length) obj.process = proc;
         const protocol = _rtSplitCsv(rule.protocol);

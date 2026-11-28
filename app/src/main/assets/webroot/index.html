@@ -1752,6 +1752,16 @@ extras  uri, name, exclude</pre>
                 </div>
 
                 <div class="edit-item-field">
+                    <label data-i18n="lbl_source_ip">sourceIP</label>
+                    <input type="text" id="rule-source-ip" data-i18n-placeholder="rule_match_placeholder" placeholder="Separated by commas(,), e.g. 192.168.43.0/24" autocapitalize="off" autocomplete="off" spellcheck="false">
+                </div>
+
+                <div class="edit-item-field">
+                    <label data-i18n="lbl_source_port">sourcePort</label>
+                    <input type="text" id="rule-source-port" placeholder="443 or 1000-2000" autocomplete="off">
+                </div>
+
+                <div class="edit-item-field">
                     <label data-i18n="lbl_process">process</label>
                     <input type="text" id="rule-process" data-i18n-placeholder="ph_rule_process" placeholder="com.example.app, __unknown_apps__" autocapitalize="off" autocomplete="off" spellcheck="false">
                     <div class="rule-process-actions">

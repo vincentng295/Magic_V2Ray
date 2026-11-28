@@ -607,8 +607,8 @@ function _chainTaggedOutbounds(rawUri, tag, hopTagFn, inner) {
 }
 
 // Converts the user-editable Routing Settings list (advSettings.routingRules)
-// into Xray "field" routing rule objects: domain / ip / port / protocol /
-// network / process. Disabled rules are skipped entirely.
+// into Xray "field" routing rule objects: domain / ip / port / source (sourceIP) /
+// sourcePort / protocol / network / process. Disabled rules are skipped entirely.
 //
 // process: package names are resolved to UIDs here ("10001", ...); the token
 // __unknown_apps__ becomes "-1". A rule whose process list resolves to nothing
@@ -694,10 +694,14 @@ function _buildCustomRoutingRules(routingRules, nodeTagByRemark, balancerTagById
             const domain = splitCsv(r.domain);
             const ip = splitCsv(r.ip);
             const protocol = splitCsv(r.protocol);
+            const sourceIP = splitCsv(r.sourceIP);
 
             if (domain.length) rule.domain = domain;
             if (ip.length) rule.ip = ip;
             if (r.port && String(r.port).trim()) rule.port = String(r.port).trim();
+            // Where the connection comes from (Xray: "source" = IPs / CIDRs, "sourcePort" = port or range).
+            if (sourceIP.length) rule.source = sourceIP;
+            if (r.sourcePort && String(r.sourcePort).trim()) rule.sourcePort = String(r.sourcePort).trim();
             if (r.network && String(r.network).trim()) rule.network = String(r.network).trim();
             if (protocol.length) rule.protocol = protocol;
             if (processUids) rule.process = processUids;
@@ -709,7 +713,7 @@ function _buildCustomRoutingRules(routingRules, nodeTagByRemark, balancerTagById
         .filter(Boolean)
         // A rule with no matching conditions at all would be a no-op (or worse,
         // an accidental catch-all) — drop it defensively.
-        .filter(rule => rule.domain || rule.ip || rule.port || rule.protocol || rule.process);
+        .filter(rule => rule.domain || rule.ip || rule.port || rule.protocol || rule.process || rule.source || rule.sourcePort);
 }
 
 // Builds the extra outbounds needed by routing rules whose outboundTag is a

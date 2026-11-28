@@ -413,6 +413,13 @@ final class ExternalSession {
         return v instanceof String ? clean((String) v, max) : "";
     }
 
+    /** A port or port range of a rule ("443", "1000-2000", "53,443"): a string, or a plain JSON number. */
+    private static String rulePort(JSONObject r, String k) {
+        Object v = r.opt(k);
+        if (v instanceof Integer || v instanceof Long) return String.valueOf(v);
+        return v instanceof String ? clean((String) v, 200) : "";
+    }
+
     /**
      * The {@code process} list of a rule: apps the rule applies to, as a comma separated string or (like domain / ip) a
      * JSON array. Only Android package names and the token {@code __unknown_apps__} survive; anything else is dropped,
@@ -468,6 +475,7 @@ final class ExternalSession {
      *   "exclude": { "apps": ["pkg", ...], "mode": "replace" | "add", "enabled": true },
      *   "routing": { "domainStrategy": "IPIfNonMatch", "mode": "replace" | "prepend",
      *                "rules": [ { "domain": "geosite:google", "ip": "", "port": "", "protocol": "", "network": "",
+     *                             "sourceIP": "192.168.43.0/24", "sourcePort": "1000-2000",
      *                             "process": ["com.example.app", "__unknown_apps__"],
      *                             "outboundTag": "proxy" | "direct" | "block", "remarks": "", "enabled": true } ] },
      *   "hosts":   { "mode": "replace" | "merge", "entries": { "example.com": "1.2.3.4", "b.com": ["::1", "10.0.0.1"] } } }
@@ -544,7 +552,8 @@ final class ExternalSession {
                         JSONObject o = new JSONObject();
                         o.put("remarks", ruleStr(r, "remarks", 80)).put("locked", false)
                                 .put("domain", ruleList(r, "domain")).put("ip", ruleList(r, "ip"))
-                                .put("port", ruleStr(r, "port", 200)).put("protocol", ruleStr(r, "protocol", 100))
+                                .put("port", rulePort(r, "port")).put("protocol", ruleStr(r, "protocol", 100))
+                                .put("sourceIP", ruleList(r, "sourceIP")).put("sourcePort", rulePort(r, "sourcePort"))
                                 .put("network", ruleStr(r, "network", 20)).put("process", ruleProcess(r))
                                 .put("outboundTag", tag)
                                 .put("enabled", !r.has("enabled") || r.optBoolean("enabled", true));
