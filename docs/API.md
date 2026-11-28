@@ -240,7 +240,8 @@ Besides a node, `connect` can carry an `overrides` parameter that **temporarily 
   "network": { "networkMode": 1, "allowTether": false, "bypassIfaces": ["tailscale0"], "bypassVpnService": true },
   "exclude": { "apps": ["com.example.app"], "mode": "add", "enabled": true },
   "routing": { "domainStrategy": "IPIfNonMatch", "mode": "prepend",
-               "rules": [ { "domain": "geosite:google", "outboundTag": "proxy", "remarks": "temp" } ] },
+               "rules": [ { "domain": "geosite:google", "outboundTag": "proxy", "remarks": "temp" },
+                          { "process": ["com.example.app"], "outboundTag": "direct", "remarks": "app direct" } ] },
   "hosts":   { "mode": "merge", "entries": { "example.com": "1.2.3.4", "b.com": ["::1", "10.0.0.1"] } }
 }
 ```
@@ -263,7 +264,7 @@ Besides a node, `connect` can carry an `overrides` parameter that **temporarily 
 
 `api.level` is `3` when the features `overrides_unlimited`, `overrides_uri` and `custom_assets` are present. Everything above keeps working unchanged.
 
-**1. No limit on rules and hosts.** `routing.rules` and `hosts.entries` accept any number of entries, each host any number of addresses, and a rule's `domain` / `ip` may be a comma separated string **or a JSON array of strings** (a long list is simply written as an array). What remains is a ceiling on bytes, because an intent cannot carry more than about 1 MB and a phone has limited memory:
+**1. No limit on rules and hosts.** `routing.rules` and `hosts.entries` accept any number of entries, each host any number of addresses, and a rule's `domain` / `ip` may be a comma separated string **or a JSON array of strings** (a long list is simply written as an array). A rule may also carry `process`: a list of Android package names (comma separated string or JSON array; the token `__unknown_apps__` matches apps Magic V2Ray cannot resolve) that the rule applies to. Packages are resolved to UIDs on the device; a rule whose apps are not installed is dropped rather than widened to all traffic. What remains is a ceiling on bytes, because an intent cannot carry more than about 1 MB and a phone has limited memory:
 
 | Where the overrides travel | Ceiling |
 |---|---|

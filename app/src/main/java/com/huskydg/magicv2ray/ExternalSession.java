@@ -414,6 +414,32 @@ final class ExternalSession {
     }
 
     /**
+     * The {@code process} list of a rule: apps the rule applies to, as a comma separated string or (like domain / ip) a
+     * JSON array. Only Android package names and the token {@code __unknown_apps__} survive; anything else is dropped,
+     * so an app cannot smuggle raw UIDs or free text into the rule. The WebUI resolves the packages to UIDs when the
+     * config is built, and a rule whose apps are none of them installed is dropped there, never widened.
+     */
+    private static String ruleProcess(JSONObject r) {
+        Object v = r.opt("process");
+        java.util.List<String> raw = new java.util.ArrayList<>();
+        if (v instanceof String) {
+            for (String t : ((String) v).split("[,\\s]+")) raw.add(t);
+        } else if (v instanceof JSONArray) {
+            JSONArray a = (JSONArray) v;
+            for (int i = 0; i < a.length(); i++) raw.add(a.optString(i, ""));
+        } else {
+            return "";
+        }
+        java.util.LinkedHashSet<String> keep = new java.util.LinkedHashSet<>();
+        for (String t : raw) {
+            t = t == null ? "" : t.trim();
+            if (t.isEmpty() || t.length() > 200) continue;
+            if (t.equals("__unknown_apps__") || PKG_RE.matcher(t).matches()) keep.add(t);
+        }
+        return android.text.TextUtils.join(",", keep);
+    }
+
+    /**
      * A domain / ip list of a rule: the comma separated string the WebUI keeps, or (level 3) a JSON array of strings, which
      * is how a long list is naturally written. No length limit besides the size of the request itself.
      */
@@ -442,6 +468,7 @@ final class ExternalSession {
      *   "exclude": { "apps": ["pkg", ...], "mode": "replace" | "add", "enabled": true },
      *   "routing": { "domainStrategy": "IPIfNonMatch", "mode": "replace" | "prepend",
      *                "rules": [ { "domain": "geosite:google", "ip": "", "port": "", "protocol": "", "network": "",
+     *                             "process": ["com.example.app", "__unknown_apps__"],
      *                             "outboundTag": "proxy" | "direct" | "block", "remarks": "", "enabled": true } ] },
      *   "hosts":   { "mode": "replace" | "merge", "entries": { "example.com": "1.2.3.4", "b.com": ["::1", "10.0.0.1"] } } }
      * </pre>
@@ -518,7 +545,8 @@ final class ExternalSession {
                         o.put("remarks", ruleStr(r, "remarks", 80)).put("locked", false)
                                 .put("domain", ruleList(r, "domain")).put("ip", ruleList(r, "ip"))
                                 .put("port", ruleStr(r, "port", 200)).put("protocol", ruleStr(r, "protocol", 100))
-                                .put("network", ruleStr(r, "network", 20)).put("outboundTag", tag)
+                                .put("network", ruleStr(r, "network", 20)).put("process", ruleProcess(r))
+                                .put("outboundTag", tag)
                                 .put("enabled", !r.has("enabled") || r.optBoolean("enabled", true));
                         rules.put(o);
                     }

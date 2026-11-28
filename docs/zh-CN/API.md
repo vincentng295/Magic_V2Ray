@@ -256,7 +256,8 @@ echo "Magic V2Ray 已断开"
   "network": { "networkMode": 1, "allowTether": false, "bypassIfaces": ["tailscale0"], "bypassVpnService": true },
   "exclude": { "apps": ["com.example.app"], "mode": "add", "enabled": true },
   "routing": { "domainStrategy": "IPIfNonMatch", "mode": "prepend",
-               "rules": [ { "domain": "geosite:google", "outboundTag": "proxy", "remarks": "temp" } ] },
+               "rules": [ { "domain": "geosite:google", "outboundTag": "proxy", "remarks": "temp" },
+                          { "process": ["com.example.app"], "outboundTag": "direct", "remarks": "app direct" } ] },
   "hosts":   { "mode": "merge", "entries": { "example.com": "1.2.3.4", "b.com": ["::1", "10.0.0.1"] } }
 }
 ```
