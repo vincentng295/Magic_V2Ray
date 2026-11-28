@@ -402,18 +402,27 @@ public class MagicVpnService extends VpnService {
         File cfg = NonRootEnv.runtimeConfig(this, !v6);
         final String sock = "mv-tun-" + android.os.Process.myPid() + "-" + System.nanoTime();
         final LocalServerSocket server = new LocalServerSocket(sock);
+        // answers xray's process lookups for routing rules with "process" (getConnectionOwnerUid, VPN app only)
+        UidLookupServer uidSrv = null;
+        try {
+            uidSrv = new UidLookupServer(this);
+        } catch (IOException | RuntimeException ignored) {    // not fatal: such rules just do not match
+        }
+        final UidLookupServer uid = uidSrv;
         final Process p;
         try {
             ProcessBuilder pb = new ProcessBuilder(
                     NonRootEnv.bin(this, "xhuskydg_helper").getPath(), "vpnrun", sock,
                     NonRootEnv.bin(this, "xray").getPath(), "run", "-c", cfg.getPath());
             pb.environment().put("XRAY_LOCATION_ASSET", NonRootEnv.runtimeAssets(this).getPath());
+            if (uid != null) pb.environment().put("MV_UID_SOCK", uid.name);
             pb.directory(NonRootEnv.root(this));
             pb.redirectErrorStream(true);
             p = pb.start();
             p.getOutputStream().close();
         } catch (IOException e) {
             server.close();
+            if (uid != null) uid.close();
             throw e;
         }
 
@@ -446,6 +455,7 @@ public class MagicVpnService extends VpnService {
         }
         if (!done || !ok.get()) {
             p.destroyForcibly();
+            if (uid != null) uid.close();
             throw new IOException("could not hand the VPN interface to xray");
         }
 
@@ -456,6 +466,8 @@ public class MagicVpnService extends VpnService {
                 p.waitFor();
             } catch (InterruptedException e) {
                 return;
+            } finally {
+                if (uid != null) uid.close();               // the lookup server lives as long as this xray process
             }
             if (xray == p && !closing) {            // not a stop / reload we asked for
                 VpnController.setFailed("xray exited (code " + p.exitValue() + "), see the log tab");
