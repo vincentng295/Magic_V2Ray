@@ -443,9 +443,17 @@ final class NonRootEnv {
      * from the runtime config the main xray actually runs with.
      */
     static File hotspotConfig(Context c, boolean blockIpv6) throws IOException {
+        return hotspotConfig(c, blockIpv6, false);
+    }
+
+    /**
+     * @param rootEngine root mode: the main engine is the root service, whose socks-test-in sits on
+     *                   127.17.1.3:808 (no non-root port offset) and whose config the app cannot read.
+     */
+    static File hotspotConfig(Context c, boolean blockIpv6, boolean rootEngine) throws IOException {
         String host = SOCKS_TEST_HOST;
-        int port = SOCKS_TEST_PORT;
-        try {
+        int port = rootEngine ? SOCKS_TEST_PORT - 50000 : SOCKS_TEST_PORT;
+        if (!rootEngine) try {
             JSONObject main = new JSONObject(readText(new File(workdir(c), "config.nonroot.json")));
             JSONArray inbounds = main.optJSONArray("inbounds");
             for (int i = 0; inbounds != null && i < inbounds.length(); i++) {

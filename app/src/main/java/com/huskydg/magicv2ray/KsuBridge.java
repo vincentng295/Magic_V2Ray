@@ -778,7 +778,7 @@ final class KsuBridge {
     /** options: {"wifi":bool,"usb":bool}. Callback gets (errno, stdout, "code|detail"). */
     @JavascriptInterface
     public void hotspotStart(String options, String callback) {
-        if (callback == null || !CB_RE.matcher(callback).matches() || !RunMode.isNonRoot(activity)) return;
+        if (callback == null || !CB_RE.matcher(callback).matches()) return;
         ShizukuHotspot.start(activity, options, (code, out, err) -> deliver(callback, code, out, err));
     }
 

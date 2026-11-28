@@ -106,6 +106,54 @@ final class AdbHelper {
         }
     }
 
+    /**
+     * Root mode: starts HotspotMain straight from the root shell, no pairing and no Wireless debugging.
+     * The helper is dropped to the shell user (uid 2000) with `su 2000` so it runs exactly like the adb
+     * variant (the tethering code expects "com.android.shell"); when that is not possible it simply runs
+     * as root, which the platform also accepts for every permission HotspotService needs.
+     */
+    static IHotspotService launchRoot(Context app) throws Exception {
+        byte[] r = new byte[16];
+        new SecureRandom().nextBytes(r);
+        StringBuilder nonce = new StringBuilder();
+        for (byte x : r) nonce.append(String.format("%02x", x & 0xff));
+
+        CompletableFuture<IBinder> binderFuture = HotspotBinderReceiver.expect(nonce.toString());
+        try {
+            String apk = app.getApplicationInfo().sourceDir;
+            String inner = "(CLASSPATH='" + apk + "' setsid app_process /system/bin"
+                    + " --nice-name=mv2r_hotspot " + HotspotMain.class.getName()
+                    + " " + app.getPackageName() + " " + nonce
+                    + " >" + LOG_FILE + " 2>&1 </dev/null &)";
+            String script = "rm -f " + LOG_FILE + "\n"
+                    + "INNER=" + RootShell.sq(inner) + "\n"
+                    + "U=$(su 2000 -c 'id -u' </dev/null 2>/dev/null)\n"
+                    + "if [ \"$U\" = 2000 ]; then\n"
+                    + "  su 2000 -c \"$INNER\" </dev/null\n"
+                    + "  echo launched uid=2000\n"
+                    + "else\n"
+                    + "  sh -c \"$INNER\" </dev/null\n"
+                    + "  echo launched uid=$(id -u)\n"
+                    + "fi\n";
+            RootShell.Result res = RootShell.run(script, 20_000);
+            if (!res.ok() || !res.out.contains("launched uid=")) {
+                throw new AdbFailure("root_launch_failed", "root shell: exit " + res.code + " " + res.err.trim());
+            }
+        } catch (AdbFailure f) {
+            HotspotBinderReceiver.cancel();
+            throw f;
+        }
+
+        try {
+            IBinder binder = binderFuture.get(BINDER_TIMEOUT_S, TimeUnit.SECONDS);
+            return IHotspotService.Stub.asInterface(binder);
+        } catch (java.util.concurrent.TimeoutException e) {
+            throw new AdbFailure("adb_no_binder", "the helper started but never reported back; see " + LOG_FILE);
+        } finally {
+            HotspotBinderReceiver.cancel();
+        }
+    }
+
     /** Wireless debugging (TLS) connection; throws AdbFailure when there is none. */
     private static void connectWireless(Context app, AdbBridge b) throws AdbFailure {
         boolean connected = false;

@@ -89,6 +89,10 @@ final class ShizukuHotspot {
     private static IHotspotService service;
     /** true: the helper was started over adb (AdbHelper / HotspotMain) instead of by Shizuku. */
     private static volatile boolean viaAdb;
+    /** true: the app_process helper was started from the root shell (root mode, no pairing needed). */
+    private static volatile boolean viaRoot;
+    private static volatile long engineCheckAt;
+    private static volatile boolean engineCheckVal;
     private static IBinder.DeathRecipient adbDeath;
     private static ServiceConnection connection;
     private static Shizuku.UserServiceArgs serviceArgs;
@@ -104,18 +108,57 @@ final class ShizukuHotspot {
 
     // ------------------------------------------------------------------- state
 
+    /** Root mode: the helper is started straight from the root shell, Shizuku / adb pairing are not involved. */
+    static boolean rootMode(Context c) {
+        return !RunMode.isNonRoot(c);
+    }
+
+    /**
+     * Is the main engine up? Non-root: the VpnService. Root mode: `proxy_control status` through the root
+     * shell (cached a few seconds, the WebUI and the poller both ask often).
+     */
+    static boolean engineUp(Context c) {
+        if (!rootMode(c)) return VpnController.isRunning();
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now - engineCheckAt < 4_000) return engineCheckVal;
+        boolean up;
+        try {
+            up = RootShell.run(ModuleInstaller.HELPER + " proxy_control status", 8_000).ok();
+        } catch (Throwable t) {
+            up = false;
+        }
+        engineCheckVal = up;
+        engineCheckAt = android.os.SystemClock.elapsedRealtime();
+        return up;
+    }
+
+    /** Settings the sharing cares about (enableIPv6, ...): the app's own file, or the root install's file. */
+    static JSONObject sharingSettings(Context c) {
+        if (!rootMode(c)) return NonRootEnv.settings(c);
+        try {
+            RootShell.Result r = RootShell.run("cat " + RootShell.sq(ModuleInstaller.DATADIR + "/settings.base64"), 8_000);
+            if (!r.ok()) return new JSONObject();
+            byte[] dec = android.util.Base64.decode(r.out.replaceAll("\\s+", ""), android.util.Base64.DEFAULT);
+            return new JSONObject(new String(dec, java.nio.charset.StandardCharsets.UTF_8));
+        } catch (Throwable t) {
+            return new JSONObject();
+        }
+    }
+
     /** Everything the WebUI shows, in one JSON object. */
     static String info(Context c) {
         JSONObject o = new JSONObject();
         try {
+            boolean root = rootMode(c);
             o.put("supported", Build.VERSION.SDK_INT >= 30);
             o.put("sdk", Build.VERSION.SDK_INT);
-            o.put("shizuku", shizukuState(c));
-            o.put("shizukuUid", shizukuUid());
-            o.put("adbPaired", AdbHelper.isPaired(c));
-            o.put("adbTcp", AdbBridge.isTcpMode(c));
-            o.put("backend", viaAdb ? "adb" : "shizuku");
-            o.put("engineRunning", VpnController.isRunning());
+            o.put("root", root);
+            o.put("shizuku", root ? "ready" : shizukuState(c));
+            o.put("shizukuUid", root ? -1 : shizukuUid());
+            o.put("adbPaired", root || AdbHelper.isPaired(c));
+            o.put("adbTcp", !root && AdbBridge.isTcpMode(c));
+            o.put("backend", viaRoot ? "root" : viaAdb ? "adb" : "shizuku");
+            o.put("engineRunning", engineUp(c));
             o.put("state", state);
             o.put("detail", detail);
             o.put("code", errorCode);
@@ -253,12 +296,19 @@ final class ShizukuHotspot {
             stopping = false;
             try {
                 if (Build.VERSION.SDK_INT < 30) throw new Failure("sdk", "Android 11 or newer is required");
-                if (!VpnController.isRunning()) throw new Failure("engine_off", "the proxy is not running");
-                String sh = shizukuState(app);
-                // Shizuku when it is ready, otherwise the app_process helper started over Wireless debugging.
-                viaAdb = !"ready".equals(sh);
-                if (viaAdb && !AdbHelper.isPaired(app)) {
-                    throw new Failure("adb_not_paired", "Shizuku is " + sh);
+                engineCheckAt = 0;                  // a fresh answer for the start
+                if (!engineUp(app)) throw new Failure("engine_off", "the proxy is not running");
+                viaRoot = rootMode(app);
+                if (viaRoot) {
+                    // Root mode: the helper is started from the root shell, nothing to pair.
+                    viaAdb = true;
+                } else {
+                    String sh = shizukuState(app);
+                    // Shizuku when it is ready, otherwise the app_process helper started over Wireless debugging.
+                    viaAdb = !"ready".equals(sh);
+                    if (viaAdb && !AdbHelper.isPaired(app)) {
+                        throw new Failure("adb_not_paired", "Shizuku is " + sh);
+                    }
                 }
 
                 NonRootEnv.ensure(app);
@@ -394,7 +444,7 @@ final class ShizukuHotspot {
     private static IHotspotService bindViaAdb(Context app) throws Exception {
         IHotspotService svc;
         try {
-            svc = AdbHelper.launch(app);
+            svc = viaRoot ? AdbHelper.launchRoot(app) : AdbHelper.launch(app);
         } catch (AdbHelper.AdbFailure f) {
             throw new Failure(f.code, f.getMessage());
         }
@@ -485,7 +535,7 @@ final class ShizukuHotspot {
             String problem = null;
             if (svc == null) {
                 problem = "the Shizuku helper process went away";
-            } else if (!VpnController.isRunning()) {
+            } else if (!engineUp(app)) {
                 problem = "the proxy stopped";
             } else {
                 try {
@@ -523,8 +573,8 @@ final class ShizukuHotspot {
      * receives it over an abstract unix socket (SCM_RIGHTS), exports it as XRAY_TUN_FD and execs xray.
      */
     private static void startBridge(Context app, ParcelFileDescriptor tun) throws IOException {
-        boolean v6 = NonRootEnv.settings(app).optBoolean("enableIPv6", false);
-        File cfg = NonRootEnv.hotspotConfig(app, !v6);
+        boolean v6 = sharingSettings(app).optBoolean("enableIPv6", false);
+        File cfg = NonRootEnv.hotspotConfig(app, !v6, rootMode(app));
         final String sock = "mv-hs-" + android.os.Process.myPid() + "-" + System.nanoTime();
         final LocalServerSocket server = new LocalServerSocket(sock);
         final java.lang.Process p;

@@ -8804,8 +8804,16 @@ let _shizukuInfo = null;
 function initShizukuShare() {
     const k = window.ksu;
     const box = document.getElementById('shizuku-share-box');
-    if (!box || !MV_NONROOT || !k || typeof k.hotspotInfo !== 'function') return;
+    if (!box || !k || typeof k.hotspotInfo !== 'function') return;
     box.style.display = '';
+    if (!MV_NONROOT) {          // root mode: the helper starts from the root shell, no Shizuku / adb pairing
+        const d = document.getElementById('shizuku-desc-root');
+        const d0 = box.querySelector('[data-i18n="desc_shizuku_share"]');
+        if (d) d.style.display = '';
+        if (d0) d0.style.display = 'none';
+        const ar = document.getElementById('shizuku-auto-row');
+        if (ar) ar.style.display = 'none';
+    }
     document.getElementById('set-shizuku-wifi').checked = advSettings.shizukuShareWifi !== false;
     document.getElementById('set-shizuku-usb').checked = advSettings.shizukuShareUsb === true;
     document.getElementById('set-shizuku-auto').checked = advSettings.shizukuShareAuto === true;
@@ -8851,11 +8859,11 @@ function refreshShizukuShare() {
             up: _shizukuFmtBytes(info.bytesUp), down: _shizukuFmtBytes(info.bytesDown)
         });
         label = t('btn_shizuku_stop');
-    } else if (info.shizuku === 'not_installed' && !info.adbPaired) {
+    } else if (info.shizuku === 'not_installed' && !info.adbPaired && !info.root) {
         msg = t('shizuku_state_not_installed'); label = t('btn_shizuku_install');
-    } else if (info.shizuku === 'not_running' && !info.adbPaired) {
+    } else if (info.shizuku === 'not_running' && !info.adbPaired && !info.root) {
         msg = t('shizuku_state_not_running'); label = t('btn_shizuku_open');
-    } else if (info.shizuku === 'permission' && !info.adbPaired) {
+    } else if (info.shizuku === 'permission' && !info.adbPaired && !info.root) {
         msg = t('shizuku_state_permission'); label = t('btn_shizuku_grant');
     } else if (info.state === 'ERROR') {
         msg = _shizukuErrorText(info.code, info.detail); label = t('btn_shizuku_start');
@@ -8871,7 +8879,7 @@ function refreshShizukuShare() {
     // adb pairing row: the way to share without Shizuku (needs ksu.hotspotOpenAdbPairing)
     const adbRow = document.getElementById('adb-pair-row');
     if (adbRow) {
-        const has = typeof k.hotspotOpenAdbPairing === 'function';
+        const has = !info.root && typeof k.hotspotOpenAdbPairing === 'function';
         adbRow.style.display = has ? '' : 'none';
         if (has) {
             document.getElementById('adb-status-text').textContent =
@@ -8902,8 +8910,8 @@ function shizukuShareAction() {
         k.hotspotStop('__shizukuStopCb');
         return;
     }
-    if (!info.adbPaired && (info.shizuku === 'not_installed' || info.shizuku === 'not_running')) { k.hotspotOpenShizuku(); return; }
-    if (!info.adbPaired && info.shizuku === 'permission') {
+    if (!info.root && !info.adbPaired && (info.shizuku === 'not_installed' || info.shizuku === 'not_running')) { k.hotspotOpenShizuku(); return; }
+    if (!info.root && !info.adbPaired && info.shizuku === 'permission') {
         if (k.hotspotRequestPermission() === 'denied_forever') {
             showToast(t('shizuku_err_denied_forever'), 'error');
             k.hotspotOpenShizuku();
@@ -8928,7 +8936,6 @@ function shizukuShareAction() {
 }
 
 (function () {
-    if (!MV_NONROOT) return;
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => setTimeout(initShizukuShare, 0));
     else setTimeout(initShizukuShare, 0);
 })();
