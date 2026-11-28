@@ -197,6 +197,14 @@ public class ExternalPromptActivity extends Activity {
             }
             MainActivity m = MainActivity.current;
             req.put("approved", true);              // external.js: no dialog, no loading overlay, result as a toast
+            if (m == null && ExternalHeadless.usable(app)) {
+                // The app has no screen: the WebUI runs hidden, in a service, and Magic V2Ray is never shown.
+                req.put("cold", false);             // nothing to step back from
+                ExternalSession.queue(app, req);
+                ExternalHeadless.submit(app, req);
+                finish();
+                return;
+            }
             req.put("cold", m == null);             // the WebUI is not running: it starts now, and goes back afterwards
             ExternalSession.queue(app, req);
             if (m != null) {

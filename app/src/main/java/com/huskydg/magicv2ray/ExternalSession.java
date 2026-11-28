@@ -601,6 +601,13 @@ final class ExternalSession {
         if (!stale.isEmpty() && !stale.equals(req.optString("stageId", ""))) ExternalAssets.discard(c, stale);
     }
 
+    /** Whether a request is parked and not taken yet (it is left parked). */
+    static boolean hasPending() {
+        synchronized (LOCK) {
+            return pendingJson != null && !pendingJson.isEmpty();
+        }
+    }
+
     /** The parked request as JSON (\"\" if none or expired); returns it once. */
     static String take(Context c) {
         String expired = "";

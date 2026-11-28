@@ -122,6 +122,17 @@
                 android:value="vpn" />
         </service>
 
+        <!-- Runs an approved external request (magicv2ray://connect ...) in a hidden WebUI when the app has no
+             screen, so Magic V2Ray is not brought up and closed again. See ExternalHeadless. -->
+        <service
+            android:name=".ExternalHeadlessService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="external_api_background" />
+        </service>
+
         <!-- Daily background update check (App settings -> Auto update check). -->
         <!-- adb pairing from a notification (code typed in the notification, see AdbPairingService). -->
         <service

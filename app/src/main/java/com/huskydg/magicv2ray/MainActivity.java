@@ -234,6 +234,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        ExternalHeadless.releaseForUi();        // the hidden WebUI (external API without a screen) steps aside
         ExternalSession.sweepStale(this);       // leftover of a session that did not survive a reboot / crash
         UpdateChecker.maybeAutoCheck(this);     // background, at most every 12 h; no-op when switched off
         ApkInstaller.cleanupAsync(this);        // drops a downloaded update that is already installed

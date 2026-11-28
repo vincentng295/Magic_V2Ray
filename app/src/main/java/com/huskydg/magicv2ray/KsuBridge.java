@@ -51,10 +51,20 @@ final class KsuBridge {
         return t;
     });
 
+    /** Posts to the main thread. Unlike View.post it also runs for a WebView that is not attached to a window (see ExternalHeadless). */
+    private static final android.os.Handler MAIN = new android.os.Handler(android.os.Looper.getMainLooper());
+
+    private final Context ctx;
+    /** The host activity, or null when the WebView runs without one (ExternalHeadless): nothing that needs a screen works then. */
     private final Activity activity;
     private final WebView web;
 
     KsuBridge(Activity activity, WebView web) {
+        this(activity, activity, web);
+    }
+
+    KsuBridge(Context ctx, Activity activity, WebView web) {
+        this.ctx = ctx;
         this.activity = activity;
         this.web = web;
     }
@@ -66,13 +76,13 @@ final class KsuBridge {
         final String script = buildScript(command == null ? "" : command, options);
         POOL.execute(() -> {
             RootShell.Result r = null;
-            if (RunMode.isNonRoot(activity)) {          // no root engine without root: drive the VpnService
-                r = VpnController.intercept(activity.getApplicationContext(), activity, command);
+            if (RunMode.isNonRoot(ctx)) {          // no root engine without root: drive the VpnService
+                r = VpnController.intercept(ctx.getApplicationContext(), activity, command);
             }
             if (r == null) r = RootShell.run(script, 0);
             final String js = "window['" + callback + "']&&window['" + callback + "']("
                     + r.code + "," + JSONObject.quote(r.out) + "," + JSONObject.quote(r.err) + ")";
-            web.post(() -> web.evaluateJavascript(js, null));
+            MAIN.post(() -> web.evaluateJavascript(js, null));
         });
     }
 
@@ -98,7 +108,7 @@ final class KsuBridge {
     @JavascriptInterface
     public void httpDownload(final String options, final String callback) {
         if (callback == null || !CB_RE.matcher(callback).matches()) return;
-        final Context app = activity.getApplicationContext();
+        final Context app = ctx.getApplicationContext();
         POOL.execute(() -> {
             HttpBridge.Reply r = HttpBridge.download(app, options);
             deliver(callback, r.code, r.body, r.meta);
@@ -108,7 +118,7 @@ final class KsuBridge {
     private String buildScript(String command, String options) {
         StringBuilder sb = new StringBuilder();
         // busybox applets (<moddir>/bin, root or non-root) come after the system tools in PATH
-        sb.append("export PATH=\"$PATH:").append(NonRootEnv.activeModdir(activity)).append("/bin\"\n");
+        sb.append("export PATH=\"$PATH:").append(NonRootEnv.activeModdir(ctx)).append("/bin\"\n");
         try {
             JSONObject o = new JSONObject(options == null || options.isEmpty() ? "{}" : options);
             JSONObject env = o.optJSONObject("env");
@@ -131,7 +141,7 @@ final class KsuBridge {
     /** ksu.listPackages(type) -> JSON array of package names. type: all | user | system. */
     @JavascriptInterface
     public String listPackages(String type) {
-        PackageManager pm = activity.getPackageManager();
+        PackageManager pm = ctx.getPackageManager();
         JSONArray arr = new JSONArray();
         List<ApplicationInfo> apps = pm.getInstalledApplications(0);
         for (ApplicationInfo ai : apps) {
@@ -146,7 +156,7 @@ final class KsuBridge {
     /** ksu.getPackagesInfo(jsonArrayOfNames) -> JSON array of {packageName, appLabel, isSystem, uid, versionName, versionCode}. */
     @JavascriptInterface
     public String getPackagesInfo(String namesJson) {
-        PackageManager pm = activity.getPackageManager();
+        PackageManager pm = ctx.getPackageManager();
         JSONArray out = new JSONArray();
         try {
             JSONArray names = new JSONArray(namesJson);
@@ -189,7 +199,7 @@ final class KsuBridge {
     /** Where user geo databases live (root: under /data/adb, so only a root shell can list it). */
     @JavascriptInterface
     public String assetsdir() {
-        return GeoAssets.dir(activity);
+        return GeoAssets.dir(ctx);
     }
 
     /** Save dialog for a text file; callback(0) saved, callback(1) cancelled / failed. */
@@ -213,8 +223,8 @@ final class KsuBridge {
         POOL.execute(() -> {
             java.io.File zip = null;
             try {
-                zip = LogExporter.build(activity.getApplicationContext(), filesJson);
-                String where = LogExporter.saveToDownloads(activity.getApplicationContext(), zip);
+                zip = LogExporter.build(ctx.getApplicationContext(), filesJson);
+                String where = LogExporter.saveToDownloads(ctx.getApplicationContext(), zip);
                 if (where == null && activity instanceof MainActivity) {   // Android 9-: ask where to save
                     final java.io.File pending = zip;
                     zip = null;                                            // MainActivity deletes it
@@ -246,19 +256,19 @@ final class KsuBridge {
     /** The connect request parked by a deep link / intent / broadcast as JSON ("" if none); returns it once. */
     @JavascriptInterface
     public String takeExternalRequest() {
-        return ExternalSession.take(activity.getApplicationContext());
+        return ExternalSession.take(ctx.getApplicationContext());
     }
 
     /** {"active":false} or the running external session (name, uri, caller, callerLabel, exclude, wasRunning). */
     @JavascriptInterface
     public String extState() {
-        return ExternalSession.state(activity.getApplicationContext()).toString();
+        return ExternalSession.state(ctx.getApplicationContext()).toString();
     }
 
     /** The WebUI wrote the external config and the base copy: remember the session. */
     @JavascriptInterface
     public boolean extBegin(String json) {
-        return ExternalSession.begin(activity.getApplicationContext(), json);
+        return ExternalSession.begin(ctx.getApplicationContext(), json);
     }
 
     /** Ends the session and puts the previous node back. Callback gets (0, "", ""). */
@@ -266,7 +276,7 @@ final class KsuBridge {
     public void extEnd(final String callback) {
         if (callback == null || !CB_RE.matcher(callback).matches()) return;
         POOL.execute(() -> {
-            ExternalSession.end(activity.getApplicationContext());
+            ExternalSession.end(ctx.getApplicationContext());
             deliver(callback, 0, "", "");
         });
     }
@@ -275,7 +285,7 @@ final class KsuBridge {
     @JavascriptInterface
     public void extAbandon(final String callback) {
         if (callback == null || !CB_RE.matcher(callback).matches()) return;
-        POOL.execute(() -> deliver(callback, ExternalSession.abandon(activity.getApplicationContext()) ? 0 : 1, "", ""));
+        POOL.execute(() -> deliver(callback, ExternalSession.abandon(ctx.getApplicationContext()) ? 0 : 1, "", ""));
     }
 
     /**
@@ -286,7 +296,7 @@ final class KsuBridge {
     public void extInstallAssets(final String stageId, final String callback) {
         if (callback == null || !CB_RE.matcher(callback).matches()) return;
         POOL.execute(() -> {
-            String err = ExternalSession.installAssets(activity.getApplicationContext(), stageId);
+            String err = ExternalSession.installAssets(ctx.getApplicationContext(), stageId);
             deliver(callback, err == null ? 0 : 1, "", err == null ? "" : err);
         });
     }
@@ -295,59 +305,70 @@ final class KsuBridge {
     @JavascriptInterface
     public void extDiscardStage(final String stageId) {
         if (stageId == null || stageId.isEmpty()) return;
-        POOL.execute(() -> ExternalSession.discardStage(activity.getApplicationContext(), stageId));
+        POOL.execute(() -> ExternalSession.discardStage(ctx.getApplicationContext(), stageId));
     }
 
     /** Where an external session keeps its files (RAM under /dev in root mode, the cache dir otherwise). Never the data dir. */
     @JavascriptInterface
     public String overrideDir() {
-        return ExternalSession.overrideDir(activity.getApplicationContext());
+        return ExternalSession.overrideDir(ctx.getApplicationContext());
     }
 
     /** Apps trusted to connect without a prompt, as JSON [{pkg,label,since,installed}]. */
     @JavascriptInterface
     public String trustList() {
-        return ExternalSession.trustedJson(activity.getApplicationContext()).toString();
+        return ExternalSession.trustedJson(ctx.getApplicationContext()).toString();
     }
 
     /** "Always trust this app": only for the caller of the request that was just taken, and only if it is trustable. */
     @JavascriptInterface
     public boolean trustAdd(String pkg) {
-        return ExternalSession.trust(activity.getApplicationContext(), pkg);
+        return ExternalSession.trust(ctx.getApplicationContext(), pkg);
     }
 
     /** What the verified app {@code pkg} may read of the user's nodes: "" | "anonymous" | "full" (see ExternalNodes). */
     @JavascriptInterface
     public String nodeAccessLevel(String pkg) {
-        return ExternalNodes.accessLevel(activity.getApplicationContext(), pkg);
+        return ExternalNodes.accessLevel(ctx.getApplicationContext(), pkg);
     }
 
     /** The activity log of one app ("App permission" > log), newest first: [{ts, k, d}]. */
     @JavascriptInterface
     public String appLog(String pkg) {
-        return ExternalAppLog.list(activity.getApplicationContext(), pkg).toString();
+        return ExternalAppLog.list(ctx.getApplicationContext(), pkg).toString();
     }
 
     /** Adds an entry to an app's log (kind codes: see ExternalAppLog). Only for a package name. */
     @JavascriptInterface
     public void appLogAdd(String pkg, String kind, String detail) {
         if (pkg == null || !pkg.matches("[A-Za-z0-9_.]{1,255}") || kind == null || !kind.matches("[a-z_]{1,32}")) return;
-        ExternalAppLog.add(activity.getApplicationContext(), pkg, kind, detail);
+        ExternalAppLog.add(ctx.getApplicationContext(), pkg, kind, detail);
     }
 
     @JavascriptInterface
     public void appLogClear(String pkg) {
-        ExternalAppLog.clear(activity.getApplicationContext(), pkg);
+        ExternalAppLog.clear(ctx.getApplicationContext(), pkg);
     }
 
     @JavascriptInterface
     public void trustRemove(String pkg) {
-        ExternalSession.untrust(activity.getApplicationContext(), pkg);
+        ExternalSession.untrust(ctx.getApplicationContext(), pkg);
+    }
+
+    /**
+     * Called by the WebUI when it has no external request left to handle. Only the headless host
+     * (ExternalHeadless) reacts: it shuts its hidden WebView down. In the normal screen it does nothing.
+     */
+    @JavascriptInterface
+    public void headlessIdle() {
+        if (activity != null) return;
+        ExternalHeadless.onIdle();
     }
 
     /** Sends the app to the background, which returns the user to the app that asked for a connection. */
     @JavascriptInterface
     public void moveToBack() {
+        if (activity == null) return;      // headless: there is no screen to step back from
         activity.runOnUiThread(() -> activity.moveTaskToBack(true));
     }
 
@@ -355,6 +376,7 @@ final class KsuBridge {
     @JavascriptInterface
     public void openProvider(final String url, final String category, final String nodesJson) {
         if (url == null || category == null || !url.matches("(?i)^https://\\S+$")) return;
+        if (activity == null) return;      // headless host: no screen
         activity.runOnUiThread(() -> ProviderBrowserActivity.start(activity, url, category, nodesJson));
     }
 
@@ -362,13 +384,14 @@ final class KsuBridge {
     @JavascriptInterface
     public void storeProviderNodes(final String category, final String nodesJson) {
         if (category == null || nodesJson == null) return;
-        ProviderBrowserActivity.storeNodes(activity, category, nodesJson);
+        ProviderBrowserActivity.storeNodes(ctx, category, nodesJson);
     }
 
     /** Asks the launcher to pin a home-screen shortcut that opens the provider mini browser. */
     @JavascriptInterface
     public boolean pinProviderShortcut(final String url, final String category, final String iconDataUri) {
         if (url == null || category == null || !url.matches("(?i)^https://\\S+$")) return false;
+        if (activity == null) return false;     // headless host: no screen
         return ProviderBrowserActivity.pinShortcut(activity, url, category, iconDataUri);
     }
 
@@ -450,7 +473,7 @@ final class KsuBridge {
 
     /** Interface name of the VPN network (normally "tun0"), or null when no VPN network exists. */
     private String vpnInterfaceName() {
-        return TrafficMeter.vpnInterfaceName(activity);
+        return TrafficMeter.vpnInterfaceName(ctx);
     }
 
     private static long ifaceStat(String iface, boolean tx) {
@@ -464,33 +487,33 @@ final class KsuBridge {
     /** App Settings toggle: show live tunnel speed / totals in the "proxy is active" notification. */
     @JavascriptInterface
     public boolean getNotifTraffic() {
-        return ProxyNotifier.trafficEnabled(activity.getApplicationContext());
+        return ProxyNotifier.trafficEnabled(ctx.getApplicationContext());
     }
 
     @JavascriptInterface
     public void setNotifTraffic(boolean on) {
-        ProxyNotifier.setTrafficEnabled(activity.getApplicationContext(), on);
+        ProxyNotifier.setTrafficEnabled(ctx.getApplicationContext(), on);
     }
 
     /** "root" or "nonroot": decides which base paths and engine the WebUI uses. */
     @JavascriptInterface
     public String mode() {
-        return RunMode.isNonRoot(activity) ? RunMode.NONROOT : RunMode.ROOT;
+        return RunMode.isNonRoot(ctx) ? RunMode.NONROOT : RunMode.ROOT;
     }
 
     @JavascriptInterface
     public String moddir() {
-        return NonRootEnv.moddir(activity).getPath();
+        return NonRootEnv.moddir(ctx).getPath();
     }
 
     @JavascriptInterface
     public String datadir() {
-        return NonRootEnv.datadir(activity).getPath();
+        return NonRootEnv.datadir(ctx).getPath();
     }
 
     @JavascriptInterface
     public String stubdir() {
-        return NonRootEnv.stubdir(activity).getPath();
+        return NonRootEnv.stubdir(ctx).getPath();
     }
 
     /**
@@ -500,7 +523,7 @@ final class KsuBridge {
     @JavascriptInterface
     public String networkInfo() {
         try {
-            ConnectivityManager cm = (ConnectivityManager) activity.getSystemService(Context.CONNECTIVITY_SERVICE);
+            ConnectivityManager cm = (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
             if (cm == null) return "";
             Network pick = null;
             Network act = cm.getActiveNetwork();
@@ -548,7 +571,7 @@ final class KsuBridge {
         JSONArray out = new JSONArray();
         java.util.HashSet<String> seen = new java.util.HashSet<>();
         try {
-            ConnectivityManager cm = (ConnectivityManager) activity.getSystemService(Context.CONNECTIVITY_SERVICE);
+            ConnectivityManager cm = (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
             if (cm != null) {
                 for (Network n : cm.getAllNetworks()) {
                     NetworkCapabilities c = cm.getNetworkCapabilities(n);
@@ -601,7 +624,7 @@ final class KsuBridge {
     public String getSystemDnsServers() {
         JSONArray out = new JSONArray();
         try {
-            ConnectivityManager cm = (ConnectivityManager) activity.getSystemService(Context.CONNECTIVITY_SERVICE);
+            ConnectivityManager cm = (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
             if (cm == null) return out.toString();
             Network pick = null;
             Network act = cm.getActiveNetwork();
@@ -645,34 +668,34 @@ final class KsuBridge {
         if (!RunMode.ROOT.equals(mode) && !RunMode.NONROOT.equals(mode)) return;
         if (mode.equals(mode())) return;
         POOL.execute(() -> {
-            if (RunMode.isNonRoot(activity)) {
+            if (RunMode.isNonRoot(ctx)) {
                 VpnController.stop();
             } else {
                 RootShell.run(RootShell.sq(ModuleInstaller.HELPER) + " proxy_control stop", 30_000);
             }
-            RunMode.set(activity, mode);
-            activity.runOnUiThread(activity::recreate);
+            RunMode.set(ctx, mode);
+            if (activity != null) activity.runOnUiThread(activity::recreate);
         });
     }
 
     @JavascriptInterface
     public void toast(final String msg) {
-        activity.runOnUiThread(() -> Toast.makeText(activity, String.valueOf(msg), Toast.LENGTH_SHORT).show());
+        MAIN.post(() -> Toast.makeText(ctx.getApplicationContext(), String.valueOf(msg), Toast.LENGTH_SHORT).show());
     }
 
     @JavascriptInterface
     public String readClipboard() {
-        ClipboardManager cm = (ClipboardManager) activity.getSystemService(Context.CLIPBOARD_SERVICE);
+        ClipboardManager cm = (ClipboardManager) ctx.getSystemService(Context.CLIPBOARD_SERVICE);
         if (cm == null || !cm.hasPrimaryClip()) return "";
         ClipData d = cm.getPrimaryClip();
         if (d == null || d.getItemCount() == 0) return "";
-        CharSequence cs = d.getItemAt(0).coerceToText(activity);
+        CharSequence cs = d.getItemAt(0).coerceToText(ctx);
         return cs == null ? "" : cs.toString();
     }
 
     @JavascriptInterface
     public void writeClipboard(String text) {
-        ClipboardManager cm = (ClipboardManager) activity.getSystemService(Context.CLIPBOARD_SERVICE);
+        ClipboardManager cm = (ClipboardManager) ctx.getSystemService(Context.CLIPBOARD_SERVICE);
         if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("Magic V2Ray", text));
     }
 
@@ -681,29 +704,29 @@ final class KsuBridge {
     /** App Settings toggle: check for a new version in the background and notify. */
     @JavascriptInterface
     public boolean getAutoUpdateCheck() {
-        return UpdateChecker.autoEnabled(activity.getApplicationContext());
+        return UpdateChecker.autoEnabled(ctx.getApplicationContext());
     }
 
     @JavascriptInterface
     public void setAutoUpdateCheck(boolean on) {
-        UpdateChecker.setAutoEnabled(activity.getApplicationContext(), on);
+        UpdateChecker.setAutoEnabled(ctx.getApplicationContext(), on);
     }
 
     /** JSON: {"current":{"name","code"},"last":{...last good check...}}; no network. */
     @JavascriptInterface
     public String getUpdateInfo() {
-        return UpdateChecker.info(activity.getApplicationContext());
+        return UpdateChecker.info(ctx.getApplicationContext());
     }
 
     /** ksu.checkUpdate(callbackName) -> window[callbackName](resultJson); the WebUI JSON.parse()s it. */
     @JavascriptInterface
     public void checkUpdate(final String callback) {
         if (callback == null || !CB_RE.matcher(callback).matches()) return;
-        final Context app = activity.getApplicationContext();
+        final Context app = ctx.getApplicationContext();
         POOL.execute(() -> {
             final JSONObject r = UpdateChecker.check(app);
             final String js = "window['" + callback + "']&&window['" + callback + "'](" + JSONObject.quote(r.toString()) + ")";
-            web.post(() -> web.evaluateJavascript(js, null));
+            MAIN.post(() -> web.evaluateJavascript(js, null));
         });
     }
 
@@ -713,7 +736,7 @@ final class KsuBridge {
      */
     @JavascriptInterface
     public void installUpdate() {
-        ApkInstaller.start(activity.getApplicationContext());
+        ApkInstaller.start(ctx.getApplicationContext());
     }
 
     @JavascriptInterface
@@ -725,6 +748,7 @@ final class KsuBridge {
     @JavascriptInterface
     public void openUrl(String url) {
         if (url == null || !url.matches("^https?://[^\\s]+$")) return;
+        if (activity == null) return;      // headless host: no screen
         activity.runOnUiThread(() -> {
             try {
                 activity.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
@@ -739,9 +763,9 @@ final class KsuBridge {
      */
     @JavascriptInterface
     public void syncStatus(final boolean running, final String nodeName) {
-        final Context app = activity.getApplicationContext();
+        final Context app = ctx.getApplicationContext();
         ProxyNotifier.setNode(app, nodeName);
-        if (RunMode.isNonRoot(activity)) {
+        if (RunMode.isNonRoot(ctx)) {
             MagicVpnService s = VpnController.svc;
             if (s != null) s.updateNode();
         } else {
@@ -754,7 +778,7 @@ final class KsuBridge {
     /** JSON state for the WebUI card (see ShizukuHotspot.info). */
     @JavascriptInterface
     public String hotspotInfo() {
-        return ShizukuHotspot.info(activity.getApplicationContext());
+        return ShizukuHotspot.info(ctx.getApplicationContext());
     }
 
     /** "requested" | "denied_forever" | "unavailable". */
@@ -765,12 +789,13 @@ final class KsuBridge {
 
     @JavascriptInterface
     public void hotspotOpenShizuku() {
-        ShizukuHotspot.openShizuku(activity.getApplicationContext());
+        ShizukuHotspot.openShizuku(ctx.getApplicationContext());
     }
 
     /** Opens the one-time adb pairing screen (the no-Shizuku way to start the hotspot helper). */
     @JavascriptInterface
     public void hotspotOpenAdbPairing() {
+        if (activity == null) return;      // headless host: no screen
         android.content.Intent i = new android.content.Intent(activity, AdbPairActivity.class);
         activity.startActivity(i);
     }
@@ -778,20 +803,20 @@ final class KsuBridge {
     /** options: {"wifi":bool,"usb":bool}. Callback gets (errno, stdout, "code|detail"). */
     @JavascriptInterface
     public void hotspotStart(String options, String callback) {
-        if (callback == null || !CB_RE.matcher(callback).matches()) return;
+        if (callback == null || !CB_RE.matcher(callback).matches() || activity == null) return;
         ShizukuHotspot.start(activity, options, (code, out, err) -> deliver(callback, code, out, err));
     }
 
     @JavascriptInterface
     public void hotspotStop(String callback) {
-        if (callback == null || !CB_RE.matcher(callback).matches()) return;
+        if (callback == null || !CB_RE.matcher(callback).matches() || activity == null) return;
         ShizukuHotspot.stop(activity, (code, out, err) -> deliver(callback, code, out, err));
     }
 
     private void deliver(String callback, int code, String out, String err) {
         final String js = "window['" + callback + "']&&window['" + callback + "'](" + code + ","
                 + JSONObject.quote(out) + "," + JSONObject.quote(err) + ")";
-        web.post(() -> web.evaluateJavascript(js, null));
+        MAIN.post(() -> web.evaluateJavascript(js, null));
     }
 
     // ------------------------------------------------------------ app appearance
@@ -799,24 +824,25 @@ final class KsuBridge {
     /** The WebUI's appearance settings as JSON ("" until first saved). */
     @JavascriptInterface
     public String getAppSettings() {
-        return AppPrefs.getJson(activity);
+        return AppPrefs.getJson(ctx);
     }
 
     @JavascriptInterface
     public void setAppSettings(String json) {
-        AppPrefs.setJson(activity, json);
+        AppPrefs.setJson(ctx, json);
     }
 
     /** Re-creates the screen so a changed UI scale (AppPrefs.uiScale) takes effect. */
     @JavascriptInterface
     public void applyUiScale() {
+        if (activity == null) return;      // headless host: no screen
         activity.runOnUiThread(activity::recreate);
     }
 
     /** True when the SYSTEM is in dark mode, whatever theme the app itself is showing. */
     @JavascriptInterface
     public boolean isSystemNight() {
-        return AppPrefs.systemIsNight(activity);
+        return AppPrefs.systemIsNight(ctx);
     }
 
     /**
@@ -833,9 +859,9 @@ final class KsuBridge {
             for (String[] g : groups) {
                 JSONObject o = new JSONObject();
                 for (int sh : shades) {
-                    int id = activity.getResources().getIdentifier("system_" + g[1] + "_" + sh, "color", "android");
+                    int id = ctx.getResources().getIdentifier("system_" + g[1] + "_" + sh, "color", "android");
                     if (id == 0) return "";
-                    o.put(String.valueOf(sh), String.format("#%06X", 0xFFFFFF & activity.getResources().getColor(id, activity.getTheme())));
+                    o.put(String.valueOf(sh), String.format("#%06X", 0xFFFFFF & ctx.getResources().getColor(id, ctx.getTheme())));
                 }
                 out.put(g[0], o);
             }

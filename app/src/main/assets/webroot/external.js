@@ -353,13 +353,21 @@ function _extConfirm(info) {
 // connect
 // ---------------------------------------------------------------------------
 
+// Tells the native headless host (ExternalHeadless: this WebUI running without a screen to serve an external request)
+// that no request is left, so it can shut this page down. The normal screen ignores the call.
+function _extHeadlessIdle() {
+    try {
+        if (window.ksu && typeof window.ksu.headlessIdle === 'function') window.ksu.headlessIdle();
+    } catch (e) { /* no such host */ }
+}
+
 // Called by the native side (and once at start-up) when a request is waiting.
 async function checkExternalRequest() {
     const k = window.ksu;
     if (!k || typeof k.takeExternalRequest !== 'function' || _extBusy) return;
     let req;
-    try { req = JSON.parse(String(k.takeExternalRequest() || '')); } catch (e) { return; }
-    if (!req || req.action !== 'connect') return;
+    try { req = JSON.parse(String(k.takeExternalRequest() || '')); } catch (e) { _extHeadlessIdle(); return; }
+    if (!req || req.action !== 'connect') { _extHeadlessIdle(); return; }
     _extBusy = true;
     try {
         await _extHandleConnect(req);
