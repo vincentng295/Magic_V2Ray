@@ -3595,3 +3595,12 @@ input.traffic-limit-input { flex: 1; }
 /* While a category is dragged, collapse every node list so the groups are short. */
 .sorting-categories .nodes-list { display: none !important; }
 .sorting-categories, .sorting-categories * { -webkit-user-select: none; user-select: none; }
+
+/* Rule that depends on Android 10+ / RouteOnly while the device or setting does not meet it. */
+.routing-rule-warn {
+    color: #e53935;
+    font-size: 12px;
+    line-height: 1.35;
+    margin-top: 4px;
+}
+@media (prefers-color-scheme: dark) { .routing-rule-warn { color: #ff6b6b; } }

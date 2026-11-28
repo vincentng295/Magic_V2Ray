@@ -5108,6 +5108,30 @@ function dropCategory(order) {
     renderProfiles();
 }
 
+// A rule with "process" needs Android 10+ (the owner of a connection is looked up through
+// ConnectivityManager.getConnectionOwnerUid / the socket tables) and RouteOnly: without it, sniffing
+// rewrites the destination and the lookup can no longer find the app's socket.
+function _ruleHasProcess(rule) {
+    const p = rule && rule.process;
+    if (Array.isArray(p)) return p.some(x => String(x).trim());
+    return typeof p === 'string' && p.trim() !== '';
+}
+
+function _ruleMayNotWork(rule) {
+    if (!_ruleHasProcess(rule)) return false;
+    const k = window.ksu;
+    const sdk = (k && typeof k.sdk === 'function') ? Number(k.sdk()) : NaN;
+    if (!isNaN(sdk) && sdk < 29) return true;
+    const cb = document.getElementById('set-routeonly');
+    const routeOnly = cb ? cb.checked : !!advSettings.routeOnly;
+    return !routeOnly;
+}
+
+// The RouteOnly switch changes the warning of every rule at once.
+document.addEventListener('change', (e) => {
+    if (e.target && e.target.id === 'set-routeonly') renderRoutingRules();
+});
+
 function renderRoutingRules() {
     const container = document.getElementById('routing-rules-container');
     const emptyState = document.getElementById('routing-empty-state');
@@ -5151,6 +5175,14 @@ function renderRoutingRules() {
         meta.className = 'routing-rule-meta';
         meta.textContent = _summarizeRoutingRule(rule);
         info.appendChild(meta);
+
+        if (_ruleMayNotWork(rule)) {
+            const warn = document.createElement('div');
+            warn.className = 'routing-rule-warn';
+            warn.textContent = t('rule_may_not_work');
+            warn.title = t('rule_may_not_work_hint');
+            info.appendChild(warn);
+        }
 
         const badge = document.createElement('span');
         const tag = rule.outboundTag || 'proxy';
