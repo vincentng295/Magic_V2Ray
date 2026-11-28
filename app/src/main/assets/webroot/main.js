@@ -8814,7 +8814,7 @@ function initShizukuShare() {
         const ar = document.getElementById('shizuku-auto-row');
         if (ar) ar.style.display = 'none';
     }
-    document.getElementById('set-shizuku-wifi').checked = advSettings.shizukuShareWifi !== false;
+    document.getElementById('set-shizuku-wifi').checked = true;      // Wi-Fi hotspot is always shared (toggle hidden)
     document.getElementById('set-shizuku-usb').checked = advSettings.shizukuShareUsb === true;
     document.getElementById('set-shizuku-auto').checked = advSettings.shizukuShareAuto === true;
     refreshShizukuShare();
@@ -8822,13 +8822,9 @@ function initShizukuShare() {
 }
 
 function saveShizukuShareSettings() {
-    advSettings.shizukuShareWifi = document.getElementById('set-shizuku-wifi').checked;
+    advSettings.shizukuShareWifi = true;
     advSettings.shizukuShareUsb = document.getElementById('set-shizuku-usb').checked;
     advSettings.shizukuShareAuto = document.getElementById('set-shizuku-auto').checked;
-    if (!advSettings.shizukuShareWifi && !advSettings.shizukuShareUsb) {      // at least one downstream
-        advSettings.shizukuShareWifi = true;
-        document.getElementById('set-shizuku-wifi').checked = true;
-    }
     writeFileB64(SETTINGS_FILE, utoa(JSON.stringify(advSettings)), () => {});
 }
 
@@ -8919,7 +8915,7 @@ function shizukuShareAction() {
         return;
     }
     const opts = JSON.stringify({
-        wifi: document.getElementById('set-shizuku-wifi').checked,
+        wifi: true,
         usb: document.getElementById('set-shizuku-usb').checked
     });
     window.__shizukuStartCb = (errno, out, err) => {
