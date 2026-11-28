@@ -4036,7 +4036,89 @@ function escapeHtml(str) {
         .replace(/"/g, '&quot;');
 }
  
+// ===== Unsaved changes on the Traffic / Network settings tabs =====
+// Leaving one of these tabs with edits that were not saved asks what to do:
+// apply them (save + apply like the Save button), drop them, or stay on the tab.
+// "Changed" = the tab's form (and the DNS lists staged by the DNS modal) differs from
+// how it looked when the tab was entered or last saved.
+const _TAB_FORM_IGNORE = new Set(['set-runmode', 'set-shizuku-wifi', 'set-shizuku-usb', 'set-shizuku-auto']);
+const _tabBaselines = {};
+
+const TAB_UNSAVED_GUARDS = {
+    'tab-settings': {
+        msg: 'confirm_unsaved_traffic',
+        save: () => saveAdvancedSettingsForm(),
+        // the three DNS lists live on advSettings until the form is saved
+        extra: () => DNS_LIST_DEFS.map(d => advSettings[d.field]),
+        restoreExtra: (saved) => DNS_LIST_DEFS.forEach((d, i) => { advSettings[d.field] = saved[i]; }),
+        rebind: () => bindSettingsToFormView()
+    },
+    'tab-network': {
+        msg: 'confirm_unsaved_network',
+        save: () => saveNetworkSettingsForm(),
+        rebind: () => bindSettingsToFormView()
+    }
+};
+
+function _tabFormState(tabId) {
+    const root = document.getElementById(tabId);
+    const g = TAB_UNSAVED_GUARDS[tabId];
+    const fields = {};
+    if (root) {
+        root.querySelectorAll('input, select, textarea').forEach((el, i) => {
+            if (el.id && _TAB_FORM_IGNORE.has(el.id)) return;
+            if (el.type === 'button' || el.type === 'submit' || el.type === 'file') return;
+            const key = el.id || el.name || ('#' + i);
+            fields[key] = (el.type === 'checkbox' || el.type === 'radio') ? el.checked : el.value;
+        });
+    }
+    return { fields, extra: g && g.extra ? g.extra() : null };
+}
+
+// The form as it is now is the saved state (just entered, just bound or just saved).
+function markTabClean(tabId) {
+    if (!TAB_UNSAVED_GUARDS[tabId]) return;
+    const st = _tabFormState(tabId);
+    _tabBaselines[tabId] = { json: JSON.stringify(st), extra: st.extra };
+}
+
+function isTabDirty(tabId) {
+    const b = _tabBaselines[tabId];
+    if (!b) return false;
+    return JSON.stringify(_tabFormState(tabId)) !== b.json;
+}
+
+let _tabGuardBusy = false;
+
 function switchTab(tabId, evt) {
+    const prevTabId = document.querySelector('.tab-content.active')?.id;
+    const g = TAB_UNSAVED_GUARDS[prevTabId];
+    if (g && prevTabId !== tabId && isTabDirty(prevTabId)) {
+        if (_tabGuardBusy) return;
+        _tabGuardBusy = true;
+        showChoice(t(g.msg), {
+            okText: t('btn_unsaved_apply'),
+            neutralText: t('btn_unsaved_discard'),
+            cancelText: t('btn_unsaved_stay')
+        }).then((choice) => {
+            _tabGuardBusy = false;
+            if (choice === 'cancel') return;                       // stay on the tab
+            if (choice === 'ok') {
+                if (g.save() === false) return;                    // invalid form: stay and let the user fix it
+            } else {                                               // discard: put the saved values back
+                const b = _tabBaselines[prevTabId];
+                if (g.restoreExtra && b && b.extra) g.restoreExtra(b.extra);
+                g.rebind();
+            }
+            markTabClean(prevTabId);
+            _switchTabNow(tabId, null);
+        });
+        return;
+    }
+    _switchTabNow(tabId, evt);
+}
+
+function _switchTabNow(tabId, evt) {
     const prevTabId = document.querySelector('.tab-content.active')?.id;
     document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.tab-menu-item').forEach(el => {
@@ -4088,8 +4170,10 @@ function switchTab(tabId, evt) {
     // Interfaces come and go (Wi-Fi off, hotspot on), so re-list them each
     // time the Network tab is opened.
     if (tabId === 'tab-network' && prevTabId !== 'tab-network') {
-        refreshUpstreamIfaceOptions(document.getElementById('set-upstreamiface')?.value);
+        refreshUpstreamIfaceOptions(document.getElementById('set-upstreamiface')?.value,
+            () => markTabClean('tab-network'));
     }
+    if (prevTabId !== tabId && TAB_UNSAVED_GUARDS[tabId]) markTabClean(tabId);
 
     if (tabId === 'tab-hosts') {
         onHostsTabOpened();
@@ -4675,13 +4759,15 @@ function bindSettingsToFormView() {
 
     syncBypassIfaceState();
     bindProModeToFormView();
+    markTabClean('tab-settings');
+    markTabClean('tab-network');
 }
 
 function saveAdvancedSettingsForm(isLangOnly = false) {
     // Validate the Expose SOCKS5 fields first: a bad port or empty credentials must not
     // be saved (and must not silently drop the listener). Skipped for the language-only
     // save, which only persists what is already in memory.
-    if (!isLangOnly && !readExposeSocksForm()) return;
+    if (!isLangOnly && !readExposeSocksForm()) return false;
     advSettings.loglevel = document.getElementById('set-loglevel').value;
     advSettings.sniffing = document.getElementById('set-sniffing').checked;
     advSettings.routeOnly = document.getElementById('set-routeonly').checked;
@@ -4733,6 +4819,8 @@ function saveAdvancedSettingsForm(isLangOnly = false) {
         // Network tab and are saved by saveNetworkSettingsForm() below.
         applyActiveConfig();
     });
+    if (!isLangOnly) markTabClean('tab-settings');
+    return true;
 }
 
 // Traffic Settings tab: restore every field it owns (TRAFFIC_SETTING_KEYS in
@@ -4769,6 +4857,8 @@ function saveNetworkSettingsForm() {
             applyActiveConfig({ force: true, onlyIfRunning: true });
         });
     });
+    markTabClean('tab-network');
+    return true;
 }
 
 // ===== Upstream network interface =====
@@ -4785,7 +4875,7 @@ function sanitizeUpstreamIface(raw) {
 // Fills the dropdown with "Auto" plus the interfaces currently present.
 // A saved name that is not up right now is still listed (marked) so opening
 // the tab never silently rewrites the user's choice to "auto".
-function refreshUpstreamIfaceOptions(selected) {
+function refreshUpstreamIfaceOptions(selected, onBuilt) {
     const sel = document.getElementById('set-upstreamiface');
     if (!sel) return;
     const want = sanitizeUpstreamIface(selected);
@@ -4805,6 +4895,7 @@ function refreshUpstreamIfaceOptions(selected) {
             sel.appendChild(o);
         });
         sel.value = want;
+        if (typeof onBuilt === 'function') onBuilt();
     };
     // Loopback, our own tun and tunnel/dummy pseudo-devices are never a
     // sensible upstream; everything else in /sys/class/net is offered.
@@ -5786,6 +5877,38 @@ function showConfirm(message, options = {}) {
         };
         okBtn.onclick = () => cleanup(true);
         cancelBtn.onclick = () => cleanup(false);
+    });
+}
+
+// Three-way variant of showConfirm: resolves to 'ok', 'neutral' or 'cancel'.
+function showChoice(message, { okText, neutralText, cancelText }) {
+    return new Promise(resolve => {
+        const overlay = document.getElementById('confirm-modal-overlay');
+        const okBtn = document.getElementById('confirm-modal-ok');
+        const neutralBtn = document.getElementById('confirm-modal-neutral');
+        const cancelBtn = document.getElementById('confirm-modal-cancel');
+        if (!overlay || !okBtn || !neutralBtn || !cancelBtn) {
+            resolve('ok');
+            return;
+        }
+        document.getElementById('confirm-modal-message').textContent = message;
+        okBtn.textContent = okText;
+        neutralBtn.textContent = neutralText;
+        cancelBtn.textContent = cancelText;
+        neutralBtn.style.display = '';
+        const actions = okBtn.parentElement;
+        if (actions) actions.classList.add('choice');
+        overlay.style.display = 'flex';
+        const cleanup = (result) => {
+            overlay.style.display = 'none';
+            neutralBtn.style.display = 'none';
+            if (actions) actions.classList.remove('choice');
+            okBtn.onclick = neutralBtn.onclick = cancelBtn.onclick = null;
+            resolve(result);
+        };
+        okBtn.onclick = () => cleanup('ok');
+        neutralBtn.onclick = () => cleanup('neutral');
+        cancelBtn.onclick = () => cleanup('cancel');
     });
 }
 
